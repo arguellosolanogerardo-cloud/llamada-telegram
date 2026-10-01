@@ -23,3 +23,16 @@ jobs:
           TG_GROUP: ${{ secrets.TG_GROUP }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          AVISO: |
+            📞 ¡Empieza la llamada diaria!
+            🕗 8:00 pm Colombia | {CA} San José, California
+
+            Antes de entrar:
+            🔋 Celular con buena carga.
+            📶 Buena señal (Wi-Fi o datos) y sin cambiar de red durante la llamada.
+            ⚙️ Android: pon Telegram en "Sin restricciones" en Batería y fíjalo en recientes (candado).
+            🔁 Si se cae seguido: Ajustes > Privacidad y seguridad > Llamadas > Peer-to-peer > "Nunca".
+            🔄 Mantén Telegram actualizado.
+            💻 PC: desactiva el ahorro de energía de la tarjeta de red.
+
+            Cada uno es responsable de su conexión y su dispositivo: las caídas casi siempre vienen del lado local, no de Telegram.

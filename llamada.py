@@ -1,8 +1,10 @@
 import asyncio
+from datetime import datetime
 import json
 import os
 import random
 import urllib.request
+from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient
 from telethon.errors import RPCError
@@ -22,9 +24,17 @@ AVISO = os.environ.get(
 )
 
 
+def hora_california() -> str:
+    bogota = ZoneInfo("America/Bogota")
+    california = ZoneInfo("America/Los_Angeles")
+    hoy = datetime.now(bogota).replace(hour=20, minute=0, second=0, microsecond=0)
+    return hoy.astimezone(california).strftime("%I:%M %p").lstrip("0").lower()
+
+
 def avisar_con_bot(texto: str) -> None:
     if not BOT_TOKEN:
         return
+    texto = texto.replace("{CA}", hora_california())
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     datos = json.dumps({"chat_id": CHAT_ID, "text": texto}).encode()
     req = urllib.request.Request(
