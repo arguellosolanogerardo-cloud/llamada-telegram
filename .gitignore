@@ -1,0 +1,15 @@
+# Python / Environment
+__pycache__/
+*.pyc
+*.session
+*.session-journal
+.env
+
+# Logs and system files
+*.log
+analysis*.txt
+build_log*.txt
+
+# Credentials and sensitive files
+google_credentials.json
+*.pfx

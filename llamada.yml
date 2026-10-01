@@ -1,0 +1,25 @@
+name: Llamada diaria Telegram
+
+on:
+  schedule:
+    # 8:00 pm Colombia (UTC-5) = 01:00 UTC del día siguiente
+    - cron: "0 1 * * *"
+  workflow_dispatch:   # permite probarlo manualmente desde la pestaña Actions
+
+jobs:
+  abrir-llamada:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install telethon
+      - run: python llamada.py
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          TG_GROUP: ${{ secrets.TG_GROUP }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
