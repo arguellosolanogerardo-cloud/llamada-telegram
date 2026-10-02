@@ -2,8 +2,8 @@ name: Llamada diaria Telegram
 
 on:
   schedule:
-    # 8:05 pm Colombia (UTC-5) = 01:05 UTC del día siguiente (se ajustan minutos a :05 para evitar saturación de GitHub en la hora en punto :00)
-    - cron: "5 1 * * *"
+    # 7:56 pm Colombia (UTC-5) = 00:56 UTC
+    - cron: "56 0 * * *"
   workflow_dispatch:   # permite probarlo manualmente desde la pestaña Actions
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           AVISO: |
             📞 ¡Empieza la llamada diaria!
-            🕗 8:00 pm Colombia | {CA} San José, California
+            🕗 7:56 pm Colombia | {CA} San José, California
 
             Antes de entrar:
             🔋 Celular con buena carga.

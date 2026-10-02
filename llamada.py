@@ -27,7 +27,7 @@ AVISO = os.environ.get(
 def hora_california() -> str:
     bogota = ZoneInfo("America/Bogota")
     california = ZoneInfo("America/Los_Angeles")
-    hoy = datetime.now(bogota).replace(hour=20, minute=0, second=0, microsecond=0)
+    hoy = datetime.now(bogota).replace(hour=19, minute=56, second=0, microsecond=0)
     return hoy.astimezone(california).strftime("%I:%M %p").lstrip("0").lower()
 
 
