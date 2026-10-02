@@ -1,0 +1,26 @@
+name: Cerrar llamada Telegram (si < 5 usuarios)
+
+on:
+  schedule:
+    # 5 horas después de las 7:56 pm Colombia = 12:56 am Colombia (UTC-5) = 05:56 UTC
+    - cron: "56 5 * * *"
+  workflow_dispatch:   # permite probarlo manualmente desde la pestaña Actions
+
+jobs:
+  cerrar-llamada:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install telethon
+      - run: python cerrar_llamada.py
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          TG_GROUP: ${{ secrets.TG_GROUP }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          MIN_USUARIOS: "5"
