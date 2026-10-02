@@ -11,6 +11,7 @@ from telethon.errors import FloodWaitError, RPCError
 from telethon.sessions import StringSession
 from telethon.tl.types import (
     Channel,
+    ChannelParticipantCreator,
     ChannelParticipantsAdmins,
     Chat,
     DocumentAttributeAnimated,
@@ -76,19 +77,30 @@ def es_gif(mensaje) -> bool:
     return False
 
 
-def avisar_con_bot(texto: str) -> None:
-    if not BOT_TOKEN:
+async def avisar_al_dueno(client, owner_id: int, texto: str) -> None:
+    """Envía el resumen en privado al dueño (a sus mensajes privados/guardados) y mediante el bot."""
+    if not owner_id:
         return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    datos = json.dumps({"chat_id": CHAT_ID, "text": texto}).encode()
-    req = urllib.request.Request(
-        url, data=datos, headers={"Content-Type": "application/json"}
-    )
+
+    # 1. Enviar directamente a través de Telegram al dueño o a 'Mensajes Guardados'
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            print("Aviso del bot enviado:", r.status)
+        await client.send_message(owner_id, texto)
+        print("Resumen enviado al dueño por privado/guardados en Telegram.")
     except Exception as e:
-        print("Error al enviar aviso con el bot:", e)
+        print("No se pudo enviar mensaje directo por sesión:", e)
+
+    # 2. Intentar también por el bot si el dueño tiene chat iniciado con él
+    if BOT_TOKEN:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            datos = json.dumps({"chat_id": owner_id, "text": texto}).encode()
+            req = urllib.request.Request(
+                url, data=datos, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                print("Resumen enviado al dueño mediante el bot:", r.status)
+        except Exception:
+            pass  # Es normal si el dueño aún no ha iniciado conversación privada con el bot
 
 
 async def main() -> None:
@@ -104,6 +116,7 @@ async def main() -> None:
         # 1. Obtener IDs de administradores para nunca borrar sus mensajes
         admin_ids = set()
         me = await client.get_me()
+        owner_id = me.id if me else None
         if me:
             admin_ids.add(me.id)
         if hasattr(entidad, "id"):
@@ -115,7 +128,9 @@ async def main() -> None:
                     entidad, filter=ChannelParticipantsAdmins
                 ):
                     admin_ids.add(admin.id)
-                print(f"Administradores detectados y protegidos: {len(admin_ids)}")
+                    if isinstance(getattr(admin, "participant", None), ChannelParticipantCreator):
+                        owner_id = admin.id
+                print(f"Administradores detectados y protegidos: {len(admin_ids)}. Dueño ID: {owner_id}")
         except Exception as e:
             print("Aviso: No se pudo obtener lista completa de administradores:", e)
 
@@ -196,6 +211,13 @@ async def main() -> None:
         # 3. Eliminar los mensajes en lotes de 100
         if not ids_a_borrar:
             print("No se encontraron mensajes para eliminar. El grupo está limpio.")
+            if owner_id:
+                await avisar_al_dueno(
+                    client,
+                    owner_id,
+                    f"🧹 **Reporte de Limpieza (Solo para el Dueño):**\n"
+                    f"El grupo fue analizado ({total_revisados} mensajes) y ya se encuentra completamente limpio. No hubo nada que borrar."
+                )
             return
 
         print(f"Iniciando borrado en lotes de {len(ids_a_borrar)} mensajes...")
@@ -219,14 +241,16 @@ async def main() -> None:
         print(f"Limpieza completada con éxito. Total eliminados: {total_borrados}")
 
         resumen = (
-            f"🧹 **Mantenimiento del Grupo completado:**\n"
+            f"🧹 **Reporte Privado de Limpieza (Solo para el Dueño):**\n"
             f"• Mensajes eliminados: {total_borrados}\n"
-            f"• Videos repetidos borrados: {conteo_youtube_duplicados}\n"
-            f"• Saludos acumulados: {conteo_saludos}\n"
-            f"• Stickers y GIFs: {conteo_stickers_gifs}\n"
-            f"✨ El historial del grupo ha quedado descongestionado."
+            f"• Videos de YouTube repetidos borrados: {conteo_youtube_duplicados}\n"
+            f"• Saludos acumulados borrados: {conteo_saludos}\n"
+            f"• Stickers y GIFs eliminados: {conteo_stickers_gifs}\n"
+            f"• Total mensajes analizados: {total_revisados}\n"
+            f"✨ El grupo se mantiene limpio y no recibió ningún aviso público."
         )
-        avisar_con_bot(resumen)
+        if owner_id:
+            await avisar_al_dueno(client, owner_id, resumen)
 
 
 if __name__ == "__main__":
