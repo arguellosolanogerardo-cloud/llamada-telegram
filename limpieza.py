@@ -103,6 +103,12 @@ async def main() -> None:
 
         # 1. Obtener IDs de administradores para nunca borrar sus mensajes
         admin_ids = set()
+        me = await client.get_me()
+        if me:
+            admin_ids.add(me.id)
+        if hasattr(entidad, "id"):
+            admin_ids.add(entidad.id)
+
         try:
             if isinstance(entidad, (Channel, Chat)):
                 async for admin in client.iter_participants(
@@ -139,8 +145,10 @@ async def main() -> None:
 
             total_revisados += 1
 
-            # Proteger mensajes fijados (pinned) y de administradores
-            if getattr(msg, "pinned", False):
+            # Proteger mensajes fijados (pinned), mensajes de servicio y mensajes de administradores
+            if getattr(msg, "pinned", False) or getattr(msg, "action", None):
+                continue
+            if getattr(msg, "out", False):
                 continue
             if msg.sender_id and msg.sender_id in admin_ids:
                 continue
