@@ -33,11 +33,11 @@ AVISO = os.environ.get(
 )
 
 # Parámetros de monitoreo y asistencia
-DURACION_MAXIMA_MINUTOS = int(os.environ.get("DURACION_MAXIMA_MINUTOS", "120"))  # 2 horas
+DURACION_MAXIMA_MINUTOS = int(os.environ.get("DURACION_MAXIMA_MINUTOS", "360"))  # Hasta 6 horas tope de seguridad
 INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "20"))
 MIN_MINUTOS_ASISTENCIA = int(os.environ.get("MIN_MINUTOS_ASISTENCIA", "10"))
 AUTO_CIERRE_MIN_USUARIOS = int(os.environ.get("AUTO_CIERRE_MIN_USUARIOS", "2"))
-AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "60"))
+AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "45"))
 
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 CARPETA_ASISTENCIAS = os.path.join("data", "asistencias")
@@ -152,6 +152,10 @@ async def main() -> None:
         participantes = {}
         segundos_totales = 0
         tiempo_limite_segundos = DURACION_MAXIMA_MINUTOS * 60
+        consecutivos_vacio = 0
+        consecutivos_menos_de_dos = 0
+        cerrado_por_admin = False
+        motivo_cierre = "tiempo_limite"
 
         # 2. Bucle de Monitoreo en Vivo
         while segundos_totales < tiempo_limite_segundos:
@@ -162,8 +166,38 @@ async def main() -> None:
             try:
                 call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
             except RPCError as e:
-                print("Llamada finalizada externamente o error:", type(e).__name__, e)
+                print("Llamada finalizada por un administrador o cerrada externamente:", type(e).__name__, e)
+                cerrado_por_admin = True
+                motivo_cierre = "admin"
                 break
+            except Exception as e:
+                print("Error de conexión al consultar llamada:", e)
+                # Reintento rápido
+                await asyncio.sleep(2)
+                try:
+                    call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
+                except Exception:
+                    cerrado_por_admin = True
+                    motivo_cierre = "admin"
+                    break
+
+            if not getattr(call_info, "call", None):
+                print("La llamada ya no se encuentra activa en Telegram.")
+                cerrado_por_admin = True
+                motivo_cierre = "admin"
+                break
+
+            # Cada 10 ciclos (~3 min), verificar el estado de la llamada en el chat
+            if (segundos_totales // INTERVALO_SONDEO_SEGUNDOS) % 10 == 0:
+                try:
+                    fc = await obtener_full_chat(client, entidad)
+                    if not fc or not fc.call or getattr(fc.call, "id", None) != getattr(input_call, "id", None):
+                        print("El chat de voz fue finalizado por un administrador.")
+                        cerrado_por_admin = True
+                        motivo_cierre = "admin"
+                        break
+                except Exception as e:
+                    print("Nota verificando chat:", e)
 
             users_dict = {u.id: u for u in getattr(call_info, "users", [])}
             activos_en_tick = set()
@@ -226,11 +260,31 @@ async def main() -> None:
                     part["activo_ahora"] = False
                     part["ultima_salida"] = ahora
 
-            # Regla de Auto-Cierre por inactividad
+            # Reglas de Auto-Cierre inteligente:
+            num_activos = len(activos_en_tick)
             minutos_transcurridos = segundos_totales // 60
-            if minutos_transcurridos >= AUTO_CIERRE_ESPERA_MINUTOS and len(activos_en_tick) < AUTO_CIERRE_MIN_USUARIOS:
-                print(f"Auto-cierre: Menos de {AUTO_CIERRE_MIN_USUARIOS} usuarios tras {minutos_transcurridos} min.")
-                break
+
+            # Regla 1: Sala completamente vacía durante 2 minutos continuos (tras los primeros 5 min)
+            if minutos_transcurridos >= 5:
+                if num_activos == 0:
+                    consecutivos_vacio += 1
+                    if consecutivos_vacio >= (120 // INTERVALO_SONDEO_SEGUNDOS):  # 2 min seguidos vacío
+                        print(f"Auto-cierre: Sala vacía durante 2 min continuos tras {minutos_transcurridos} min.")
+                        motivo_cierre = "sala_vacia"
+                        break
+                else:
+                    consecutivos_vacio = 0
+
+            # Regla 2: Menos de 2 personas conectadas durante 3 minutos continuos (tras 45 min)
+            if minutos_transcurridos >= AUTO_CIERRE_ESPERA_MINUTOS:
+                if num_activos < AUTO_CIERRE_MIN_USUARIOS:
+                    consecutivos_menos_de_dos += 1
+                    if consecutivos_menos_de_dos >= (180 // INTERVALO_SONDEO_SEGUNDOS):  # 3 min seguidos < 2
+                        print(f"Auto-cierre: Menos de {AUTO_CIERRE_MIN_USUARIOS} usuarios tras {minutos_transcurridos} min.")
+                        motivo_cierre = "pocos_usuarios"
+                        break
+                else:
+                    consecutivos_menos_de_dos = 0
 
         # 3. Finalización y Consolidación de Asistencia
         fin_llamada = datetime.now(tz_col)
@@ -243,12 +297,13 @@ async def main() -> None:
                 part["ultima_salida"] = fin_llamada
                 part["activo_ahora"] = False
 
-        # Intentar cerrar la sala de voz en Telegram
-        try:
-            await client(DiscardGroupCallRequest(call=input_call))
-            print("Chat de voz cerrado al finalizar la reunión.")
-        except Exception as e:
-            print("Nota al cerrar llamada:", e)
+        # Si la sala no fue cerrada previamente por un administrador, el bot la cierra
+        if not cerrado_por_admin:
+            try:
+                await client(DiscardGroupCallRequest(call=input_call))
+                print("Chat de voz cerrado automáticamente por el bot al terminar la sesión.")
+            except Exception as e:
+                print("Nota al cerrar llamada:", e)
 
         # 4. Procesamiento de Puntos y Gamificación
         db_puntos = cargar_puntos()
