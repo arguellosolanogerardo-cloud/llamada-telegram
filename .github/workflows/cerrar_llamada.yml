@@ -1,10 +1,7 @@
 name: Cerrar llamada Telegram (si < 5 usuarios)
 
 on:
-  schedule:
-    # 5 horas después de las 7:56 pm Colombia = 12:56 am Colombia (UTC-5) = 05:56 UTC
-    - cron: "56 5 * * *"
-  workflow_dispatch:   # permite probarlo manualmente desde la pestaña Actions
+  workflow_dispatch:   # Permite disparar manualmente o mediante webhook dedicado
 
 jobs:
   cerrar-llamada:

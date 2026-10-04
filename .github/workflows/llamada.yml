@@ -1,10 +1,7 @@
 name: Llamada diaria Telegram
 
 on:
-  schedule:
-    # 7:56 pm Colombia (UTC-5) = 00:56 UTC
-    - cron: "56 0 * * *"
-  workflow_dispatch:   # permite probarlo manualmente desde la pestaña Actions
+  workflow_dispatch:   # Ejecutado exclusivamente por cron-job.org a las 7:56 PM Colombia
 
 jobs:
   abrir-llamada:
