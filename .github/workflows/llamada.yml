@@ -6,6 +6,8 @@ on:
 jobs:
   abrir-llamada:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,3 +35,11 @@ jobs:
             💻 PC: desactiva el ahorro de energía de la tarjeta de red.
 
             Cada uno es responsable de su conexión y su dispositivo: las caídas casi siempre vienen del lado local, no de Telegram.
+
+      - name: Guardar registro histórico de puntos y asistencias
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || (git commit -m "chore: actualizar registro de asistencias y puntos [skip ci]" && git push)
