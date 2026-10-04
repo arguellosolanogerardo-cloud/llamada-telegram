@@ -7,7 +7,7 @@ import random
 import urllib.request
 from zoneinfo import ZoneInfo
 
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.errors import RPCError
 from telethon.sessions import StringSession
 from telethon.tl.functions.channels import GetFullChannelRequest
@@ -33,7 +33,7 @@ AVISO = os.environ.get(
 )
 
 # Parámetros de monitoreo y asistencia
-DURACION_MAXIMA_MINUTOS = int(os.environ.get("DURACION_MAXIMA_MINUTOS", "360"))  # Hasta 6 horas tope de seguridad
+DURACION_MAXIMA_MINUTOS = int(os.environ.get("DURACION_MAXIMA_MINUTOS", "360"))  # Hasta 6 horas
 INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "20"))
 MIN_MINUTOS_ASISTENCIA = int(os.environ.get("MIN_MINUTOS_ASISTENCIA", "10"))
 AUTO_CIERRE_MIN_USUARIOS = int(os.environ.get("AUTO_CIERRE_MIN_USUARIOS", "2"))
@@ -50,12 +50,27 @@ def hora_california() -> str:
     return hoy.astimezone(california).strftime("%I:%M %p").lstrip("0").lower()
 
 
-def avisar_con_bot(texto: str) -> None:
+def obtener_url_llamada() -> str | None:
+    if GRUPO.startswith("@"):
+        return f"https://t.me/{GRUPO.lstrip('@')}?videochat"
+    elif GRUPO.startswith("https://t.me/"):
+        return f"{GRUPO}?videochat"
+    return None
+
+
+def avisar_con_bot(texto: str, boton_url: str = None, boton_texto: str = "📞 Unirme a la llamada") -> None:
     if not BOT_TOKEN:
         return
     texto = texto.replace("{CA}", hora_california())
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    datos = json.dumps({"chat_id": CHAT_ID, "text": texto}).encode()
+    payload = {"chat_id": CHAT_ID, "text": texto}
+    if boton_url:
+        payload["reply_markup"] = {
+            "inline_keyboard": [
+                [{"text": boton_texto, "url": boton_url}]
+            ]
+        }
+    datos = json.dumps(payload).encode()
     req = urllib.request.Request(
         url, data=datos, headers={"Content-Type": "application/json"}
     )
@@ -83,13 +98,91 @@ def cargar_puntos() -> dict:
                 return json.load(f)
         except Exception as e:
             print("Error leyendo puntos.json, inicializando nuevo:", e)
-    return {"version": 1, "usuarios": {}}
+    return {"version": 2, "usuarios": {}}
 
 
 def guardar_puntos(data: dict) -> None:
     os.makedirs(os.path.dirname(RUTA_PUNTOS), exist_ok=True)
     with open(RUTA_PUNTOS, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "", username: str = "") -> str:
+    usuarios = db_puntos.get("usuarios", {})
+    str_uid = str(user_id)
+    u = usuarios.get(str_uid)
+    if not u:
+        nombre = user_nombre or "Compañero"
+        return (
+            f"👤 **Perfil de Asistencia:** {nombre}\n\n"
+            f"Aún no registras asistencias válidas en las llamadas.\n"
+            f"¡Únete hoy a las 7:56 PM para ganar tus primeros puntos y subir de rango!"
+        )
+    nombre = u.get("nombre", user_nombre or "Usuario")
+    pts_mes = u.get("puntos_mes", u.get("puntos_totales", 0))
+    pts_tot = u.get("puntos_totales", 0)
+    rango = obtener_rango(pts_tot)
+    racha = u.get("racha_actual", 0)
+    asistencias_mes = u.get("asistencias_mes", 0)
+    asistencias_tot = u.get("asistencias_totales", 0)
+    medallas = u.get("medallas", [])
+    txt_medallas = "\n• " + "\n• ".join(medallas) if medallas else "Ninguna aún"
+
+    return (
+        f"👤 **FICHA DE USUARIO: {nombre}**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎖️ **Rango actual:** {rango}\n"
+        f"🏆 **Puntos del mes:** {pts_mes} pts\n"
+        f"⭐ **Puntos históricos:** {pts_tot} pts\n"
+        f"🔥 **Racha actual:** {racha} días consecutivos\n"
+        f"📅 **Asistencias:** {asistencias_mes} este mes ({asistencias_tot} en total)\n\n"
+        f"🏅 **Medallas obtenidas:**{txt_medallas}"
+    )
+
+
+def generar_texto_ranking(db_puntos: dict) -> str:
+    usuarios = db_puntos.get("usuarios", {})
+    if not usuarios:
+        return "🏆 **Ranking Mensual:** Aún no hay registros de asistencia este mes."
+
+    top = sorted(usuarios.values(), key=lambda x: x.get("puntos_mes", x.get("puntos_totales", 0)), reverse=True)[:10]
+    lineas = [
+        "🏆 **TOP 10 DE ASISTENCIA Y PUNTOS (ESTE MES)** 🏆",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    ]
+    medallas_top = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
+    for i, u in enumerate(top):
+        pts = u.get("puntos_mes", u.get("puntos_totales", 0))
+        rango = obtener_rango(u.get("puntos_totales", 0))
+        medallas = " ".join([m.split()[0] for m in u.get("medallas", [])])
+        lineas.append(f"{medallas_top[i]} {rango} **{u['nombre']}** — {pts} pts {medallas}".strip())
+
+    lineas.append("\n💡 Escribe `/puntos` para ver tus estadísticas personales.")
+    return "\n".join(lineas)
+
+
+def generar_texto_reglas() -> str:
+    return (
+        "📜 **SISTEMA DE PUNTOS Y REGLAS DE LA COMUNIDAD**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Cada noche a las 7:56 PM se abre la llamada diaria. ¡Participa y suma puntos!\n\n"
+        "⏰ **PUNTUALIDAD:**\n"
+        "• Entrar en los primeros 5 min: **+25 pts**\n"
+        "• Entrar entre min 5 y 10: **+15 pts**\n\n"
+        "🌟 **PERMANENCIA:**\n"
+        "• Asistencia completa (>= 80% de la sesión): **+50 pts**\n"
+        "• Asistencia parcial: **+20 a +35 pts**\n\n"
+        "🎙️ **MICRÓFONO / VOZ:**\n"
+        "• Hablar y aportar activamente: **+20 pts**\n\n"
+        "🔥 **RACHAS:**\n"
+        "• Asistir días seguidos: **+5 pts extra por día consecutivo**\n\n"
+        "🏅 **MEDALLAS ESPECIALES:**\n"
+        "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 3 primeros).\n"
+        "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
+        "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
+        "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
+        "¡Los 3 primeros del mes reciben mención de honor!"
+    )
 
 
 async def obtener_full_chat(client, entidad):
@@ -139,8 +232,9 @@ async def main() -> None:
         else:
             print("Ya existía un chat de voz activo en el grupo.")
 
-        # Enviar aviso inicial
-        avisar_con_bot(AVISO)
+        # Enviar aviso inicial con botón interactivo de unirse
+        url_llamada = obtener_url_llamada()
+        avisar_con_bot(AVISO, boton_url=url_llamada)
 
         if not full_chat or not full_chat.call:
             print("No hay llamada disponible para monitorear.")
@@ -148,6 +242,25 @@ async def main() -> None:
 
         input_call = full_chat.call
         print(f"Iniciando monitoreo de la sala (Máx: {DURACION_MAXIMA_MINUTOS} min)...")
+
+        # Escuchar comandos de usuarios en vivo durante la llamada
+        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas)"))
+        async def responder_comandos_en_vivo(event):
+            texto_cmd = event.raw_text.strip().split()[0].lower().split("@")[0]
+            db = cargar_puntos()
+            sender = await event.get_sender()
+            uid = sender.id if sender else event.sender_id
+            nom = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".strip()
+            usr = getattr(sender, "username", "") or ""
+
+            if texto_cmd in ("/puntos", "/miperfil"):
+                resp = generar_texto_miperfil(uid, db, nom, usr)
+            elif texto_cmd in ("/ranking", "/top"):
+                resp = generar_texto_ranking(db)
+            else:
+                resp = generar_texto_reglas()
+
+            await event.reply(resp)
 
         participantes = {}
         segundos_totales = 0
@@ -172,7 +285,6 @@ async def main() -> None:
                 break
             except Exception as e:
                 print("Error de conexión al consultar llamada:", e)
-                # Reintento rápido
                 await asyncio.sleep(2)
                 try:
                     call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
@@ -264,22 +376,22 @@ async def main() -> None:
             num_activos = len(activos_en_tick)
             minutos_transcurridos = segundos_totales // 60
 
-            # Regla 1: Sala completamente vacía durante 2 minutos continuos (tras los primeros 5 min)
+            # Regla 1: Sala completamente vacía durante 2 min continuos (tras primeros 5 min)
             if minutos_transcurridos >= 5:
                 if num_activos == 0:
                     consecutivos_vacio += 1
-                    if consecutivos_vacio >= (120 // INTERVALO_SONDEO_SEGUNDOS):  # 2 min seguidos vacío
+                    if consecutivos_vacio >= (120 // INTERVALO_SONDEO_SEGUNDOS):
                         print(f"Auto-cierre: Sala vacía durante 2 min continuos tras {minutos_transcurridos} min.")
                         motivo_cierre = "sala_vacia"
                         break
                 else:
                     consecutivos_vacio = 0
 
-            # Regla 2: Menos de 2 personas conectadas durante 3 minutos continuos (tras 45 min)
+            # Regla 2: Menos de 2 personas conectadas durante 3 min continuos (tras 45 min)
             if minutos_transcurridos >= AUTO_CIERRE_ESPERA_MINUTOS:
                 if num_activos < AUTO_CIERRE_MIN_USUARIOS:
                     consecutivos_menos_de_dos += 1
-                    if consecutivos_menos_de_dos >= (180 // INTERVALO_SONDEO_SEGUNDOS):  # 3 min seguidos < 2
+                    if consecutivos_menos_de_dos >= (180 // INTERVALO_SONDEO_SEGUNDOS):
                         print(f"Auto-cierre: Menos de {AUTO_CIERRE_MIN_USUARIOS} usuarios tras {minutos_transcurridos} min.")
                         motivo_cierre = "pocos_usuarios"
                         break
@@ -305,9 +417,25 @@ async def main() -> None:
             except Exception as e:
                 print("Nota al cerrar llamada:", e)
 
-        # 4. Procesamiento de Puntos y Gamificación
+        # 4. Procesamiento de Puntos, Medallas y Temporada Mensual
         db_puntos = cargar_puntos()
+        mes_actual = inicio_llamada.strftime("%Y-%m")
+
+        # Reinicio mensual de puntos si cambió el mes
+        if db_puntos.get("mes_actual") != mes_actual:
+            db_puntos["mes_actual"] = mes_actual
+            db_puntos["total_llamadas_mes"] = 0
+            for u in db_puntos.get("usuarios", {}).values():
+                u["puntos_mes"] = 0
+                u["asistencias_mes"] = 0
+                u["minutos_mes"] = 0
+
+        db_puntos["total_llamadas_mes"] = db_puntos.get("total_llamadas_mes", 0) + 1
+        total_llamadas_mes = db_puntos["total_llamadas_mes"]
+
         usuarios_db = db_puntos.setdefault("usuarios", {})
+        podio_puntuales = sorted(participantes.values(), key=lambda x: x["primera_entrada"])[:3]
+        ids_podio = {p["id"] for p in podio_puntuales}
 
         asistentes_validos = []
         visitas_fugaces = []
@@ -319,24 +447,28 @@ async def main() -> None:
             part["porcentaje"] = min(100, pct)
 
             if mins >= MIN_MINUTOS_ASISTENCIA:
-                # Cálculo de puntos
                 minutos_desde_inicio = (part["primera_entrada"] - inicio_llamada).total_seconds() / 60
                 pts_puntualidad = 25 if minutos_desde_inicio <= 5 else (15 if minutos_desde_inicio <= 10 else 5)
                 pts_permanencia = 50 if pct >= 80 else (35 if mins >= 45 else (20 if mins >= 20 else 10))
                 pts_voz = 20 if part["hablo"] else 0
 
-                # Racha de días
                 str_uid = str(uid)
                 u_data = usuarios_db.get(str_uid, {
                     "id": uid,
                     "nombre": part["nombre"],
                     "username": part["username"],
+                    "puntos_mes": 0,
                     "puntos_totales": 0,
                     "racha_actual": 0,
                     "mejor_racha": 0,
-                    "ultima_fecha": "",
+                    "racha_podio": 0,
+                    "racha_voz": 0,
+                    "asistencias_mes": 0,
                     "asistencias_totales": 0,
+                    "minutos_mes": 0,
                     "minutos_totales": 0,
+                    "medallas": [],
+                    "ultima_fecha": "",
                 })
 
                 ultima_f = u_data.get("ultima_fecha", "")
@@ -350,22 +482,59 @@ async def main() -> None:
                     racha = 1
                     pts_racha = 0
 
+                # Racha de podio de puntualidad
+                if uid in ids_podio:
+                    u_data["racha_podio"] = u_data.get("racha_podio", 0) + 1
+                else:
+                    u_data["racha_podio"] = 0
+
+                # Racha de voz
+                if part["hablo"]:
+                    u_data["racha_voz"] = u_data.get("racha_voz", 0) + 1
+                else:
+                    u_data["racha_voz"] = 0
+
+                # Evaluación de Medallas
+                medallas_set = set(u_data.get("medallas", []))
+                nuevas_medallas = []
+
+                if u_data["racha_podio"] >= 5 and "🛡️ Puntualidad de Hierro" not in medallas_set:
+                    medallas_set.add("🛡️ Puntualidad de Hierro")
+                    nuevas_medallas.append("🛡️ Puntualidad de Hierro")
+
+                if u_data["racha_voz"] >= 7 and "🎙️ Voz de la Comunidad" not in medallas_set:
+                    medallas_set.add("🎙️ Voz de la Comunidad")
+                    nuevas_medallas.append("🎙️ Voz de la Comunidad")
+
+                asistencias_mes_actual = u_data.get("asistencias_mes", 0) + 1
+                if total_llamadas_mes >= 10 and (asistencias_mes_actual / total_llamadas_mes) >= 0.90:
+                    if "👑 Centinela" not in medallas_set:
+                        medallas_set.add("👑 Centinela")
+                        nuevas_medallas.append("👑 Centinela")
+
+                u_data["medallas"] = list(medallas_set)
+
                 total_hoy = pts_puntualidad + pts_permanencia + pts_voz + pts_racha
 
                 u_data["nombre"] = part["nombre"]
                 u_data["username"] = part["username"]
+                u_data["puntos_mes"] = u_data.get("puntos_mes", 0) + total_hoy
                 u_data["puntos_totales"] = u_data.get("puntos_totales", 0) + total_hoy
                 u_data["racha_actual"] = racha
                 u_data["mejor_racha"] = max(u_data.get("mejor_racha", 0), racha)
                 u_data["ultima_fecha"] = fecha_hoy
+                u_data["asistencias_mes"] = asistencias_mes_actual
                 u_data["asistencias_totales"] = u_data.get("asistencias_totales", 0) + 1
+                u_data["minutos_mes"] = u_data.get("minutos_mes", 0) + mins
                 u_data["minutos_totales"] = u_data.get("minutos_totales", 0) + mins
                 usuarios_db[str_uid] = u_data
 
                 part["pts_hoy"] = total_hoy
+                part["pts_mes"] = u_data["puntos_mes"]
                 part["pts_totales"] = u_data["puntos_totales"]
                 part["racha"] = racha
                 part["rango"] = obtener_rango(u_data["puntos_totales"])
+                part["nuevas_medallas"] = nuevas_medallas
                 part["desglose"] = (
                     f"⏰ Puntual +{pts_puntualidad} | "
                     f"🌟 Perm +{pts_permanencia}"
@@ -386,16 +555,20 @@ async def main() -> None:
             writer = csv.writer(f)
             writer.writerow([
                 "ID", "Nombre", "Usuario", "Entrada", "Salida", "Minutos",
-                "% Reunion", "Hablo", "Reconexiones", "Puntos Hoy", "Puntos Totales", "Rango"
+                "% Reunion", "Hablo", "Reconexiones", "Puntos Hoy", "Puntos Mes",
+                "Puntos Totales", "Rango", "Medallas"
             ])
             for part in asistentes_validos:
+                u_info = usuarios_db.get(str(part["id"]), {})
                 writer.writerow([
                     part["id"], part["nombre"], f"@{part['username']}" if part["username"] else "",
                     part["primera_entrada"].strftime("%I:%M:%S %p"),
                     part["ultima_salida"].strftime("%I:%M:%S %p"),
                     part["minutos"], f"{part['porcentaje']}%",
                     "Si" if part["hablo"] else "No", part["reconexiones"],
-                    part.get("pts_hoy", 0), part.get("pts_totales", 0), part.get("rango", "")
+                    part.get("pts_hoy", 0), part.get("pts_mes", 0),
+                    part.get("pts_totales", 0), part.get("rango", ""),
+                    " / ".join(u_info.get("medallas", []))
                 ])
             for part in visitas_fugaces:
                 writer.writerow([
@@ -404,17 +577,16 @@ async def main() -> None:
                     part["ultima_salida"].strftime("%I:%M:%S %p"),
                     part["minutos"], f"{part['porcentaje']}%",
                     "Si" if part["hablo"] else "No", part["reconexiones"],
-                    0, usuarios_db.get(str(part["id"]), {}).get("puntos_totales", 0), "Visita Fugaz"
+                    0, 0, usuarios_db.get(str(part["id"]), {}).get("puntos_totales", 0), "Visita Fugaz", ""
                 ])
 
         # 6. Construir y Enviar Reportes
         asistentes_validos.sort(key=lambda x: x.get("pts_hoy", 0), reverse=True)
-        podio_puntuales = sorted(participantes.values(), key=lambda x: x["primera_entrada"])[:3]
+        ranking_mes = sorted(usuarios_db.values(), key=lambda x: x.get("puntos_mes", 0), reverse=True)[:5]
 
-        # Top 5 General
-        ranking_general = sorted(usuarios_db.values(), key=lambda x: x.get("puntos_totales", 0), reverse=True)[:5]
+        # Verificar si es fin de mes
+        es_fin_de_mes = (inicio_llamada + timedelta(days=1)).month != inicio_llamada.month
 
-        # Reporte Público para el Grupo
         lineas_pub = [
             "📊 **REPORTE DE ASISTENCIA Y PUNTOS — LLAMADA DIARIA**",
             f"🗓️ Fecha: {inicio_llamada.strftime('%d/%m/%Y')}",
@@ -422,10 +594,10 @@ async def main() -> None:
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "🏆 **PODIO DE PUNTUALIDAD:**",
         ]
-        medallas = ["🥇", "🥈", "🥉"]
+        medallas_podio = ["🥇", "🥈", "🥉"]
         for idx, p in enumerate(podio_puntuales):
             tag = f"(@{p['username']})" if p["username"] else ""
-            lineas_pub.append(f"{medallas[idx]} {p['nombre']} {tag} — {p['primera_entrada'].strftime('%I:%M:%S %p')}")
+            lineas_pub.append(f"{medallas_podio[idx]} {p['nombre']} {tag} — {p['primera_entrada'].strftime('%I:%M:%S %p')}")
 
         lineas_pub.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         lineas_pub.append("🌟 **PUNTOS GANADOS HOY:**")
@@ -434,19 +606,32 @@ async def main() -> None:
                 tag = f"(@{p['username']})" if p["username"] else ""
                 icono_voz = "🎙️" if p["hablo"] else "🎧"
                 estrella = "⭐ " if p["porcentaje"] >= 80 else "• "
+                aviso_medalla = f"\n   🎉 ¡Nueva medalla: {', '.join(p['nuevas_medallas'])}!" if p.get("nuevas_medallas") else ""
                 lineas_pub.append(
                     f"{estrella}**{p['nombre']}** {tag} ➔ **+{p['pts_hoy']} pts** {icono_voz}\n"
-                    f"   [{p['desglose']}] — Racha: 🔥 {p['racha']} días ({p['rango']})"
+                    f"   [{p['desglose']}] — Racha: 🔥 {p['racha']} días ({p['rango']}){aviso_medalla}"
                 )
         else:
             lineas_pub.append("No se registraron asistencias que cumplieran el tiempo mínimo hoy.")
 
+        # Cuadro de Honor si es fin de mes
+        if es_fin_de_mes:
+            lineas_pub.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            lineas_pub.append("👑 **🏆 CUADRO DE HONOR — CAMPEONES DEL MES 🏆** 👑")
+            campeones_mes = sorted(usuarios_db.values(), key=lambda x: x.get("puntos_mes", 0), reverse=True)[:3]
+            titulos = ["🥇 CAMPEÓN DEL MES", "🥈 SUBCAMPEÓN", "🥉 TERCER PUESTO"]
+            for idx, c in enumerate(campeones_mes):
+                lineas_pub.append(f"{titulos[idx]}: **{c['nombre']}** con {c.get('puntos_mes', 0)} pts")
+            lineas_pub.append("✨ ¡Felicitaciones a los ganadores de la temporada!")
+
         lineas_pub.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lineas_pub.append("🏆 **TOP 5 GENERAL DE LA COMUNIDAD:**")
-        for i, u in enumerate(ranking_general, start=1):
-            lineas_pub.append(f"{i}. {obtener_rango(u['puntos_totales'])} **{u['nombre']}** — {u['puntos_totales']} pts")
+        lineas_pub.append("🏆 **TOP 5 DEL MES (TABLA GENERAL):**")
+        for i, u in enumerate(ranking_mes, start=1):
+            meds = " ".join([m.split()[0] for m in u.get("medallas", [])])
+            lineas_pub.append(f"{i}. {obtener_rango(u.get('puntos_totales', 0))} **{u['nombre']}** — {u.get('puntos_mes', 0)} pts {meds}".strip())
 
         lineas_pub.append("\n🎙️ = Participó hablando  |  🎧 = Oyente")
+        lineas_pub.append("💡 Comandos disponibles: `/puntos` | `/ranking` | `/reglas`")
         lineas_pub.append("¡Gracias a todos por participar! Nos vemos mañana a las 7:56 PM.")
 
         reporte_publico = "\n".join(lineas_pub)
@@ -456,7 +641,7 @@ async def main() -> None:
         lineas_priv = [
             "🔐 **REPORTE ADMINISTRATIVO DETALLADO (SOLO DUEÑO)**",
             f"📅 Fecha: {fecha_hoy} | ⏰ {inicio_llamada.strftime('%I:%M:%S %p')} – {fin_llamada.strftime('%I:%M:%S %p')}",
-            f"⏱️ Duración total: {duracion_reunion_minutos} minutos",
+            f"⏱️ Duración total: {duracion_reunion_minutos} minutos (Motivo cierre: {motivo_cierre})",
             f"👥 Total que entraron: {len(participantes)} | ✅ Válidos: {len(asistentes_validos)} | ⚠️ Fugaces: {len(visitas_fugaces)}\n",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "📋 **DESGLOSE INDIVIDUAL DE ASISTENTES:**",
@@ -464,11 +649,14 @@ async def main() -> None:
         for i, p in enumerate(asistentes_validos, start=1):
             tag = f"@{p['username']}" if p['username'] else "Sin alias"
             mic = "🎙️ Habló activamente" if p["hablo"] else "🎧 Solo oyente"
+            u_info = usuarios_db.get(str(p["id"]), {})
+            meds_txt = ", ".join(u_info.get("medallas", [])) or "Ninguna"
             lineas_priv.append(
                 f"{i}. **{p['nombre']}** (ID: `{p['id']}` | {tag})\n"
                 f"   • Conexión: {p['primera_entrada'].strftime('%I:%M:%S %p')} ➔ {p['ultima_salida'].strftime('%I:%M:%S %p')}\n"
-                f"   • Tiempo: {p['minutos']} min ({p['porcentaje']}% de la sesión) | Caídas: {p['reconexiones']}\n"
-                f"   • Micrófono: {mic} | Hoy: +{p['pts_hoy']} pts (Acumulado: {p['pts_totales']})"
+                f"   • Tiempo: {p['minutos']} min ({p['porcentaje']}% de sesión) | Caídas: {p['reconexiones']}\n"
+                f"   • Micrófono: {mic} | Hoy: +{p['pts_hoy']} pts (Mes: {p['pts_mes']} | Histórico: {p['pts_totales']})\n"
+                f"   • Medallas: {meds_txt}"
             )
 
         if visitas_fugaces:
@@ -481,7 +669,6 @@ async def main() -> None:
         lineas_priv.append(f"\n📎 Se generó el archivo de auditoría: `{ruta_csv}`")
         reporte_privado = "\n".join(lineas_priv)
 
-        # Enviar reporte y archivo privado al dueño (Mensajes Guardados)
         me = await client.get_me()
         if me:
             try:
