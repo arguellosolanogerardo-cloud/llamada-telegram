@@ -305,8 +305,8 @@ def escuchar_comandos() -> None:
                 elif cmd in ("/ranking", "/top") or (cmd == "/start" and param == "ranking"):
                     resp = generar_texto_ranking(db)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
-                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje"):
-                    param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
+                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and param == "audio"):
+                    param_texto = " ".join(partes[1:]).strip() if (len(partes) > 1 and param != "audio") else ""
                     if param_texto:
                         prefijo = "mensaje" if cmd == "/mensaje" else "meditacion"
                         busqueda = f"{prefijo} {param_texto}" if not any(w in param_texto.lower() for w in ["meditacion", "mensaje"]) else param_texto
