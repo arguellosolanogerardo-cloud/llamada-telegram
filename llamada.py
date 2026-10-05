@@ -82,18 +82,40 @@ async def obtener_url_llamada(client, entidad, full_chat) -> str | None:
     return None
 
 
-def avisar_con_bot(texto: str, boton_url: str = None, boton_texto: str = "📞 Unirme a la llamada") -> None:
+def obtener_username_bot() -> str | None:
+    if not BOT_TOKEN:
+        return None
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
+        req = urllib.request.Request(url, headers={"User-Agent": "BotLlamadas"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode())
+            if data.get("ok"):
+                return data["result"].get("username")
+    except Exception as e:
+        print("Nota obteniendo username del bot:", e)
+    return None
+
+
+def avisar_con_bot(texto: str, boton_url: str = None) -> None:
     if not BOT_TOKEN:
         return
     texto = texto.replace("{CA}", hora_california())
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": texto}
+
     if boton_url:
-        payload["reply_markup"] = {
-            "inline_keyboard": [
-                [{"text": boton_texto, "url": boton_url}]
-            ]
-        }
+        inline_keyboard = [
+            [{"text": "🟢 ¡SALA EN VIVO! TOCAR PARA ENTRAR 🎙️", "url": boton_url}]
+        ]
+        bot_user = obtener_username_bot()
+        if bot_user:
+            inline_keyboard.append([
+                {"text": "🏆 Ver Ranking", "url": f"https://t.me/{bot_user}?start=ranking"},
+                {"text": "📜 Reglas y Puntos", "url": f"https://t.me/{bot_user}?start=reglas"}
+            ])
+        payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+
     datos = json.dumps(payload).encode()
     req = urllib.request.Request(
         url, data=datos, headers={"Content-Type": "application/json"}
@@ -269,9 +291,11 @@ async def main() -> None:
         print(f"Iniciando monitoreo de la sala (Máx: {DURACION_MAXIMA_MINUTOS} min)...")
 
         # Escuchar comandos de usuarios en vivo durante la llamada
-        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas)"))
+        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start)"))
         async def responder_comandos_en_vivo(event):
-            texto_cmd = event.raw_text.strip().split()[0].lower().split("@")[0]
+            partes = event.raw_text.strip().split()
+            texto_cmd = partes[0].lower().split("@")[0]
+            param = partes[1].lower() if len(partes) > 1 else ""
             db = cargar_puntos()
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
@@ -280,7 +304,7 @@ async def main() -> None:
 
             if texto_cmd in ("/puntos", "/miperfil"):
                 resp = generar_texto_miperfil(uid, db, nom, usr)
-            elif texto_cmd in ("/ranking", "/top"):
+            elif texto_cmd in ("/ranking", "/top") or (texto_cmd == "/start" and param == "ranking"):
                 resp = generar_texto_ranking(db)
             else:
                 resp = generar_texto_reglas()

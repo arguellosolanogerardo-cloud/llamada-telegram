@@ -175,15 +175,16 @@ def escuchar_comandos() -> None:
                 user_id = from_user.get("id")
                 nombre = f"{from_user.get('first_name', '')} {from_user.get('last_name', '')}".strip()
 
+                param = partes[1].lower() if len(partes) > 1 else ""
                 db = cargar_puntos()
 
                 if cmd in ("/puntos", "/miperfil"):
                     resp = generar_texto_miperfil(user_id, db, nombre)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
-                elif cmd in ("/ranking", "/top"):
+                elif cmd in ("/ranking", "/top") or (cmd == "/start" and param == "ranking"):
                     resp = generar_texto_ranking(db)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
-                elif cmd in ("/reglas", "/ayuda", "/start"):
+                elif cmd in ("/reglas", "/ayuda") or (cmd == "/start" and param == "reglas") or cmd == "/start":
                     resp = generar_texto_reglas()
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
 
