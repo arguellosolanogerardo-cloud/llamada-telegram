@@ -1052,6 +1052,7 @@ async def main() -> None:
         consecutivos_menos_de_dos = 0
         cerrado_por_admin = False
         motivo_cierre = "tiempo_limite"
+        hubo_caida_masiva_sala = False
 
         # 2. Bucle de Monitoreo en Vivo
         while segundos_totales < tiempo_limite_segundos:
@@ -1243,10 +1244,17 @@ async def main() -> None:
                 await actualizar_mensaje_turnos()
 
             # Marcar desconectados
+            total_activos_previos = sum(1 for p in participantes.values() if p["activo_ahora"])
+            desconectados_este_tick = 0
             for uid, part in participantes.items():
                 if uid not in activos_en_tick and part["activo_ahora"]:
                     part["activo_ahora"] = False
                     part["ultima_salida"] = ahora
+                    desconectados_este_tick += 1
+
+            if total_activos_previos >= 4 and desconectados_este_tick >= max(3, int(total_activos_previos * 0.6)):
+                hubo_caida_masiva_sala = True
+                print("⚡ Detección de caída masiva o parpadeo general en la sala de Telegram.")
 
             # Reglas de Auto-Cierre inteligente:
             num_activos = len(activos_en_tick)
@@ -1581,6 +1589,23 @@ async def main() -> None:
                 try:
                     meds_p = p.get("nuevas_medallas", [])
                     txt_nuevas_meds = f"\n🎖️ **¡Nueva medalla desbloqueada!** {', '.join(meds_p)}" if meds_p else ""
+                    reconex = p.get("reconexiones", 0)
+                    txt_diagnostico_red = ""
+                    if reconex >= 2:
+                        if hubo_caida_masiva_sala:
+                            txt_diagnostico_red = (
+                                f"\n\n📡 **Estabilidad de llamada:** Detectamos **{reconex} reconexiones** en tu sesión. "
+                                "Notamos fluctuaciones generales en los servidores de Telegram hoy, por lo que la interrupción pudo deberse a la plataforma."
+                            )
+                        else:
+                            txt_diagnostico_red = (
+                                f"\n\n⚠️ **ESTABILIDAD DE TU CONEXIÓN:**\n"
+                                f"Registraste **{reconex} micro-desconexiones** (mientras el resto de la sala se mantuvo 100% estable).\n\n"
+                                f"💡 **¿Telegram te saca de la llamada frecuentemente? Prueba esto:**\n"
+                                f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (así tu celular no cerrará la llamada al apagar la pantalla).\n"
+                                f"2. 📶 **Señal:** Procura no alternar entre WiFi y datos móviles durante la reunión.\n"
+                                f"3. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_."
+                            )
                     txt_privado_usuario = (
                         f"👋 ¡Hola **{p['nombre']}**!\n\n"
                         f"🎉 **Resumen de tu llamada de hoy:**\n"
@@ -1590,7 +1615,8 @@ async def main() -> None:
                         f"• Puntos del mes: **{p['pts_mes']} pts** (Histórico: {p['pts_totales']})\n"
                         f"• Rango actual: **{p['rango']}**\n"
                         f"• Racha diaria: **🔥 {p['racha']} días consecutivos**\n"
-                        f"{txt_nuevas_meds}\n"
+                        f"{txt_nuevas_meds}"
+                        f"{txt_diagnostico_red}\n\n"
                         f"✨ ¡Gracias por tu compromiso y asistencia! Nos vemos mañana a las 7:56 PM."
                     )
                     url_usr = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -1621,10 +1647,13 @@ async def main() -> None:
             med_txt = " | 🧘 Asistió a meditación" if p.get("meditacion_completada") else ""
             u_info = usuarios_db.get(str(p["id"]), {})
             meds_txt = ", ".join(u_info.get("medallas", [])) or "Ninguna"
+            caidas_tag = ""
+            if p.get("reconexiones", 0) >= 2:
+                caidas_tag = " [⚠️ Celular/Red del usuario]" if not hubo_caida_masiva_sala else " [⚡ Telegram global]"
             lineas_priv.append(
                 f"{i}. **{p['nombre']}** (ID: `{p['id']}` | {tag})\n"
                 f"   • Conexión: {p['primera_entrada'].strftime('%I:%M:%S %p')} ➔ {p['ultima_salida'].strftime('%I:%M:%S %p')}\n"
-                f"   • Tiempo: {p['minutos']} min ({p['porcentaje']}% de sesión) | Caídas: {p['reconexiones']}\n"
+                f"   • Tiempo: {p['minutos']} min ({p['porcentaje']}% de sesión) | Caídas: {p['reconexiones']}{caidas_tag}\n"
                 f"   • Micrófono: {mic}{med_txt} | Hoy: +{p['pts_hoy']} pts (Mes: {p['pts_mes']} | Histórico: {p['pts_totales']})\n"
                 f"   • Medallas: {meds_txt}"
             )
@@ -1716,20 +1745,6 @@ async def main() -> None:
             ruta_pdf=ruta_acta_pdf
         )
 
-        # Limpiar temporales de grabación cruda
-        for s in segmentos_grabados:
-            try:
-                if os.path.exists(s):
-                    os.remove(s)
-            except Exception:
-                pass
-        for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post, ruta_grabacion_completa):
-            try:
-                if os.path.exists(f_tmp):
-                    os.remove(f_tmp)
-            except Exception:
-                pass
-
         me = await client.get_me()
         if me:
             try:
@@ -1751,15 +1766,37 @@ async def main() -> None:
                         ruta_acta_pdf,
                         caption=f"📄 **Acta Oficial de la Reunión (PDF) - {fecha_hoy}**\nIncluye lista de asistencia y resumen.",
                     )
+                # Enviar grabación de audio de la sesión (excluyendo meditación) exclusivamente al dueño
+                if audio_para_ia and os.path.exists(audio_para_ia) and not grabacion_cancelada:
+                    await client.send_file(
+                        me.id,
+                        audio_para_ia,
+                        caption=f"🎙️ **Grabación de Audio Oficial (MP3) - {fecha_hoy}**\nSesión comunitaria (sin meditación).",
+                    )
+                    print("Grabación de audio MP3 enviada a Mensajes Guardados del dueño.")
                 if os.path.exists(RUTA_PUNTOS):
                     await client.send_file(
                         me.id,
                         RUTA_PUNTOS,
                         caption=f"💾 Respaldo de puntos - {fecha_hoy}",
                     )
-                print("CSV, Acta PDF y respaldo de puntos enviados al dueño.")
+                print("CSV, Acta PDF, audio MP3 y respaldo de puntos enviados al dueño.")
             except Exception as e:
                 print("Error enviando archivos al dueño:", e)
+
+        # Limpiar temporales de grabación cruda una vez enviados
+        for s in segmentos_grabados:
+            try:
+                if os.path.exists(s):
+                    os.remove(s)
+            except Exception:
+                pass
+        for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post, ruta_grabacion_completa):
+            try:
+                if os.path.exists(f_tmp):
+                    os.remove(f_tmp)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
