@@ -1,0 +1,24 @@
+name: Publicar Tarea del Día
+
+on:
+  workflow_dispatch:
+    inputs:
+      numero_o_nombre:
+        description: 'Número de meditación o mensaje (ej: 20 o MEDITACION 20)'
+        required: true
+        default: '20'
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install telethon
+      - run: python -u publicar_tarea.py "${{ github.event.inputs.numero_o_nombre }}"
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TG_GROUP: ${{ secrets.TG_GROUP }}

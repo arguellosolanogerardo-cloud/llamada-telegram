@@ -347,6 +347,40 @@ def escuchar_comandos() -> None:
                                 "🧘 **Meditación Diaria:**\nAún no hay un audio de meditación disponible para hoy. Puedes consultar el catálogo escribiendo `/meditacion [número]` o `/mensaje [número]`.",
                                 reply_to_message_id=msg_id
                             )
+                elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea"):
+                    param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
+                    if not param_texto and msg.get("reply_to_message"):
+                        reply_m = msg.get("reply_to_message", {})
+                        param_texto = (reply_m.get("text") or reply_m.get("caption") or "").strip()
+                    if not param_texto:
+                        enviar_mensaje(chat_id, "ℹ️ Uso: `/tarea [número o nombre]` (ej: `/tarea 20` o responde a un audio con `/tarea`).", reply_to_message_id=msg_id)
+                    else:
+                        from publicar_tarea import generar_anuncio_tarea
+                        info_cat = identificar_audio_catalogo(texto=param_texto)
+                        if info_cat:
+                            try:
+                                os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+                                with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
+                                    json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+                            except Exception:
+                                pass
+                            anuncio = generar_anuncio_tarea(info_cat)
+                            enviar_mensaje(chat_id, anuncio)
+                            db_pts = cargar_puntos()
+                            usuarios = db_pts.get("usuarios", {})
+                            for u_id, datos in usuarios.items():
+                                if str(u_id) == str(chat_id):
+                                    continue
+                                txt_priv = (
+                                    f"🕊️ **TAREA ESPIRITUAL DEL DÍA**\n"
+                                    f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
+                                    f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                    f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
+                                    f"¡Te esperamos puntual esta noche a las 7:56 PM!"
+                                )
+                                enviar_mensaje(u_id, txt_priv)
+                        else:
+                            enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
                 elif cmd in ("/turno", "/pedirturno", "/ceder", "/turnos", "/mano"):
                     resp = (
                         "🎙️ **Moderación y Turnos de Palabra:**\n"
