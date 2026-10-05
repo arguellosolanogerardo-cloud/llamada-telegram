@@ -432,6 +432,11 @@ def generar_texto_reglas() -> str:
         "• Escribe `/resumen` para leer la minuta oficial de la última sesión.\n"
         "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
         "• Escribe `/acta [fecha]` para consultar el documento formal.\n\n"
+        "👑 **GRABACIÓN (SOLO ADMINS):**\n"
+        "• `/estadograbacion` — Consultar estado actual.\n"
+        "• `/pausargrabacion` — Pausar la grabación (ej. tema confidencial).\n"
+        "• `/reanudargrabacion` — Reanudar la grabación.\n"
+        "• `/detenergrabacion` — Cancelar y borrar grabación de hoy.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
     )
@@ -620,11 +625,79 @@ async def main() -> None:
         except Exception as e:
             print("Nota publicando mensaje de turnos:", e)
 
-        # Rutas para grabación selectiva de voz (excluyendo meditación)
+        # Rutas y control para grabación selectiva de voz (excluyendo meditación)
         os.makedirs(CARPETA_ASISTENCIAS, exist_ok=True)
         ruta_grabacion_pre = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_pre_{fecha_hoy}.wav")
         ruta_grabacion_post = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_post_{fecha_hoy}.wav")
         ruta_grabacion_completa = os.path.join(CARPETA_ASISTENCIAS, f"audio_sesion_{fecha_hoy}.mp3")
+
+        grabacion_activa = True
+        grabacion_pausada = False
+        grabacion_cancelada = False
+        segmentos_grabados = [ruta_grabacion_pre]
+        contador_segmentos = 0
+
+        async def pausar_grabacion():
+            nonlocal grabacion_pausada
+            if grabacion_cancelada:
+                return False, "⚠️ La grabación ya fue cancelada definitivamente para la sesión de hoy."
+            if grabacion_pausada:
+                return False, "ℹ️ La grabación ya se encuentra pausada."
+            grabacion_pausada = True
+            if tgcalls:
+                try:
+                    await tgcalls.pause(destino)
+                except Exception:
+                    pass
+            print("Grabación pausada manualmente por un administrador.")
+            return True, "⏸️ **Grabación de audio pausada por administración.**\nLos temas compartidos durante esta pausa no quedarán registrados en el audio ni en la minuta."
+
+        async def reanudar_grabacion():
+            nonlocal grabacion_pausada, contador_segmentos
+            if grabacion_cancelada:
+                return False, "⚠️ La grabación fue cancelada definitivamente para esta sesión."
+            if not grabacion_pausada:
+                return False, "ℹ️ La grabación ya está activa y grabando."
+            grabacion_pausada = False
+            contador_segmentos += 1
+            nueva_ruta = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_seg_{contador_segmentos}_{fecha_hoy}.wav")
+            segmentos_grabados.append(nueva_ruta)
+            if tgcalls:
+                try:
+                    await tgcalls.record(destino, nueva_ruta)
+                except Exception as e:
+                    print("Nota reanudando grabación:", e)
+            print("Grabación reanudada manualmente por un administrador.")
+            return True, "▶️ **Grabación de audio reanudada por administración.**\nSe continúa documentando la sesión con normalidad."
+
+        async def cancelar_grabacion():
+            nonlocal grabacion_cancelada, grabacion_activa, grabacion_pausada
+            grabacion_cancelada = True
+            grabacion_activa = False
+            grabacion_pausada = False
+            for s in segmentos_grabados:
+                try:
+                    if os.path.exists(s):
+                        os.remove(s)
+                except Exception:
+                    pass
+            for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post, ruta_grabacion_completa):
+                try:
+                    if os.path.exists(f_tmp):
+                        os.remove(f_tmp)
+                except Exception:
+                    pass
+            print("Grabación cancelada y eliminada por un administrador.")
+            return True, "⏹️ **Grabación cancelada y eliminada para la sesión de hoy.**\nNo se generará audio ni minuta con IA al finalizar la sala."
+
+        def estado_grabacion_str():
+            if grabacion_cancelada:
+                return "⏹️ **Estado de Grabación:** Cancelada / Desactivada (no se procesará con IA hoy)."
+            elif grabacion_pausada:
+                return "⏸️ **Estado de Grabación:** Pausada temporalmente (espacio confidencial)."
+            elif grabacion_activa:
+                return "🔴 **Estado de Grabación:** Activa (documentando charla comunitaria)."
+            return "⚪ **Estado de Grabación:** Inactiva."
 
         # Iniciar servicio PyTgCalls si está disponible
         tgcalls = None
@@ -690,12 +763,14 @@ async def main() -> None:
                             except Exception:
                                 pass
                             avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!")
-                            # Reanudar grabación para el segmento post-meditación (preguntas y testimonios)
-                            try:
-                                await tgcalls.record(destino, ruta_grabacion_post)
-                                print("Grabación de preguntas y testimonios reanudada tras la meditación.")
-                            except Exception as e:
-                                print("Nota reanudando grabación:", e)
+                            # Reanudar grabación para el segmento post-meditación si no fue cancelada
+                            if not grabacion_cancelada and not grabacion_pausada:
+                                segmentos_grabados.append(ruta_grabacion_post)
+                                try:
+                                    await tgcalls.record(destino, ruta_grabacion_post)
+                                    print("Grabación de preguntas y testimonios reanudada tras la meditación.")
+                                except Exception as e:
+                                    print("Nota reanudando grabación:", e)
             except Exception as e:
                 print("Nota configurando StreamEnded handler:", e)
 
@@ -782,8 +857,8 @@ async def main() -> None:
                 resp = generar_texto_reglas()
                 await event.reply(resp)
 
-        # Escuchar controles de meditación y moderación de turnos exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|hablar|desmutear|mutear)"))
+        # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|hablar|desmutear|mutear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
@@ -919,6 +994,21 @@ async def main() -> None:
                     await event.reply(f"🔇 Micrófono silenciado para **{t_nom}**.")
                 else:
                     await event.reply("ℹ️ Uso: `/mutear @usuario` o responde al mensaje del usuario en el grupo.")
+            elif cmd in ("/pausargrabacion", "/pausar_rec"):
+                ok, msg = await pausar_grabacion()
+                await event.reply(msg)
+                avisar_con_bot(msg)
+            elif cmd in ("/reanudargrabacion", "/reanudar_rec"):
+                ok, msg = await reanudar_grabacion()
+                await event.reply(msg)
+                avisar_con_bot(msg)
+            elif cmd in ("/detenergrabacion", "/cancelar_rec"):
+                ok, msg = await cancelar_grabacion()
+                await event.reply(msg)
+                avisar_con_bot(msg)
+            elif cmd in ("/estadograbacion", "/estado_rec"):
+                msg = estado_grabacion_str()
+                await event.reply(msg)
 
         # Escuchar si un admin sube la meditación de tarea en vivo
         @client.on(events.NewMessage(chats=entidad))
@@ -1554,27 +1644,39 @@ async def main() -> None:
             p["nombre"] for p in participantes.values() if p.get("hablo")
         ]
 
-        # Unir grabaciones de voz si existen (excluyendo meditación)
+        # Unir grabaciones de voz si existen y no fueron canceladas (excluyendo meditación)
         audio_para_ia = None
-        if os.path.exists(ruta_grabacion_pre) and os.path.exists(ruta_grabacion_post):
-            try:
-                cmd_cat = [
-                    "ffmpeg", "-y",
-                    "-i", ruta_grabacion_pre,
-                    "-i", ruta_grabacion_post,
-                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[out]",
-                    "-map", "[out]",
-                    ruta_grabacion_completa
-                ]
-                subprocess.run(cmd_cat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-                if os.path.exists(ruta_grabacion_completa) and os.path.getsize(ruta_grabacion_completa) > 1000:
-                    audio_para_ia = ruta_grabacion_completa
-            except Exception as e:
-                print("Nota combinando grabaciones con ffmpeg:", e)
-        elif os.path.exists(ruta_grabacion_pre) and os.path.getsize(ruta_grabacion_pre) > 1000:
-            audio_para_ia = ruta_grabacion_pre
-        elif os.path.exists(ruta_grabacion_post) and os.path.getsize(ruta_grabacion_post) > 1000:
-            audio_para_ia = ruta_grabacion_post
+        if not grabacion_cancelada:
+            valid_segments = [s for s in segmentos_grabados if os.path.exists(s) and os.path.getsize(s) > 1000]
+            if len(valid_segments) == 1:
+                audio_para_ia = valid_segments[0]
+            elif len(valid_segments) > 1:
+                try:
+                    ruta_concat_list = os.path.join(CARPETA_ASISTENCIAS, "concat_list.txt")
+                    with open(ruta_concat_list, "w", encoding="utf-8") as f:
+                        for seg in valid_segments:
+                            clean_path = seg.replace("\\", "/")
+                            f.write(f"file '{clean_path}'\n")
+                    cmd_cat = [
+                        "ffmpeg", "-y",
+                        "-f", "concat",
+                        "-safe", "0",
+                        "-i", ruta_concat_list,
+                        "-c:a", "libmp3lame",
+                        "-b:a", "64k",
+                        ruta_grabacion_completa
+                    ]
+                    subprocess.run(cmd_cat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+                    if os.path.exists(ruta_grabacion_completa) and os.path.getsize(ruta_grabacion_completa) > 1000:
+                        audio_para_ia = ruta_grabacion_completa
+                    try:
+                        os.remove(ruta_concat_list)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    print("Nota combinando grabaciones con ffmpeg:", e)
+        else:
+            print("Grabación cancelada durante la sesión; no se procesará audio.")
 
         resumen_ia = generar_resumen_ia(
             ruta_audio=audio_para_ia,
@@ -1583,6 +1685,8 @@ async def main() -> None:
             duracion_minutos=duracion_reunion_minutos,
             total_asistentes=len(asistentes_validos)
         )
+        if grabacion_cancelada:
+            resumen_ia = "⚠️ *Nota: La grabación de audio fue cancelada por la administración durante la sesión. Este informe se generó con base en los datos de participación sin almacenamiento de audio.*\n\n" + resumen_ia
 
         # Publicar Minuta Oficial en el Grupo
         txt_minuta_grupo = (
@@ -1613,7 +1717,13 @@ async def main() -> None:
         )
 
         # Limpiar temporales de grabación cruda
-        for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post):
+        for s in segmentos_grabados:
+            try:
+                if os.path.exists(s):
+                    os.remove(s)
+            except Exception:
+                pass
+        for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post, ruta_grabacion_completa):
             try:
                 if os.path.exists(f_tmp):
                     os.remove(f_tmp)

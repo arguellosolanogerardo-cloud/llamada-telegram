@@ -123,6 +123,11 @@ def generar_texto_reglas() -> str:
         "• Escribe `/resumen` para leer la minuta oficial de la última sesión.\n"
         "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
         "• Escribe `/acta [fecha]` para consultar el documento formal.\n\n"
+        "👑 **GRABACIÓN (SOLO ADMINS):**\n"
+        "• `/estadograbacion` — Consultar estado actual.\n"
+        "• `/pausargrabacion` — Pausar la grabación (ej. tema confidencial).\n"
+        "• `/reanudargrabacion` — Reanudar la grabación.\n"
+        "• `/detenergrabacion` — Cancelar y borrar grabación de hoy.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
     )
