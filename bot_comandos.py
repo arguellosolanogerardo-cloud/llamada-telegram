@@ -6,7 +6,7 @@ import urllib.parse
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
-from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio
+from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
@@ -271,17 +271,19 @@ def escuchar_comandos() -> None:
                             except Exception:
                                 pass
 
-                            anuncio = generar_anuncio_tarea(info_cat)
+                            fecha_admin = extraer_fecha_de_texto(texto)
+                            anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
                             teclado = armar_teclado_audio(chat_id, msg_id)
                             enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
 
                             # Enviar notificación privada a miembros registrados
+                            fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
                             usuarios = db.get("usuarios", {})
                             for u_id, datos in usuarios.items():
                                 if str(u_id) == str(chat_id):
                                     continue
                                 txt_priv = (
-                                    f"🕊️ **TAREA DEL DÍA** 🕊️\n"
+                                    f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
                                     f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
                                     f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
                                     f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
@@ -377,17 +379,19 @@ def escuchar_comandos() -> None:
                                     json.dump(info_cat, fm, ensure_ascii=False, indent=2)
                             except Exception:
                                 pass
-                            anuncio = generar_anuncio_tarea(info_cat)
+                            fecha_admin = extraer_fecha_de_texto(param_texto) or (extraer_fecha_de_texto(reply_m.get("text") or reply_m.get("caption") or "") if reply_m else None)
+                            anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
                             msg_id_audio = reply_m.get("message_id") if msg.get("reply_to_message") else None
                             teclado = armar_teclado_audio(chat_id, msg_id_audio)
                             enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
+                            fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
                             db_pts = cargar_puntos()
                             usuarios = db_pts.get("usuarios", {})
                             for u_id, datos in usuarios.items():
                                 if str(u_id) == str(chat_id):
                                     continue
                                 txt_priv = (
-                                    f"🕊️ **TAREA DEL DÍA** 🕊️\n"
+                                    f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
                                     f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
                                     f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
                                     f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"

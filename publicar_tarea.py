@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import json
 import urllib.request
 from datetime import datetime
@@ -9,6 +10,23 @@ from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, ca
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
+
+
+def extraer_fecha_de_texto(texto: str) -> str | None:
+    if not texto:
+        return None
+    # Detecta formatos DD/MM/AAAA, DD-MM-AAAA, D/M/AA, DD.MM.AAAA
+    m = re.search(r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})\b", texto)
+    if m:
+        dia, mes, anio = m.group(1), m.group(2), m.group(3)
+        if len(dia) == 1:
+            dia = f"0{dia}"
+        if len(mes) == 1:
+            mes = f"0{mes}"
+        if len(anio) == 2:
+            anio = f"20{anio}"
+        return f"{dia}/{mes}/{anio}"
+    return None
 
 
 def obtener_info_bot() -> str:
@@ -97,26 +115,38 @@ def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_
     return {"inline_keyboard": botones}
 
 
-def publicar_tarea_dia(parametro: str, msg_id_audio: int | str = None) -> dict | None:
-    """Identifica el audio por número o texto y envía el anuncio oficial al grupo y privados."""
+def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: int | str = None) -> dict | None:
+    """Identifica el audio por número o texto y envía el anuncio oficial al grupo y privados
+
+    utilizando la fecha provista por el administrador.
+    """
     info = identificar_audio_catalogo(texto=parametro)
     if not info:
         print(f"No se encontró información en el catálogo para: {parametro}")
         return None
 
-    tz_col = ZoneInfo("America/Bogota")
-    fecha_hoy_str = datetime.now(tz_col).strftime("%d/%m/%Y")
+    # Determinar la fecha provista por el administrador
+    fecha_final = None
+    if fecha_param and fecha_param.strip():
+        fecha_final = extraer_fecha_de_texto(fecha_param.strip()) or fecha_param.strip()
+    if not fecha_final:
+        fecha_final = extraer_fecha_de_texto(parametro)
+    if not fecha_final:
+        tz_col = ZoneInfo("America/Bogota")
+        fecha_final = datetime.now(tz_col).strftime("%d/%m/%Y")
 
     # Guardar metadatos del día
     os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
     ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
     try:
+        info_guardar = dict(info)
+        info_guardar["fecha_tarea_admin"] = fecha_final
         with open(ruta_meta, "w", encoding="utf-8") as f:
-            json.dump(info, f, ensure_ascii=False, indent=2)
+            json.dump(info_guardar, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("Nota guardando meta_hoy:", e)
 
-    texto_anuncio = generar_anuncio_tarea(info, fecha_hoy_str)
+    texto_anuncio = generar_anuncio_tarea(info, fecha_final)
     bot_username = obtener_info_bot()
     teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username) if CHAT_ID else None
 
@@ -124,7 +154,7 @@ def publicar_tarea_dia(parametro: str, msg_id_audio: int | str = None) -> dict |
     if CHAT_ID:
         ok_grupo = enviar_mensaje(CHAT_ID, texto_anuncio, reply_markup=teclado)
         if ok_grupo:
-            print(f"Anuncio de la tarea #{info['numero']} publicado en el grupo {CHAT_ID} con botón de audio.")
+            print(f"Anuncio de la tarea #{info['numero']} ({fecha_final}) publicado en el grupo {CHAT_ID} con botón de audio.")
         else:
             print(f"No se pudo publicar en el grupo {CHAT_ID}.")
     else:
@@ -141,7 +171,7 @@ def publicar_tarea_dia(parametro: str, msg_id_audio: int | str = None) -> dict |
                 if str(uid) == str(CHAT_ID):
                     continue
                 texto_priv = (
-                    f"🕊️ **TAREA DEL DÍA {fecha_hoy_str}** 🕊️\n"
+                    f"🕊️ **TAREA DEL DÍA {fecha_final}** 🕊️\n"
                     f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
                     f"🧘 **{info.get('tipo', 'MEDITACION').title()} #{info['numero']}:** «{info['titulo']}»\n"
                     f"👤 **Guía:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
@@ -159,5 +189,6 @@ def publicar_tarea_dia(parametro: str, msg_id_audio: int | str = None) -> dict |
 
 if __name__ == "__main__":
     param = sys.argv[1] if len(sys.argv) > 1 else "20"
-    msg_id = sys.argv[2] if len(sys.argv) > 2 else None
-    publicar_tarea_dia(param, msg_id)
+    fecha = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2].strip() else None
+    msg_id = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3].strip() else None
+    publicar_tarea_dia(param, fecha, msg_id)
