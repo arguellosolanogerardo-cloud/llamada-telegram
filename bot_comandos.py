@@ -3,6 +3,8 @@ import os
 import time
 import urllib.request
 import urllib.parse
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
@@ -11,6 +13,27 @@ from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_f
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot Comandos OK")
+
+    def log_message(self, format, *args):
+        pass
+
+
+def iniciar_servidor_health():
+    port = int(os.environ.get("PORT", 8000))
+    try:
+        server = HTTPServer(("0.0.0.0", port), HealthHandler)
+        server.serve_forever()
+    except Exception as e:
+        print("Nota servidor health check:", e)
+
 
 
 def obtener_rango(puntos: int) -> str:
@@ -230,7 +253,10 @@ def escuchar_comandos() -> None:
         print("Error: Define la variable de entorno BOT_TOKEN.")
         return
 
-    print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion, /buscar, /resumen, /acta...")
+    # Iniciar servidor HTTP para health check (Koyeb / Render)
+    threading.Thread(target=iniciar_servidor_health, daemon=True).start()
+
+    print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion, /buscar, /resumen, /acta, /tarea...")
     offset = 0
 
     while True:
@@ -259,7 +285,8 @@ def escuchar_comandos() -> None:
 
                 # Detectar si se subió un audio/documento de tarea o meditación
                 audio_obj = msg.get("audio") or msg.get("voice") or msg.get("document")
-                if audio_obj:
+                es_tarea_declarada = any(k in texto.upper() for k in ["MEDITACION DE TAREA", "TAREA DE MEDITACION", "TAREA DEL DÍA", "TAREA DEL DIA", "MEDITACION DE HOY"])
+                if audio_obj or es_tarea_declarada:
                     nombre_archivo = audio_obj.get("file_name", "") if isinstance(audio_obj, dict) else ""
                     if any(k in texto.upper() for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]) or any(k in nombre_archivo.upper() for k in ["MEDITACION", "MEDITACIÓN", "MENSAJE"]):
                         info_cat = identificar_audio_catalogo(texto, nombre_archivo)
