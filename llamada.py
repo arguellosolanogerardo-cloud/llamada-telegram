@@ -27,6 +27,7 @@ from telethon.tl.types import Channel, ChannelParticipantsAdmins, Chat, PeerUser
 
 from ia_resumen import generar_resumen_ia, guardar_minuta, buscar_en_minutas, obtener_minuta
 from generador_acta import generar_acta_pdf
+from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
 
 try:
     from pytgcalls import PyTgCalls
@@ -455,7 +456,7 @@ async def obtener_full_chat(client, entidad):
     return None
 
 
-async def buscar_audio_meditacion(client, entidad, admin_ids) -> str | None:
+async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | None, dict | None]:
     """Busca en los últimos 60 mensajes del grupo un audio de tarea publicado por administradores."""
     try:
         async for msg in client.iter_messages(entidad, limit=60):
@@ -464,16 +465,21 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> str | None:
                 continue
 
             texto = (msg.raw_text or "").upper()
-            if "MEDITACION DE TAREA" in texto or "MEDITACIÓN DE TAREA" in texto:
+            if any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
                 target_msg = msg
                 es_audio = False
+                nombre_archivo = ""
                 if target_msg.audio or target_msg.voice:
                     es_audio = True
+                    nombre_archivo = getattr(target_msg.audio, "file_name", "") or getattr(target_msg.voice, "file_name", "") or ""
                 elif target_msg.document and (
                     (target_msg.document.mime_type and "audio" in target_msg.document.mime_type)
                     or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(target_msg.document, "attributes", []))
                 ):
                     es_audio = True
+                    for a in getattr(target_msg.document, "attributes", []):
+                        if getattr(a, "file_name", ""):
+                            nombre_archivo = getattr(a, "file_name", "")
                 elif target_msg.is_reply:
                     reply = await target_msg.get_reply_message()
                     if reply and (reply.audio or reply.voice or (reply.document and (
@@ -482,6 +488,10 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> str | None:
                     ))):
                         target_msg = reply
                         es_audio = True
+                        if target_msg.document:
+                            for a in getattr(target_msg.document, "attributes", []):
+                                if getattr(a, "file_name", ""):
+                                    nombre_archivo = getattr(a, "file_name", "")
 
                 if es_audio:
                     os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
@@ -489,10 +499,18 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> str | None:
                     print(f"Descargando audio de meditación del mensaje ID {target_msg.id}...")
                     await client.download_media(target_msg, file=ruta)
                     print("Audio de meditación descargado exitosamente en:", ruta)
-                    return ruta
+                    info_cat = identificar_audio_catalogo(msg.raw_text or "", nombre_archivo)
+                    if info_cat:
+                        try:
+                            ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+                            with open(ruta_meta, "w", encoding="utf-8") as fm:
+                                json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+                    return ruta, info_cat
     except Exception as e:
         print("Nota buscando audio de meditación:", e)
-    return None
+    return None, None
 
 
 def generar_texto_turnos(cola: list, oradores: list) -> str:
@@ -719,7 +737,7 @@ async def main() -> None:
                 print("Nota iniciando PyTgCalls:", e)
 
         # Buscar si ya existe un audio de meditación subido hoy por administradores
-        ruta_meditacion = await buscar_audio_meditacion(client, entidad, admin_ids)
+        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
         reproduciendo_meditacion = False
         reproduccion_iniciada = False
         aviso_oracion_enviado = False
@@ -747,7 +765,10 @@ async def main() -> None:
                 await tgcalls.play(destino, ruta_a_reproducir)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
-                avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.")
+                if info_catalogo_hoy:
+                    avisar_con_bot(f"▶️ **Iniciando reproducción oficial:**\n{formatear_info_audio(info_catalogo_hoy)}\n🧘 Por favor disfruten de su sesión en silencio.")
+                else:
+                    avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.")
                 return True
             except Exception as e:
                 print("Error reproduciendo meditación:", e)
@@ -886,9 +907,9 @@ async def main() -> None:
             partes_cmd = event.raw_text.strip().split()
             cmd = partes_cmd[0].lower().split("@")[0]
             if cmd in ("/reproducir", "/play"):
-                nonlocal ruta_meditacion
+                nonlocal ruta_meditacion, info_catalogo_hoy
                 if not ruta_meditacion or not os.path.exists(ruta_meditacion):
-                    ruta_meditacion = await buscar_audio_meditacion(client, entidad, admin_ids)
+                    ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
                 if tgcalls and ruta_meditacion and os.path.exists(ruta_meditacion):
                     ok = await reproducir_meditacion()
                     if ok:
@@ -1030,22 +1051,27 @@ async def main() -> None:
         # Escuchar si un admin sube la meditación de tarea en vivo
         @client.on(events.NewMessage(chats=entidad))
         async def detectar_nueva_meditacion(event):
-            nonlocal ruta_meditacion
+            nonlocal ruta_meditacion, info_catalogo_hoy
             sender_id = event.sender_id
             if sender_id not in admin_ids:
                 return
 
             texto = (event.raw_text or "").upper()
-            if "MEDITACION DE TAREA" in texto or "MEDITACIÓN DE TAREA" in texto:
+            if any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
                 target_msg = event.message
                 es_audio = False
+                nombre_archivo = ""
                 if target_msg.audio or target_msg.voice:
                     es_audio = True
+                    nombre_archivo = getattr(target_msg.audio, "file_name", "") or getattr(target_msg.voice, "file_name", "") or ""
                 elif target_msg.document and (
                     (target_msg.document.mime_type and "audio" in target_msg.document.mime_type)
                     or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(target_msg.document, "attributes", []))
                 ):
                     es_audio = True
+                    for a in getattr(target_msg.document, "attributes", []):
+                        if getattr(a, "file_name", ""):
+                            nombre_archivo = getattr(a, "file_name", "")
                 elif target_msg.is_reply:
                     reply = await target_msg.get_reply_message()
                     if reply and (reply.audio or reply.voice or (reply.document and (
@@ -1054,14 +1080,30 @@ async def main() -> None:
                     ))):
                         target_msg = reply
                         es_audio = True
+                        if target_msg.document:
+                            for a in getattr(target_msg.document, "attributes", []):
+                                if getattr(a, "file_name", ""):
+                                    nombre_archivo = getattr(a, "file_name", "")
 
                 if es_audio:
                     os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
                     ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
                     await client.download_media(target_msg, file=ruta)
                     ruta_meditacion = ruta
+                    info_catalogo_hoy = identificar_audio_catalogo(event.raw_text or "", nombre_archivo)
                     print("Nueva meditación recibida y guardada:", ruta)
-                    await event.reply("✅ Meditación recibida. Programada para reproducirse hoy a las 8:32 PM en la sala de voz.")
+                    if info_catalogo_hoy:
+                        try:
+                            ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+                            with open(ruta_meta, "w", encoding="utf-8") as fm:
+                                json.dump(info_catalogo_hoy, fm, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+                        txt_card = formatear_info_audio(info_catalogo_hoy)
+                        await event.reply(f"✅ **Audio identificado en el Catálogo:**\n\n{txt_card}\n\nProgramado para reproducirse hoy a las 8:32 PM.")
+                        avisar_con_bot(f"📢 **Tarea de hoy registrada:**\n\n{txt_card}")
+                    else:
+                        await event.reply("✅ Meditación recibida. Programada para reproducirse hoy a las 8:32 PM en la sala de voz.")
 
         segundos_totales = 0
         tiempo_limite_segundos = DURACION_MAXIMA_MINUTOS * 60
@@ -1140,6 +1182,10 @@ async def main() -> None:
                     ]
                 }
 
+                extra_med_txt = ""
+                if info_catalogo_hoy:
+                    extra_med_txt = f": {info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']} - «{info_catalogo_hoy['titulo']}» ({info_catalogo_hoy['maestro']})"
+
                 texto_oracion = (
                     "🕊️ **MOMENTO DE ORACIÓN EN SILENCIO (5 MINUTOS)** 🕊️\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1149,7 +1195,7 @@ async def main() -> None:
                     "⏰ **Cronograma del momento:**\n"
                     "• **8:24 PM – 8:29 PM:** Oración y recogimiento en silencio (5 min).\n"
                     "• **8:29 PM – 8:32 PM:** Espera y respiración consciente (3 min).\n"
-                    "• **8:32 PM:** Inicio de la Meditación diaria."
+                    f"• **8:32 PM:** Inicio de la Meditación diaria{extra_med_txt}."
                 )
                 avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion)
 
@@ -1165,7 +1211,17 @@ async def main() -> None:
 
             # 8:31 PM: Alerta 1 minuto antes de la meditación
             if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado and ruta_meditacion and os.path.exists(ruta_meditacion):
-                avisar_con_bot("🧘 **En 1 minuto dará inicio la meditación diaria.**\nPor favor continúen en silencio y tomen una postura cómoda.")
+                if info_catalogo_hoy:
+                    txt_alerta_med = (
+                        f"🧘 **En 1 minuto dará inicio la {info_catalogo_hoy['tipo'].lower()} diaria:**\n"
+                        f"📌 **{info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}:** «{info_catalogo_hoy['titulo']}»\n"
+                        f"👤 **Guía / Maestro:** {info_catalogo_hoy['maestro']}\n"
+                        f"🗓️ **Grabación original:** {info_catalogo_hoy['fecha']}\n\n"
+                        "Por favor continúen en silencio y tomen una postura cómoda."
+                    )
+                else:
+                    txt_alerta_med = "🧘 **En 1 minuto dará inicio la meditación diaria.**\nPor favor continúen en silencio y tomen una postura cómoda."
+                avisar_con_bot(txt_alerta_med)
                 aviso_meditacion_enviado = True
 
             # 8:32 PM: Reproducción automática de la meditación
@@ -1349,7 +1405,10 @@ async def main() -> None:
             # Actualización del mensaje fijado dinámico cada ~5 min
             if msg_fijado and (segundos_totales // INTERVALO_SONDEO_SEGUNDOS) % 15 == 0:
                 if reproduciendo_meditacion:
-                    fase = "🧘 Meditación diaria en curso..."
+                    if info_catalogo_hoy:
+                        fase = f"🧘 {info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}: «{info_catalogo_hoy['titulo']}» en curso..."
+                    else:
+                        fase = "🧘 Meditación diaria en curso..."
                 elif reproduccion_iniciada:
                     fase = "🎙️ Ronda de preguntas y compartir"
                 elif aviso_espera_enviado and not reproduccion_iniciada:
@@ -1358,13 +1417,18 @@ async def main() -> None:
                     fase = "🕊️ Momento de Oración en Silencio (5 min)"
                 else:
                     fase = "💬 Charla inicial y bienvenida"
+
+                txt_med_status = "Reproducida" if reproduccion_iniciada else "8:32 PM"
+                if info_catalogo_hoy:
+                    txt_med_status += f" ({info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']})"
+
                 nuevo_texto_fijado = (
                     "🎙️ **ESTADO DE LA SALA EN VIVO**\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"📅 Fecha: {fecha_hoy} | ⏰ En vivo desde: {inicio_llamada.strftime('%I:%M %p')}\n"
                     f"👥 **Conectados ahora:** {num_activos} personas\n"
                     f"⏳ **Fase actual:** {fase}\n"
-                    f"🧘 **Meditación:** {'Reproducida' if reproduccion_iniciada else '8:32 PM'}\n\n"
+                    f"🧘 **Meditación:** {txt_med_status}\n\n"
                     "🟢 Entra al chat de voz tocando el botón del anuncio principal."
                 )
                 try:
@@ -1723,11 +1787,15 @@ async def main() -> None:
                     pass
 
         # Reporte Privado para el Dueño
+        med_detalle = 'Sí' if meditacion_activa_hoy else 'No'
+        if meditacion_activa_hoy and info_catalogo_hoy:
+            med_detalle += f" ({info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}: «{info_catalogo_hoy['titulo']}» | Maestro: {info_catalogo_hoy['maestro']} | Grabado: {info_catalogo_hoy['fecha']})"
+
         lineas_priv = [
             "🔐 **REPORTE ADMINISTRATIVO DETALLADO (SOLO DUEÑO)**",
             f"📅 Fecha: {fecha_hoy} | ⏰ {inicio_llamada.strftime('%I:%M:%S %p')} – {fin_llamada.strftime('%I:%M:%S %p')}",
             f"⏱️ Duración total: {duracion_reunion_minutos} minutos (Motivo cierre: {motivo_cierre})",
-            f"🧘 Meditación diaria reproducida: {'Sí' if meditacion_activa_hoy else 'No'}",
+            f"🧘 Meditación/Mensaje reproducido: {med_detalle}",
             f"👥 Total que entraron: {len(participantes)} | ✅ Válidos: {len(asistentes_validos)} | ⚠️ Fugaces: {len(visitas_fugaces)}\n",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "📋 **DESGLOSE INDIVIDUAL DE ASISTENTES:**",
@@ -1803,7 +1871,8 @@ async def main() -> None:
             oradores=oradores_sesion,
             fecha=fecha_hoy,
             duracion_minutos=duracion_reunion_minutos,
-            total_asistentes=len(asistentes_validos)
+            total_asistentes=len(asistentes_validos),
+            info_catalogo=info_catalogo_hoy,
         )
         if grabacion_cancelada:
             resumen_ia = "⚠️ *Nota: La grabación de audio fue cancelada por la administración durante la sesión. Este informe se generó con base en los datos de participación sin almacenamiento de audio.*\n\n" + resumen_ia
@@ -1823,7 +1892,8 @@ async def main() -> None:
             fin_str=fin_llamada.strftime("%I:%M %p"),
             duracion_minutos=duracion_reunion_minutos,
             asistentes=asistentes_validos,
-            resumen_ia=resumen_ia
+            resumen_ia=resumen_ia,
+            info_catalogo=info_catalogo_hoy,
         )
 
         # Guardar en base histórica de minutas para búsquedas posteriores
@@ -1833,7 +1903,8 @@ async def main() -> None:
             asistentes_count=len(asistentes_validos),
             oradores=oradores_sesion,
             resumen_texto=resumen_ia,
-            ruta_pdf=ruta_acta_pdf
+            ruta_pdf=ruta_acta_pdf,
+            info_catalogo=info_catalogo_hoy,
         )
 
         me = await client.get_me()
@@ -1852,10 +1923,13 @@ async def main() -> None:
                         caption=f"📊 Archivo de Asistencia y Puntos - {fecha_hoy}",
                     )
                 if os.path.exists(ruta_acta_pdf):
+                    caption_acta = f"📄 **Acta Oficial de la Reunión (PDF) - {fecha_hoy}**\nIncluye lista de asistencia y resumen."
+                    if info_catalogo_hoy:
+                        caption_acta += f"\n🧘 {info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}: «{info_catalogo_hoy['titulo']}» ({info_catalogo_hoy['maestro']})"
                     await client.send_file(
                         me.id,
                         ruta_acta_pdf,
-                        caption=f"📄 **Acta Oficial de la Reunión (PDF) - {fecha_hoy}**\nIncluye lista de asistencia y resumen.",
+                        caption=caption_acta,
                     )
                 # Enviar grabación de audio de la sesión (excluyendo meditación) exclusivamente al dueño
                 if audio_para_ia and os.path.exists(audio_para_ia) and not grabacion_cancelada:

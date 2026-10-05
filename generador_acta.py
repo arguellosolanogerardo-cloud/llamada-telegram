@@ -21,7 +21,8 @@ def generar_acta_pdf(
     duracion_minutos: int,
     asistentes: list,
     resumen_ia: str,
-    ruta_salida: str = None
+    ruta_salida: str = None,
+    info_catalogo: dict = None
 ) -> str:
     """Genera un documento PDF formal con el acta de la reunión, resumen y lista de asistentes."""
     if not ruta_salida:
@@ -163,6 +164,19 @@ def generar_acta_pdf(
             Paragraph(f"{num_hablaron} personas", meta_val),
         ],
     ]
+
+    if info_catalogo:
+        tipo_lbl = info_catalogo.get("tipo", "Meditación").capitalize()
+        num = info_catalogo.get("numero", "")
+        tit = info_catalogo.get("titulo", "")
+        mae = info_catalogo.get("maestro", "Alaniso")
+        f_orig = info_catalogo.get("fecha_original") or info_catalogo.get("fecha", "")
+        datos_meta.append([
+            Paragraph(f"<b>{tipo_lbl} #{num}:</b>", meta_label),
+            Paragraph(f"«{tit}»", meta_val),
+            Paragraph("<b>Maestro / Grabación:</b>", meta_label),
+            Paragraph(f"{mae} ({f_orig})", meta_val),
+        ])
 
     tabla_meta = Table(datos_meta, colWidths=[90, 180, 150, 120])
     tabla_meta.setStyle(

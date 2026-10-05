@@ -5,6 +5,7 @@ import urllib.request
 import urllib.parse
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
+from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
@@ -268,20 +269,64 @@ def escuchar_comandos() -> None:
                 elif cmd in ("/ranking", "/top") or (cmd == "/start" and param == "ranking"):
                     resp = generar_texto_ranking(db)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
-                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio"):
-                    ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
-                    if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
-                        enviar_audio(
-                            chat_id,
-                            ruta_med,
-                            caption="🧘 **Meditación Diaria**\nAquí tienes el audio de hoy para que realices tu práctica en diferido."
-                        )
+                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje"):
+                    param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
+                    if param_texto:
+                        prefijo = "mensaje" if cmd == "/mensaje" else "meditacion"
+                        busqueda = f"{prefijo} {param_texto}" if not any(w in param_texto.lower() for w in ["meditacion", "mensaje"]) else param_texto
+                        info_cat = identificar_audio_catalogo(texto=busqueda)
+                        if info_cat:
+                            txt_cat = (
+                                f"🧘 **CATÁLOGO OFICIAL DE AUDIOS**\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"📌 **{info_cat['tipo']} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                f"👤 **Maestro / Guía:** {info_cat['maestro']}\n"
+                                f"🗓️ **Fecha de grabación original:** {info_cat['fecha']}"
+                            )
+                            enviar_mensaje(chat_id, txt_cat, reply_to_message_id=msg_id)
+                        else:
+                            enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
                     else:
-                        enviar_mensaje(
-                            chat_id,
-                            "🧘 **Meditación Diaria:**\nAún no hay un audio de meditación disponible para hoy. Consulta más tarde o revisa el grupo.",
-                            reply_to_message_id=msg_id
-                        )
+                        ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
+                        info_cat = None
+                        if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
+                            ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
+                            if os.path.exists(ruta_meta):
+                                try:
+                                    with open(ruta_meta, "r", encoding="utf-8") as fm:
+                                        info_cat = json.load(fm)
+                                except Exception:
+                                    pass
+                            if not info_cat:
+                                info_cat = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
+
+                            caption = "🧘 **Meditación Diaria**\nAquí tienes el audio de hoy para que realices tu práctica en diferido."
+                            title = "Meditación Diaria"
+                            performer = "Comunidad"
+                            if info_cat:
+                                caption = (
+                                    f"🧘 **{info_cat['tipo']} #{info_cat['numero']}**\n"
+                                    f"📌 **Título:** «{info_cat['titulo']}»\n"
+                                    f"👤 **Guía:** {info_cat['maestro']}\n"
+                                    f"🗓️ **Grabación original:** {info_cat['fecha']}\n\n"
+                                    "Audio de hoy para tu práctica en diferido."
+                                )
+                                title = f"{info_cat['tipo']} #{info_cat['numero']} - {info_cat['titulo']}"
+                                performer = info_cat["maestro"]
+
+                            enviar_audio(
+                                chat_id,
+                                ruta_med,
+                                caption=caption,
+                                title=title,
+                                performer=performer
+                            )
+                        else:
+                            enviar_mensaje(
+                                chat_id,
+                                "🧘 **Meditación Diaria:**\nAún no hay un audio de meditación disponible para hoy. Puedes consultar el catálogo escribiendo `/meditacion [número]` o `/mensaje [número]`.",
+                                reply_to_message_id=msg_id
+                            )
                 elif cmd in ("/turno", "/pedirturno", "/ceder", "/turnos", "/mano"):
                     resp = (
                         "🎙️ **Moderación y Turnos de Palabra:**\n"

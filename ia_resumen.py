@@ -25,7 +25,8 @@ def guardar_minuta(
     asistentes_count: int,
     oradores: list,
     resumen_texto: str,
-    ruta_pdf: str = ""
+    ruta_pdf: str = "",
+    info_catalogo: dict = None
 ) -> None:
     """Guarda la minuta de una reunión en la base de datos histórica de minutas."""
     os.makedirs(os.path.dirname(RUTA_MINUTAS_JSON), exist_ok=True)
@@ -37,6 +38,7 @@ def guardar_minuta(
         "oradores": oradores,
         "resumen": resumen_texto,
         "ruta_pdf": ruta_pdf,
+        "info_catalogo": info_catalogo or {},
     }
     try:
         with open(RUTA_MINUTAS_JSON, "w", encoding="utf-8") as f:
@@ -60,7 +62,9 @@ def buscar_en_minutas(termino: str) -> str:
     for fecha, datos in sorted(db.items(), reverse=True):
         resumen = datos.get("resumen", "")
         oradores = [o.lower() for o in datos.get("oradores", [])]
-        texto_busqueda = f"{resumen.lower()} {' '.join(oradores)} {fecha}"
+        cat_info = datos.get("info_catalogo", {})
+        cat_txt = f"{cat_info.get('titulo', '')} {cat_info.get('maestro', '')} {cat_info.get('tipo', '')} {cat_info.get('numero', '')}".lower()
+        texto_busqueda = f"{resumen.lower()} {' '.join(oradores)} {fecha} {cat_txt}"
 
         if termino in texto_busqueda:
             # Extraer un fragmento relevante de 150 caracteres
@@ -126,14 +130,29 @@ def generar_resumen_ia(
     oradores: list,
     fecha: str,
     duracion_minutos: int,
-    total_asistentes: int = 0
+    total_asistentes: int = 0,
+    info_catalogo: dict = None
 ) -> str:
     """Transcribe y genera el resumen oficial con atribución de oradores (Diarización) usando Gemini."""
     txt_oradores = "\n".join([f"- {o}" for o in oradores]) if oradores else "No hubo intervenciones individuales registradas."
 
+    txt_catalogo = ""
+    if info_catalogo:
+        t_tipo = info_catalogo.get("tipo", "Meditación").capitalize()
+        t_num = info_catalogo.get("numero", "")
+        t_tit = info_catalogo.get("titulo", "")
+        t_mae = info_catalogo.get("maestro", "Alaniso")
+        t_fec = info_catalogo.get("fecha_original") or info_catalogo.get("fecha", "")
+        txt_catalogo = (
+            f"\nEn esta reunión se compartió el audio oficial: {t_tipo} #{t_num} titulado '{t_tit}', "
+            f"transmitido por el Maestro {t_mae} (Grabación original: {t_fec}). "
+            "Considera este contexto espiritual en la síntesis.\n"
+        )
+
     prompt_instrucciones = (
         f"Eres el redactor oficial de la reunión comunitaria del {fecha}.\n"
-        f"Duración: {duracion_minutos} minutos. Participantes con uso de la palabra:\n{txt_oradores}\n\n"
+        f"Duración: {duracion_minutos} minutos. Participantes con uso de la palabra:\n{txt_oradores}\n"
+        f"{txt_catalogo}\n"
         "Se ha extraído el audio de la llamada excluyendo la meditación para analizar únicamente las intervenciones de las personas.\n\n"
         "Redacta el informe oficial estructurado EXACTAMENTE en estas 3 secciones:\n\n"
         "📌 RESUMEN EJECUTIVO:\n"
