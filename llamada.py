@@ -50,11 +50,35 @@ def hora_california() -> str:
     return hoy.astimezone(california).strftime("%I:%M %p").lstrip("0").lower()
 
 
-def obtener_url_llamada() -> str | None:
+async def obtener_url_llamada(client, entidad, full_chat) -> str | None:
+    link_env = os.environ.get("GROUP_INVITE_LINK", "").strip()
+    if link_env:
+        return f"{link_env}?videochat" if not link_env.endswith("?videochat") else link_env
+
     if GRUPO.startswith("@"):
         return f"https://t.me/{GRUPO.lstrip('@')}?videochat"
     elif GRUPO.startswith("https://t.me/"):
         return f"{GRUPO}?videochat"
+
+    # Si la entidad tiene username público
+    username = getattr(entidad, "username", None)
+    if username:
+        return f"https://t.me/{username}?videochat"
+
+    # Si el chat tiene enlace exportado
+    exported = getattr(full_chat, "exported_invite", None)
+    if exported and getattr(exported, "link", None):
+        return f"{exported.link}?videochat"
+
+    # Si no, exportar enlace de invitación con Telethon
+    try:
+        from telethon.tl.functions.messages import ExportChatInviteRequest
+        inv = await client(ExportChatInviteRequest(peer=entidad))
+        if getattr(inv, "link", None):
+            return f"{inv.link}?videochat"
+    except Exception as e:
+        print("Nota resolviendo enlace de invitacion:", e)
+
     return None
 
 
@@ -233,7 +257,8 @@ async def main() -> None:
             print("Ya existía un chat de voz activo en el grupo.")
 
         # Enviar aviso inicial con botón interactivo de unirse
-        url_llamada = obtener_url_llamada()
+        url_llamada = await obtener_url_llamada(client, entidad, full_chat)
+        print("Enlace de llamada obtenido para el botón:", url_llamada)
         avisar_con_bot(AVISO, boton_url=url_llamada)
 
         if not full_chat or not full_chat.call:
