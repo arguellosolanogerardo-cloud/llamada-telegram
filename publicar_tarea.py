@@ -201,20 +201,6 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
         tz_col = ZoneInfo("America/Bogota")
         fecha_final = datetime.now(tz_col).strftime("%d/%m/%Y")
 
-    # Guardar metadatos del día
-    os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
-    ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
-    try:
-        info_guardar = dict(info)
-        info_guardar["fecha_tarea_admin"] = fecha_final
-        with open(ruta_meta, "w", encoding="utf-8") as f:
-            json.dump(info_guardar, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print("Nota guardando meta_hoy:", e)
-
-    texto_anuncio = generar_anuncio_tarea(info, fecha_final)
-    bot_username = obtener_info_bot()
-
     # Si no se pasó msg_id_audio, intentar localizarlo automáticamente en el grupo
     username_grupo = None
     if not msg_id_audio and CHAT_ID:
@@ -222,6 +208,34 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
         if msg_id_audio:
             print(f"Mensaje del audio detectado automáticamente: ID {msg_id_audio}")
 
+    # Guardar metadatos del día
+    os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+    ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
+    try:
+        info_guardar = dict(info)
+        info_guardar["fecha_tarea_admin"] = fecha_final
+        if msg_id_audio:
+            info_guardar["msg_id_audio"] = msg_id_audio
+        with open(ruta_meta, "w", encoding="utf-8") as f:
+            json.dump(info_guardar, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Nota guardando meta_hoy:", e)
+
+    # Sincronizar metadatos con el bot en Render si está activo
+    try:
+        url_render = os.environ.get("RENDER_BOT_URL", "https://bot-meditaciones.onrender.com/tarea")
+        req_sync = urllib.request.Request(
+            url_render,
+            data=json.dumps({"info": info_guardar, "msg_id_audio": msg_id_audio}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "PublicarTareaClient"}
+        )
+        with urllib.request.urlopen(req_sync, timeout=5) as r_sync:
+            print("Metadatos de la tarea sincronizados con Render.")
+    except Exception as e_sync:
+        pass
+
+    texto_anuncio = generar_anuncio_tarea(info, fecha_final)
+    bot_username = obtener_info_bot()
     teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo) if CHAT_ID else None
 
     # 1. Enviar al Grupo Principal con botón directo al audio
