@@ -104,6 +104,8 @@ def generar_texto_reglas() -> str:
         "• Asistencia parcial: **+20 a +35 pts**\n\n"
         "🎙️ **MICRÓFONO / VOZ:**\n"
         "• Hablar y aportar activamente: **+20 pts**\n\n"
+        "🧘 **MEDITACIÓN DIARIA (8:32 PM):**\n"
+        "• Participar en la meditación: **+30 pts**\n\n"
         "🔥 **RACHAS:**\n"
         "• Asistir días seguidos: **+5 pts extra por día consecutivo**\n\n"
         "🏅 **MEDALLAS ESPECIALES:**\n"

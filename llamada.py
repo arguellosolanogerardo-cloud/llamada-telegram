@@ -16,8 +16,15 @@ from telethon.tl.functions.phone import (
     CreateGroupCallRequest,
     DiscardGroupCallRequest,
     GetGroupCallRequest,
+    ToggleGroupCallSettingsRequest,
 )
-from telethon.tl.types import Channel, Chat, PeerUser
+from telethon.tl.types import Channel, ChannelParticipantsAdmins, Chat, PeerUser
+
+try:
+    from pytgcalls import PyTgCalls
+    PYTGCALLS_AVAILABLE = True
+except ImportError:
+    PYTGCALLS_AVAILABLE = False
 
 # Credenciales obligatorias
 API_ID = int(os.environ.get("TG_API_ID", "0"))
@@ -41,6 +48,7 @@ AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "4
 
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 CARPETA_ASISTENCIAS = os.path.join("data", "asistencias")
+CARPETA_MEDITACIONES = os.path.join("data", "meditaciones")
 
 
 def hora_california() -> str:
@@ -220,6 +228,8 @@ def generar_texto_reglas() -> str:
         "• Asistencia parcial: **+20 a +35 pts**\n\n"
         "🎙️ **MICRÓFONO / VOZ:**\n"
         "• Hablar y aportar activamente: **+20 pts**\n\n"
+        "🧘 **MEDITACIÓN DIARIA (8:32 PM):**\n"
+        "• Participar en la meditación: **+30 pts**\n\n"
         "🔥 **RACHAS:**\n"
         "• Asistir días seguidos: **+5 pts extra por día consecutivo**\n\n"
         "🏅 **MEDALLAS ESPECIALES:**\n"
@@ -241,6 +251,46 @@ async def obtener_full_chat(client, entidad):
     return None
 
 
+async def buscar_audio_meditacion(client, entidad, admin_ids) -> str | None:
+    """Busca en los últimos 60 mensajes del grupo un audio de tarea publicado por administradores."""
+    try:
+        async for msg in client.iter_messages(entidad, limit=60):
+            sender_id = msg.sender_id
+            if sender_id not in admin_ids:
+                continue
+
+            texto = (msg.raw_text or "").upper()
+            if "MEDITACION DE TAREA" in texto or "MEDITACIÓN DE TAREA" in texto:
+                target_msg = msg
+                es_audio = False
+                if target_msg.audio or target_msg.voice:
+                    es_audio = True
+                elif target_msg.document and (
+                    (target_msg.document.mime_type and "audio" in target_msg.document.mime_type)
+                    or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(target_msg.document, "attributes", []))
+                ):
+                    es_audio = True
+                elif target_msg.is_reply:
+                    reply = await target_msg.get_reply_message()
+                    if reply and (reply.audio or reply.voice or (reply.document and (
+                        (reply.document.mime_type and "audio" in reply.document.mime_type)
+                        or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(reply.document, "attributes", []))
+                    ))):
+                        target_msg = reply
+                        es_audio = True
+
+                if es_audio:
+                    os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+                    ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
+                    print(f"Descargando audio de meditación del mensaje ID {target_msg.id}...")
+                    await client.download_media(target_msg, file=ruta)
+                    print("Audio de meditación descargado exitosamente en:", ruta)
+                    return ruta
+    except Exception as e:
+        print("Nota buscando audio de meditación:", e)
+    return None
+
+
 async def main() -> None:
     tz_col = ZoneInfo("America/Bogota")
     inicio_llamada = datetime.now(tz_col)
@@ -254,6 +304,21 @@ async def main() -> None:
         except ValueError:
             destino = GRUPO
         entidad = await client.get_entity(destino)
+
+        # 0. Obtener IDs de Administradores
+        admin_ids = set()
+        me = await client.get_me()
+        if me:
+            admin_ids.add(me.id)
+        if hasattr(entidad, "id"):
+            admin_ids.add(entidad.id)
+
+        try:
+            if isinstance(entidad, (Channel, Chat)):
+                async for admin in client.iter_participants(entidad, filter=ChannelParticipantsAdmins):
+                    admin_ids.add(admin.id)
+        except Exception as e:
+            print("Nota obteniendo administradores:", e)
 
         full_chat = await obtener_full_chat(client, entidad)
         if not full_chat:
@@ -278,7 +343,7 @@ async def main() -> None:
         else:
             print("Ya existía un chat de voz activo en el grupo.")
 
-        # Enviar aviso inicial con botón interactivo de unirse
+        # Enviar aviso inicial con panel interactivo
         url_llamada = await obtener_url_llamada(client, entidad, full_chat)
         print("Enlace de llamada obtenido para el botón:", url_llamada)
         avisar_con_bot(AVISO, boton_url=url_llamada)
@@ -290,7 +355,63 @@ async def main() -> None:
         input_call = full_chat.call
         print(f"Iniciando monitoreo de la sala (Máx: {DURACION_MAXIMA_MINUTOS} min)...")
 
-        # Escuchar comandos de usuarios en vivo durante la llamada
+        # Iniciar servicio PyTgCalls si está disponible
+        tgcalls = None
+        if PYTGCALLS_AVAILABLE:
+            try:
+                tgcalls = PyTgCalls(client)
+                await tgcalls.start()
+                print("Servicio de audio PyTgCalls iniciado exitosamente.")
+            except Exception as e:
+                print("Nota iniciando PyTgCalls:", e)
+
+        # Buscar si ya existe un audio de meditación subido hoy por administradores
+        ruta_meditacion = await buscar_audio_meditacion(client, entidad, admin_ids)
+        reproduciendo_meditacion = False
+        reproduccion_iniciada = False
+        aviso_meditacion_enviado = False
+        meditacion_activa_hoy = False
+
+        async def reproducir_meditacion():
+            nonlocal reproduciendo_meditacion, meditacion_activa_hoy
+            if not tgcalls or not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                return False
+            try:
+                # Silenciar a nuevos participantes para evitar ruidos de fondo
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
+                except Exception:
+                    pass
+
+                await tgcalls.play(destino, ruta_meditacion)
+                reproduciendo_meditacion = True
+                meditacion_activa_hoy = True
+                avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.")
+                return True
+            except Exception as e:
+                print("Error reproduciendo meditación:", e)
+                return False
+
+        # Configurar evento de fin de audio en PyTgCalls
+        if tgcalls:
+            try:
+                from pytgcalls.types import StreamEnded
+                @tgcalls.on_update()
+                async def manejar_fin_stream(client_call, update):
+                    if isinstance(update, StreamEnded):
+                        nonlocal reproduciendo_meditacion
+                        if reproduciendo_meditacion:
+                            reproduciendo_meditacion = False
+                            print("Reproducción de meditación concluida automáticamente.")
+                            try:
+                                await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                            except Exception:
+                                pass
+                            avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!")
+            except Exception as e:
+                print("Nota configurando StreamEnded handler:", e)
+
+        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda)
         @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start)"))
         async def responder_comandos_en_vivo(event):
             partes = event.raw_text.strip().split()
@@ -311,6 +432,91 @@ async def main() -> None:
 
             await event.reply(resp)
 
+        # Escuchar controles de meditación exclusivos para administradores
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop)"))
+        async def controlar_meditacion_admin(event):
+            sender = await event.get_sender()
+            uid = sender.id if sender else event.sender_id
+            if uid not in admin_ids:
+                await event.reply("⛔ Solo los administradores pueden controlar la reproducción de la meditación.")
+                return
+
+            cmd = event.raw_text.strip().split()[0].lower().split("@")[0]
+            if cmd in ("/reproducir", "/play"):
+                nonlocal ruta_meditacion
+                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                    ruta_meditacion = await buscar_audio_meditacion(client, entidad, admin_ids)
+                if tgcalls and ruta_meditacion and os.path.exists(ruta_meditacion):
+                    ok = await reproducir_meditacion()
+                    if ok:
+                        await event.reply("▶️ Reproduciendo meditación en la sala de voz...")
+                    else:
+                        await event.reply("❌ Error iniciando la reproducción de la meditación.")
+                else:
+                    await event.reply("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
+            elif cmd in ("/pausar", "/pause"):
+                if tgcalls:
+                    try:
+                        await tgcalls.pause(destino)
+                        await event.reply("⏸️ Meditación pausada.")
+                    except Exception as e:
+                        await event.reply(f"Error al pausar: {e}")
+            elif cmd in ("/continuar", "/resume"):
+                if tgcalls:
+                    try:
+                        await tgcalls.resume(destino)
+                        await event.reply("▶️ Meditación reanudada.")
+                    except Exception as e:
+                        await event.reply(f"Error al reanudar: {e}")
+            elif cmd in ("/detener", "/stop"):
+                if tgcalls:
+                    try:
+                        await tgcalls.leave_call(destino)
+                        reproduciendo_meditacion = False
+                        try:
+                            await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                        except Exception:
+                            pass
+                        await event.reply("⏹️ Reproducción finalizada. Micrófonos restablecidos.")
+                    except Exception as e:
+                        await event.reply(f"Error al detener: {e}")
+
+        # Escuchar si un admin sube la meditación de tarea en vivo
+        @client.on(events.NewMessage(chats=entidad))
+        async def detectar_nueva_meditacion(event):
+            nonlocal ruta_meditacion
+            sender_id = event.sender_id
+            if sender_id not in admin_ids:
+                return
+
+            texto = (event.raw_text or "").upper()
+            if "MEDITACION DE TAREA" in texto or "MEDITACIÓN DE TAREA" in texto:
+                target_msg = event.message
+                es_audio = False
+                if target_msg.audio or target_msg.voice:
+                    es_audio = True
+                elif target_msg.document and (
+                    (target_msg.document.mime_type and "audio" in target_msg.document.mime_type)
+                    or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(target_msg.document, "attributes", []))
+                ):
+                    es_audio = True
+                elif target_msg.is_reply:
+                    reply = await target_msg.get_reply_message()
+                    if reply and (reply.audio or reply.voice or (reply.document and (
+                        (reply.document.mime_type and "audio" in reply.document.mime_type)
+                        or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(reply.document, "attributes", []))
+                    ))):
+                        target_msg = reply
+                        es_audio = True
+
+                if es_audio:
+                    os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+                    ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
+                    await client.download_media(target_msg, file=ruta)
+                    ruta_meditacion = ruta
+                    print("Nueva meditación recibida y guardada:", ruta)
+                    await event.reply("✅ Meditación recibida. Programada para reproducirse hoy a las 8:32 PM en la sala de voz.")
+
         participantes = {}
         segundos_totales = 0
         tiempo_limite_segundos = DURACION_MAXIMA_MINUTOS * 60
@@ -324,6 +530,18 @@ async def main() -> None:
             await asyncio.sleep(INTERVALO_SONDEO_SEGUNDOS)
             segundos_totales += INTERVALO_SONDEO_SEGUNDOS
             ahora = datetime.now(tz_col)
+
+            # Control de hora para la Meditación Automática
+            hora_col = ahora.hour
+            min_col = ahora.minute
+
+            if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado and ruta_meditacion and os.path.exists(ruta_meditacion):
+                avisar_con_bot("🧘 **En 1 minuto dará inicio la meditación diaria.**\nPor favor silencien sus micrófonos y tomen una postura cómoda.")
+                aviso_meditacion_enviado = True
+
+            if hora_col == 20 and min_col >= 32 and not reproduccion_iniciada and ruta_meditacion and os.path.exists(ruta_meditacion):
+                reproduccion_iniciada = True
+                await reproducir_meditacion()
 
             try:
                 call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
@@ -395,6 +613,7 @@ async def main() -> None:
                         "reconexiones": 0,
                         "hablo": hablo_ahora,
                         "orden_llegada": len(participantes) + 1,
+                        "meditacion_completada": reproduciendo_meditacion,
                     }
                 else:
                     part = participantes[uid]
@@ -404,6 +623,8 @@ async def main() -> None:
                         part["username"] = username
                     if hablo_ahora:
                         part["hablo"] = True
+                    if reproduciendo_meditacion:
+                        part["meditacion_completada"] = True
 
                     if not part["activo_ahora"]:
                         part["reconexiones"] += 1
@@ -458,7 +679,13 @@ async def main() -> None:
                 part["ultima_salida"] = fin_llamada
                 part["activo_ahora"] = False
 
-        # Si la sala no fue cerrada previamente por un administrador, el bot la cierra
+        # Desconectar reproductor de PyTgCalls y cerrar sala
+        if tgcalls:
+            try:
+                await tgcalls.leave_call(destino)
+            except Exception:
+                pass
+
         if not cerrado_por_admin:
             try:
                 await client(DiscardGroupCallRequest(call=input_call))
@@ -466,11 +693,10 @@ async def main() -> None:
             except Exception as e:
                 print("Nota al cerrar llamada:", e)
 
-        # 4. Procesamiento de Puntos, Medallas y Temporada Mensual
+        # 4. Procesamiento de Puntos, Medallas, Meditación y Temporada Mensual
         db_puntos = cargar_puntos()
         mes_actual = inicio_llamada.strftime("%Y-%m")
 
-        # Reinicio mensual de puntos si cambió el mes
         if db_puntos.get("mes_actual") != mes_actual:
             db_puntos["mes_actual"] = mes_actual
             db_puntos["total_llamadas_mes"] = 0
@@ -500,6 +726,7 @@ async def main() -> None:
                 pts_puntualidad = 25 if minutos_desde_inicio <= 5 else (15 if minutos_desde_inicio <= 10 else 5)
                 pts_permanencia = 50 if pct >= 80 else (35 if mins >= 45 else (20 if mins >= 20 else 10))
                 pts_voz = 20 if part["hablo"] else 0
+                pts_meditacion = 30 if part.get("meditacion_completada") else 0
 
                 str_uid = str(uid)
                 u_data = usuarios_db.get(str_uid, {
@@ -531,19 +758,16 @@ async def main() -> None:
                     racha = 1
                     pts_racha = 0
 
-                # Racha de podio de puntualidad
                 if uid in ids_podio:
                     u_data["racha_podio"] = u_data.get("racha_podio", 0) + 1
                 else:
                     u_data["racha_podio"] = 0
 
-                # Racha de voz
                 if part["hablo"]:
                     u_data["racha_voz"] = u_data.get("racha_voz", 0) + 1
                 else:
                     u_data["racha_voz"] = 0
 
-                # Evaluación de Medallas
                 medallas_set = set(u_data.get("medallas", []))
                 nuevas_medallas = []
 
@@ -563,7 +787,7 @@ async def main() -> None:
 
                 u_data["medallas"] = list(medallas_set)
 
-                total_hoy = pts_puntualidad + pts_permanencia + pts_voz + pts_racha
+                total_hoy = pts_puntualidad + pts_permanencia + pts_voz + pts_racha + pts_meditacion
 
                 u_data["nombre"] = part["nombre"]
                 u_data["username"] = part["username"]
@@ -588,6 +812,7 @@ async def main() -> None:
                     f"⏰ Puntual +{pts_puntualidad} | "
                     f"🌟 Perm +{pts_permanencia}"
                     + (f" | 🎙️ Voz +{pts_voz}" if pts_voz else "")
+                    + (f" | 🧘 Medit +{pts_meditacion}" if pts_meditacion else "")
                     + (f" | 🔥 Racha +{pts_racha}" if pts_racha else "")
                 )
                 asistentes_validos.append(part)
@@ -604,8 +829,8 @@ async def main() -> None:
             writer = csv.writer(f)
             writer.writerow([
                 "ID", "Nombre", "Usuario", "Entrada", "Salida", "Minutos",
-                "% Reunion", "Hablo", "Reconexiones", "Puntos Hoy", "Puntos Mes",
-                "Puntos Totales", "Rango", "Medallas"
+                "% Reunion", "Hablo", "Meditacion", "Reconexiones", "Puntos Hoy",
+                "Puntos Mes", "Puntos Totales", "Rango", "Medallas"
             ])
             for part in asistentes_validos:
                 u_info = usuarios_db.get(str(part["id"]), {})
@@ -614,7 +839,9 @@ async def main() -> None:
                     part["primera_entrada"].strftime("%I:%M:%S %p"),
                     part["ultima_salida"].strftime("%I:%M:%S %p"),
                     part["minutos"], f"{part['porcentaje']}%",
-                    "Si" if part["hablo"] else "No", part["reconexiones"],
+                    "Si" if part["hablo"] else "No",
+                    "Si" if part.get("meditacion_completada") else "No",
+                    part["reconexiones"],
                     part.get("pts_hoy", 0), part.get("pts_mes", 0),
                     part.get("pts_totales", 0), part.get("rango", ""),
                     " / ".join(u_info.get("medallas", []))
@@ -625,15 +852,13 @@ async def main() -> None:
                     part["primera_entrada"].strftime("%I:%M:%S %p"),
                     part["ultima_salida"].strftime("%I:%M:%S %p"),
                     part["minutos"], f"{part['porcentaje']}%",
-                    "Si" if part["hablo"] else "No", part["reconexiones"],
+                    "Si" if part["hablo"] else "No", "No", part["reconexiones"],
                     0, 0, usuarios_db.get(str(part["id"]), {}).get("puntos_totales", 0), "Visita Fugaz", ""
                 ])
 
         # 6. Construir y Enviar Reportes
         asistentes_validos.sort(key=lambda x: x.get("pts_hoy", 0), reverse=True)
         ranking_mes = sorted(usuarios_db.values(), key=lambda x: x.get("puntos_mes", 0), reverse=True)[:5]
-
-        # Verificar si es fin de mes
         es_fin_de_mes = (inicio_llamada + timedelta(days=1)).month != inicio_llamada.month
 
         lineas_pub = [
@@ -663,7 +888,6 @@ async def main() -> None:
         else:
             lineas_pub.append("No se registraron asistencias que cumplieran el tiempo mínimo hoy.")
 
-        # Cuadro de Honor si es fin de mes
         if es_fin_de_mes:
             lineas_pub.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             lineas_pub.append("👑 **🏆 CUADRO DE HONOR — CAMPEONES DEL MES 🏆** 👑")
@@ -679,14 +903,14 @@ async def main() -> None:
             meds = " ".join([m.split()[0] for m in u.get("medallas", [])])
             lineas_pub.append(f"{i}. {obtener_rango(u.get('puntos_totales', 0))} **{u['nombre']}** — {u.get('puntos_mes', 0)} pts {meds}".strip())
 
-        lineas_pub.append("\n🎙️ = Participó hablando  |  🎧 = Oyente")
+        lineas_pub.append("\n🎙️ = Participó hablando  |  🎧 = Oyente | 🧘 = Meditación")
         lineas_pub.append("💡 Comandos disponibles: `/puntos` | `/ranking` | `/reglas`")
         lineas_pub.append("¡Gracias a todos por participar! Nos vemos mañana a las 7:56 PM.")
 
         reporte_publico = "\n".join(lineas_pub)
         avisar_con_bot(reporte_publico)
 
-        # Enviar notificación privada personalizada a cada asistente que tenga chat con el bot
+        # Enviar notificación privada personalizada a cada asistente
         if BOT_TOKEN and asistentes_validos:
             print("Enviando resúmenes individuales privados a asistentes...")
             for p in asistentes_validos:
@@ -715,13 +939,14 @@ async def main() -> None:
                     with urllib.request.urlopen(req_usr, timeout=5) as r:
                         pass
                 except Exception:
-                    pass  # Normal si el usuario aún no ha iniciado conversación con el bot
+                    pass
 
         # Reporte Privado para el Dueño
         lineas_priv = [
             "🔐 **REPORTE ADMINISTRATIVO DETALLADO (SOLO DUEÑO)**",
             f"📅 Fecha: {fecha_hoy} | ⏰ {inicio_llamada.strftime('%I:%M:%S %p')} – {fin_llamada.strftime('%I:%M:%S %p')}",
             f"⏱️ Duración total: {duracion_reunion_minutos} minutos (Motivo cierre: {motivo_cierre})",
+            f"🧘 Meditación diaria reproducida: {'Sí' if meditacion_activa_hoy else 'No'}",
             f"👥 Total que entraron: {len(participantes)} | ✅ Válidos: {len(asistentes_validos)} | ⚠️ Fugaces: {len(visitas_fugaces)}\n",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "📋 **DESGLOSE INDIVIDUAL DE ASISTENTES:**",
@@ -729,13 +954,14 @@ async def main() -> None:
         for i, p in enumerate(asistentes_validos, start=1):
             tag = f"@{p['username']}" if p['username'] else "Sin alias"
             mic = "🎙️ Habló activamente" if p["hablo"] else "🎧 Solo oyente"
+            med_txt = " | 🧘 Asistió a meditación" if p.get("meditacion_completada") else ""
             u_info = usuarios_db.get(str(p["id"]), {})
             meds_txt = ", ".join(u_info.get("medallas", [])) or "Ninguna"
             lineas_priv.append(
                 f"{i}. **{p['nombre']}** (ID: `{p['id']}` | {tag})\n"
                 f"   • Conexión: {p['primera_entrada'].strftime('%I:%M:%S %p')} ➔ {p['ultima_salida'].strftime('%I:%M:%S %p')}\n"
                 f"   • Tiempo: {p['minutos']} min ({p['porcentaje']}% de sesión) | Caídas: {p['reconexiones']}\n"
-                f"   • Micrófono: {mic} | Hoy: +{p['pts_hoy']} pts (Mes: {p['pts_mes']} | Histórico: {p['pts_totales']})\n"
+                f"   • Micrófono: {mic}{med_txt} | Hoy: +{p['pts_hoy']} pts (Mes: {p['pts_mes']} | Histórico: {p['pts_totales']})\n"
                 f"   • Medallas: {meds_txt}"
             )
 

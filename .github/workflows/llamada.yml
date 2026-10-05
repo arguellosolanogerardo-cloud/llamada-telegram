@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install telethon
+      - run: pip install telethon py-tgcalls
       - run: python llamada.py
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}
