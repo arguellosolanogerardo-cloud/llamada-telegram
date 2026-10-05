@@ -32,19 +32,6 @@ def extraer_fecha_de_texto(texto: str) -> str | None:
     return None
 
 
-def obtener_info_bot() -> str:
-    if not BOT_TOKEN:
-        return ""
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
-        req = urllib.request.Request(url, headers={"User-Agent": "PublicarTareaBot"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            res = json.loads(r.read().decode())
-            if res.get("ok"):
-                return res["result"].get("username", "")
-    except Exception:
-        pass
-    return ""
 
 
 def enviar_mensaje(chat_id: int | str, texto: str, reply_markup: dict = None) -> bool:
@@ -97,7 +84,32 @@ def generar_anuncio_tarea(info: dict, fecha_str: str = None) -> str:
     )
 
 
+_BOT_USER_CACHE = None
+
+
+def obtener_info_bot() -> str:
+    global _BOT_USER_CACHE
+    if _BOT_USER_CACHE:
+        return _BOT_USER_CACHE
+    if not BOT_TOKEN:
+        return ""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
+        req = urllib.request.Request(url, headers={"User-Agent": "PublicarTareaBot"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            res = json.loads(r.read().decode())
+            if res.get("ok"):
+                _BOT_USER_CACHE = res["result"].get("username", "")
+                return _BOT_USER_CACHE
+    except Exception as e:
+        print("Nota obteniendo getMe:", e)
+    return ""
+
+
 def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_user: str = "", username_grupo: str = None) -> dict:
+    if not bot_user:
+        bot_user = obtener_info_bot()
+
     url_audio = None
     if msg_id_audio and str(msg_id_audio).startswith("http"):
         url_audio = str(msg_id_audio).strip()

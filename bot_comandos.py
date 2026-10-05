@@ -183,8 +183,30 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
 
 
 def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad") -> None:
-    if not BOT_TOKEN or not os.path.exists(ruta_audio):
+    if not BOT_TOKEN or not ruta_audio:
         return
+
+    # Si es un file_id de Telegram (no existe como archivo local en disco)
+    if not os.path.exists(ruta_audio):
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
+        payload = {
+            "chat_id": chat_id,
+            "audio": ruta_audio,
+            "caption": caption,
+            "parse_mode": "Markdown",
+            "title": title,
+            "performer": performer,
+        }
+        datos = json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                print(f"Audio enviado via file_id a {chat_id}:", r.status)
+                return
+        except Exception as e:
+            print(f"Error enviando audio por file_id a {chat_id}:", e)
+            return
+
     boundary = "----WebKitFormBoundaryAudio7MA4YWxk"
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
 
@@ -291,6 +313,8 @@ def escuchar_comandos() -> None:
                     if any(k in texto.upper() for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]) or any(k in nombre_archivo.upper() for k in ["MEDITACION", "MEDITACIÓN", "MENSAJE"]):
                         info_cat = identificar_audio_catalogo(texto, nombre_archivo)
                         if info_cat:
+                            if audio_obj and isinstance(audio_obj, dict) and audio_obj.get("file_id"):
+                                info_cat["file_id"] = audio_obj["file_id"]
                             try:
                                 os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
                                 with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
@@ -352,34 +376,41 @@ def escuchar_comandos() -> None:
                     else:
                         ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
                         info_cat = None
-                        if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
-                            ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
-                            if os.path.exists(ruta_meta):
-                                try:
-                                    with open(ruta_meta, "r", encoding="utf-8") as fm:
-                                        info_cat = json.load(fm)
-                                except Exception:
-                                    pass
+                        ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
+                        if os.path.exists(ruta_meta):
+                            try:
+                                with open(ruta_meta, "r", encoding="utf-8") as fm:
+                                    info_cat = json.load(fm)
+                            except Exception:
+                                pass
+
+                        audio_a_enviar = None
+                        if info_cat and info_cat.get("file_id"):
+                            audio_a_enviar = info_cat["file_id"]
+                        elif os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
+                            audio_a_enviar = ruta_med
                             if not info_cat:
                                 info_cat = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
 
+                        if audio_a_enviar:
                             caption = "🧘 **Meditación Diaria**\nAquí tienes el audio de hoy para que realices tu práctica en diferido."
                             title = "Meditación Diaria"
                             performer = "Comunidad"
                             if info_cat:
+                                tipo_nombre = info_cat.get('tipo', 'Meditación').title()
                                 caption = (
-                                    f"🧘 **{info_cat['tipo']} #{info_cat['numero']}**\n"
+                                    f"🧘 **{tipo_nombre} #{info_cat['numero']}**\n"
                                     f"📌 **Título:** «{info_cat['titulo']}»\n"
                                     f"👤 **Guía:** {info_cat['maestro']}\n"
                                     f"🗓️ **Grabación original:** {info_cat['fecha']}\n\n"
                                     "Audio de hoy para tu práctica en diferido."
                                 )
-                                title = f"{info_cat['tipo']} #{info_cat['numero']} - {info_cat['titulo']}"
-                                performer = info_cat["maestro"]
+                                title = f"{tipo_nombre} #{info_cat['numero']} - {info_cat['titulo']}"
+                                performer = info_cat.get("maestro", "Comunidad")
 
                             enviar_audio(
                                 chat_id,
-                                ruta_med,
+                                audio_a_enviar,
                                 caption=caption,
                                 title=title,
                                 performer=performer
