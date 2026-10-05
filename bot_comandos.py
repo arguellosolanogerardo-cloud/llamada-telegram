@@ -4,6 +4,8 @@ import time
 import urllib.request
 import urllib.parse
 
+from ia_resumen import buscar_en_minutas, obtener_minuta
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
@@ -117,6 +119,10 @@ def generar_texto_reglas() -> str:
         "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
         "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
         "• Si dejas el micrófono abierto sin hablar por 15 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
+        "📝 **MINUTAS Y ACTAS CON IA:**\n"
+        "• Escribe `/resumen` para leer la minuta oficial de la última sesión.\n"
+        "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
+        "• Escribe `/acta [fecha]` para consultar el documento formal.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
     )
@@ -179,12 +185,43 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
         print(f"Error enviando audio a {chat_id}:", e)
 
 
+def enviar_documento(chat_id: int | str, ruta_doc: str, caption: str = "") -> None:
+    if not BOT_TOKEN or not os.path.exists(ruta_doc):
+        return
+    boundary = "----WebKitFormBoundaryDoc7MA4YWxk"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+
+    try:
+        with open(ruta_doc, "rb") as f:
+            file_bytes = f.read()
+
+        body = bytearray()
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode())
+        if caption:
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption}\r\n".encode())
+
+        filename = os.path.basename(ruta_doc)
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"document\"; filename=\"{filename}\"\r\nContent-Type: application/pdf\r\n\r\n".encode())
+        body.extend(file_bytes)
+        body.extend(f"\r\n--{boundary}--\r\n".encode())
+
+        req = urllib.request.Request(
+            url,
+            data=bytes(body),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        )
+        with urllib.request.urlopen(req, timeout=60) as r:
+            print(f"Documento enviado a {chat_id}:", r.status)
+    except Exception as e:
+        print(f"Error enviando documento a {chat_id}:", e)
+
+
 def escuchar_comandos() -> None:
     if not BOT_TOKEN:
         print("Error: Define la variable de entorno BOT_TOKEN.")
         return
 
-    print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion...")
+    print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion, /buscar, /resumen, /acta...")
     offset = 0
 
     while True:
@@ -251,6 +288,25 @@ def escuchar_comandos() -> None:
                         "🔇 **Protección anti-ruido:** Si tu micrófono queda abierto sin hablar por 15 segundos, el sistema lo silenciará automáticamente para proteger la sala."
                     )
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
+                elif cmd in ("/buscar",):
+                    termino = " ".join(partes[1:]) if len(partes) > 1 else ""
+                    resp = buscar_en_minutas(termino)
+                    enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
+                elif cmd in ("/resumen",):
+                    fecha_req = partes[1].strip() if len(partes) > 1 else None
+                    minuta = obtener_minuta(fecha_req)
+                    if minuta:
+                        resp = f"📝 **MINUTA DE LA REUNIÓN ({minuta['fecha']})**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{minuta['resumen']}"
+                        enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
+                    else:
+                        enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna minuta registrada para {fecha_req or 'la última fecha'}.", reply_to_message_id=msg_id)
+                elif cmd in ("/acta",):
+                    fecha_req = partes[1].strip() if len(partes) > 1 else None
+                    minuta = obtener_minuta(fecha_req)
+                    if minuta and minuta.get("ruta_pdf") and os.path.exists(minuta["ruta_pdf"]):
+                        enviar_documento(chat_id, minuta["ruta_pdf"], caption=f"📄 **Acta Oficial de la Reunión ({minuta['fecha']})**")
+                    else:
+                        enviar_mensaje(chat_id, "ℹ️ No hay un documento PDF de acta disponible para esa fecha.", reply_to_message_id=msg_id)
                 elif cmd in ("/reglas", "/ayuda") or (cmd == "/start" and param == "reglas") or cmd == "/start":
                     resp = generar_texto_reglas()
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)

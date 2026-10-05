@@ -25,6 +25,9 @@ from telethon.tl.functions.phone import (
 )
 from telethon.tl.types import Channel, ChannelParticipantsAdmins, Chat, PeerUser
 
+from ia_resumen import generar_resumen_ia, guardar_minuta, buscar_en_minutas, obtener_minuta
+from generador_acta import generar_acta_pdf
+
 try:
     from pytgcalls import PyTgCalls
     PYTGCALLS_AVAILABLE = True
@@ -425,6 +428,10 @@ def generar_texto_reglas() -> str:
         "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
         "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
         "• Si dejas el micrófono abierto sin hablar por 15 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
+        "📝 **MINUTAS Y ACTAS CON IA:**\n"
+        "• Escribe `/resumen` para leer la minuta oficial de la última sesión.\n"
+        "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
+        "• Escribe `/acta [fecha]` para consultar el documento formal.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
     )
@@ -613,6 +620,12 @@ async def main() -> None:
         except Exception as e:
             print("Nota publicando mensaje de turnos:", e)
 
+        # Rutas para grabación selectiva de voz (excluyendo meditación)
+        os.makedirs(CARPETA_ASISTENCIAS, exist_ok=True)
+        ruta_grabacion_pre = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_pre_{fecha_hoy}.wav")
+        ruta_grabacion_post = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_post_{fecha_hoy}.wav")
+        ruta_grabacion_completa = os.path.join(CARPETA_ASISTENCIAS, f"audio_sesion_{fecha_hoy}.mp3")
+
         # Iniciar servicio PyTgCalls si está disponible
         tgcalls = None
         if PYTGCALLS_AVAILABLE:
@@ -620,6 +633,12 @@ async def main() -> None:
                 tgcalls = PyTgCalls(client)
                 await tgcalls.start()
                 print("Servicio de audio PyTgCalls iniciado exitosamente.")
+                # Iniciar grabación del segmento previo a la meditación
+                try:
+                    await tgcalls.record(destino, ruta_grabacion_pre)
+                    print("Grabación de bienvenida y charla inicial iniciada.")
+                except Exception as e:
+                    print("Nota iniciando grabación inicial PyTgCalls:", e)
             except Exception as e:
                 print("Nota iniciando PyTgCalls:", e)
 
@@ -645,6 +664,7 @@ async def main() -> None:
                 # Incorporar campanas tibetanas / gong zen al inicio y final
                 ruta_a_reproducir = agregar_gongs_al_audio(ruta_meditacion)
 
+                # PyTgCalls conmuta a reproducir el audio de meditación (omitiendo meditación de la grabación)
                 await tgcalls.play(destino, ruta_a_reproducir)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
@@ -670,11 +690,17 @@ async def main() -> None:
                             except Exception:
                                 pass
                             avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!")
+                            # Reanudar grabación para el segmento post-meditación (preguntas y testimonios)
+                            try:
+                                await tgcalls.record(destino, ruta_grabacion_post)
+                                print("Grabación de preguntas y testimonios reanudada tras la meditación.")
+                            except Exception as e:
+                                print("Nota reanudando grabación:", e)
             except Exception as e:
                 print("Nota configurando StreamEnded handler:", e)
 
-        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos)
-        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos)"))
+        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos, /buscar, /resumen, /acta)
+        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta)"))
         async def responder_comandos_en_vivo(event):
             partes = event.raw_text.strip().split()
             texto_cmd = partes[0].lower().split("@")[0]
@@ -733,6 +759,25 @@ async def main() -> None:
                     for u in oradores_activos
                 ]
                 await event.reply(generar_texto_turnos(cola_turnos, nombres_oradores))
+            elif texto_cmd in ("/buscar",):
+                query = " ".join(partes[1:]) if len(partes) > 1 else ""
+                resp = buscar_en_minutas(query)
+                await event.reply(resp)
+            elif texto_cmd in ("/resumen",):
+                fecha_req = partes[1].strip() if len(partes) > 1 else None
+                minuta = obtener_minuta(fecha_req)
+                if minuta:
+                    resp = f"📝 **MINUTA DE LA REUNIÓN ({minuta['fecha']})**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{minuta['resumen']}"
+                    await event.reply(resp)
+                else:
+                    await event.reply(f"ℹ️ No se encontró ninguna minuta registrada para {fecha_req or 'la última fecha'}.")
+            elif texto_cmd in ("/acta",):
+                fecha_req = partes[1].strip() if len(partes) > 1 else None
+                minuta = obtener_minuta(fecha_req)
+                if minuta and minuta.get("ruta_pdf") and os.path.exists(minuta["ruta_pdf"]):
+                    await event.reply(f"📄 **Acta Oficial de la Reunión ({minuta['fecha']}):**", file=minuta["ruta_pdf"])
+                else:
+                    await event.reply("ℹ️ No hay un documento PDF de acta disponible para esa fecha.")
             else:
                 resp = generar_texto_reglas()
                 await event.reply(resp)
@@ -1504,6 +1549,77 @@ async def main() -> None:
         lineas_priv.append(f"\n📎 Se generó el archivo de auditoría: `{ruta_csv}`")
         reporte_privado = "\n".join(lineas_priv)
 
+        # 7. Generar Resumen con IA (Gemini) y Diarización de Oradores
+        oradores_sesion = [
+            p["nombre"] for p in participantes.values() if p.get("hablo")
+        ]
+
+        # Unir grabaciones de voz si existen (excluyendo meditación)
+        audio_para_ia = None
+        if os.path.exists(ruta_grabacion_pre) and os.path.exists(ruta_grabacion_post):
+            try:
+                cmd_cat = [
+                    "ffmpeg", "-y",
+                    "-i", ruta_grabacion_pre,
+                    "-i", ruta_grabacion_post,
+                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[out]",
+                    "-map", "[out]",
+                    ruta_grabacion_completa
+                ]
+                subprocess.run(cmd_cat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                if os.path.exists(ruta_grabacion_completa) and os.path.getsize(ruta_grabacion_completa) > 1000:
+                    audio_para_ia = ruta_grabacion_completa
+            except Exception as e:
+                print("Nota combinando grabaciones con ffmpeg:", e)
+        elif os.path.exists(ruta_grabacion_pre) and os.path.getsize(ruta_grabacion_pre) > 1000:
+            audio_para_ia = ruta_grabacion_pre
+        elif os.path.exists(ruta_grabacion_post) and os.path.getsize(ruta_grabacion_post) > 1000:
+            audio_para_ia = ruta_grabacion_post
+
+        resumen_ia = generar_resumen_ia(
+            ruta_audio=audio_para_ia,
+            oradores=oradores_sesion,
+            fecha=fecha_hoy,
+            duracion_minutos=duracion_reunion_minutos,
+            total_asistentes=len(asistentes_validos)
+        )
+
+        # Publicar Minuta Oficial en el Grupo
+        txt_minuta_grupo = (
+            f"📝 **MINUTA Y RESUMEN OFICIAL — LLAMADA {inicio_llamada.strftime('%d/%m/%Y')}**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{resumen_ia}"
+        )
+        avisar_con_bot(txt_minuta_grupo)
+
+        # Generar Acta Oficial en PDF
+        ruta_acta_pdf = generar_acta_pdf(
+            fecha=fecha_hoy,
+            inicio_str=inicio_llamada.strftime("%I:%M %p"),
+            fin_str=fin_llamada.strftime("%I:%M %p"),
+            duracion_minutos=duracion_reunion_minutos,
+            asistentes=asistentes_validos,
+            resumen_ia=resumen_ia
+        )
+
+        # Guardar en base histórica de minutas para búsquedas posteriores
+        guardar_minuta(
+            fecha=fecha_hoy,
+            duracion_minutos=duracion_reunion_minutos,
+            asistentes_count=len(asistentes_validos),
+            oradores=oradores_sesion,
+            resumen_texto=resumen_ia,
+            ruta_pdf=ruta_acta_pdf
+        )
+
+        # Limpiar temporales de grabación cruda
+        for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post):
+            try:
+                if os.path.exists(f_tmp):
+                    os.remove(f_tmp)
+            except Exception:
+                pass
+
         me = await client.get_me()
         if me:
             try:
@@ -1519,13 +1635,19 @@ async def main() -> None:
                         ruta_csv,
                         caption=f"📊 Archivo de Asistencia y Puntos - {fecha_hoy}",
                     )
+                if os.path.exists(ruta_acta_pdf):
+                    await client.send_file(
+                        me.id,
+                        ruta_acta_pdf,
+                        caption=f"📄 **Acta Oficial de la Reunión (PDF) - {fecha_hoy}**\nIncluye lista de asistencia y resumen.",
+                    )
                 if os.path.exists(RUTA_PUNTOS):
                     await client.send_file(
                         me.id,
                         RUTA_PUNTOS,
                         caption=f"💾 Respaldo de puntos - {fecha_hoy}",
                     )
-                print("CSV y respaldo de puntos enviados al dueño.")
+                print("CSV, Acta PDF y respaldo de puntos enviados al dueño.")
             except Exception as e:
                 print("Error enviando archivos al dueño:", e)
 
