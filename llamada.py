@@ -686,6 +686,37 @@ async def main() -> None:
         reporte_publico = "\n".join(lineas_pub)
         avisar_con_bot(reporte_publico)
 
+        # Enviar notificación privada personalizada a cada asistente que tenga chat con el bot
+        if BOT_TOKEN and asistentes_validos:
+            print("Enviando resúmenes individuales privados a asistentes...")
+            for p in asistentes_validos:
+                try:
+                    meds_p = p.get("nuevas_medallas", [])
+                    txt_nuevas_meds = f"\n🎖️ **¡Nueva medalla desbloqueada!** {', '.join(meds_p)}" if meds_p else ""
+                    txt_privado_usuario = (
+                        f"👋 ¡Hola **{p['nombre']}**!\n\n"
+                        f"🎉 **Resumen de tu llamada de hoy:**\n"
+                        f"• Tiempo conectado: **{p['minutos']} min** ({p['porcentaje']}% de la sesión)\n"
+                        f"• Puntos sumados hoy: **+{p['pts_hoy']} pts**\n"
+                        f"  _{p['desglose']}_\n"
+                        f"• Puntos del mes: **{p['pts_mes']} pts** (Histórico: {p['pts_totales']})\n"
+                        f"• Rango actual: **{p['rango']}**\n"
+                        f"• Racha diaria: **🔥 {p['racha']} días consecutivos**\n"
+                        f"{txt_nuevas_meds}\n"
+                        f"✨ ¡Gracias por tu compromiso y asistencia! Nos vemos mañana a las 7:56 PM."
+                    )
+                    url_usr = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                    datos_usr = json.dumps({
+                        "chat_id": p["id"],
+                        "text": txt_privado_usuario,
+                        "parse_mode": "Markdown",
+                    }).encode()
+                    req_usr = urllib.request.Request(url_usr, data=datos_usr, headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req_usr, timeout=5) as r:
+                        pass
+                except Exception:
+                    pass  # Normal si el usuario aún no ha iniciado conversación con el bot
+
         # Reporte Privado para el Dueño
         lineas_priv = [
             "🔐 **REPORTE ADMINISTRATIVO DETALLADO (SOLO DUEÑO)**",
