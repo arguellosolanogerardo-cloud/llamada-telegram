@@ -135,7 +135,7 @@ def dividir_mensaje(texto: str, limite: int = 3500) -> list:
     return bloques or [""]
 
 
-def avisar_con_bot(texto: str, boton_url: str = None) -> None:
+def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None) -> None:
     if not BOT_TOKEN:
         return
     texto = texto.replace("{CA}", hora_california())
@@ -147,17 +147,20 @@ def avisar_con_bot(texto: str, boton_url: str = None) -> None:
     for idx, bloque in enumerate(bloques):
         payload = {"chat_id": CHAT_ID, "text": bloque}
 
-        if boton_url and idx == 0:
-            inline_keyboard = [
-                [{"text": "🟢 ¡SALA EN VIVO! TOCAR PARA ENTRAR 🎙️", "url": boton_url}]
-            ]
-            bot_user = obtener_username_bot()
-            if bot_user:
-                inline_keyboard.append([
-                    {"text": "🏆 Ver Ranking", "url": f"https://t.me/{bot_user}?start=ranking"},
-                    {"text": "📜 Reglas y Puntos", "url": f"https://t.me/{bot_user}?start=reglas"}
-                ])
-            payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+        if idx == 0:
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            elif boton_url:
+                inline_keyboard = [
+                    [{"text": "🟢 ¡SALA EN VIVO! TOCAR PARA ENTRAR 🎙️", "url": boton_url}]
+                ]
+                bot_user = obtener_username_bot()
+                if bot_user:
+                    inline_keyboard.append([
+                        {"text": "🏆 Ver Ranking", "url": f"https://t.me/{bot_user}?start=ranking"},
+                        {"text": "📜 Reglas y Puntos", "url": f"https://t.me/{bot_user}?start=reglas"}
+                    ])
+                payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
 
         datos = json.dumps(payload).encode()
         req = urllib.request.Request(
@@ -719,9 +722,12 @@ async def main() -> None:
         ruta_meditacion = await buscar_audio_meditacion(client, entidad, admin_ids)
         reproduciendo_meditacion = False
         reproduccion_iniciada = False
+        aviso_oracion_enviado = False
+        aviso_espera_enviado = False
         aviso_meditacion_enviado = False
         alerta_falta_audio_enviada = False
         meditacion_activa_hoy = False
+        oracion_activa_hoy = False
 
         async def reproducir_meditacion():
             nonlocal reproduciendo_meditacion, meditacion_activa_hoy
@@ -774,8 +780,8 @@ async def main() -> None:
             except Exception as e:
                 print("Nota configurando StreamEnded handler:", e)
 
-        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos, /buscar, /resumen, /acta)
-        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta)"))
+        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos, /buscar, /resumen, /acta, /oracion)
+        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta|oracion)"))
         async def responder_comandos_en_vivo(event):
             partes = event.raw_text.strip().split()
             texto_cmd = partes[0].lower().split("@")[0]
@@ -853,6 +859,17 @@ async def main() -> None:
                     await event.reply(f"📄 **Acta Oficial de la Reunión ({minuta['fecha']}):**", file=minuta["ruta_pdf"])
                 else:
                     await event.reply("ℹ️ No hay un documento PDF de acta disponible para esa fecha.")
+            elif texto_cmd in ("/oracion",) or (texto_cmd == "/start" and param == "oracion"):
+                resp = (
+                    "🕊️ **ORACIÓN Y RECOGIMIENTO COMUNITARIO**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "\"En este momento de quietud y gratitud, acallamos nuestra mente y abrimos el corazón.\n\n"
+                    "Agradecemos por este día, por cada respiración, por los aprendizajes recibidos y por la presencia de cada persona en esta comunidad.\n\n"
+                    "Pedimos paz profunda en nuestro interior, claridad en los pensamientos, serenidad en las acciones y bienestar para nuestras familias.\n\n"
+                    "Guardamos silencio y respiramos en calma, presentes en el aquí y el ahora.\"\n\n"
+                    "🙏 *Mantengamos silencio en la sala para cultivar la paz interior de todos.*"
+                )
+                await event.reply(resp)
             else:
                 resp = generar_texto_reglas()
                 await event.reply(resp)
@@ -1079,10 +1096,79 @@ async def main() -> None:
                         pass
                     avisar_con_bot("⚠️ **Aviso Administradores:** Aún no se ha publicado la `MEDITACION DE TAREA` de hoy. Recuerden subir el archivo .mp3 antes de las 8:30 PM.")
 
+            # 8:24 PM: Inicio de los 5 Minutos de Oración en Silencio Comunitario
+            if hora_col == 20 and min_col == 24 and not aviso_oracion_enviado:
+                aviso_oracion_enviado = True
+                oracion_activa_hoy = True
+
+                # Pausar grabación para omitir los 5 min de oración y los 3 min de espera
+                if tgcalls and not grabacion_pausada and not grabacion_cancelada:
+                    try:
+                        for m in ("pause_record", "stop_record", "pause"):
+                            if hasattr(tgcalls, m):
+                                fn = getattr(tgcalls, m)
+                                res = fn(destino)
+                                if asyncio.iscoroutine(res):
+                                    await res
+                                break
+                        print("Grabación pausada para respetar el momento de oración y silencio sagrado.")
+                    except Exception as e:
+                        print("Nota pausando grabación en oración:", e)
+
+                # Silenciar micrófonos para garantizar silencio y respeto en la sala
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
+                    for uid_orador in list(oradores_activos):
+                        try:
+                            input_peer = await client.get_input_entity(uid_orador)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                        except Exception:
+                            pass
+                    oradores_activos.clear()
+                    await actualizar_mensaje_turnos()
+                except Exception as e:
+                    print("Nota silenciando micrófonos para oración:", e)
+
+                # Construir botones interactivos grandes para el anuncio
+                bot_user = obtener_username_bot()
+                link_sala = link_llamada or (f"https://t.me/{getattr(entidad, 'username', '')}" if getattr(entidad, "username", None) else "https://t.me")
+                keyboard_oracion = {
+                    "inline_keyboard": [
+                        [{"text": "🕊️ ENTRAR A LA SALA DE VOZ (ORACIÓN) 🎧", "url": link_sala}],
+                        [{"text": "📖 LEER GUÍA DE ORACIÓN DEL DÍA 🕊️", "url": f"https://t.me/{bot_user}?start=oracion" if bot_user else link_sala}],
+                        [{"text": "🤫 SILENCIO SAGRADO EN CURSO (5 MIN)", "url": link_sala}],
+                    ]
+                }
+
+                texto_oracion = (
+                    "🕊️ **MOMENTO DE ORACIÓN EN SILENCIO (5 MINUTOS)** 🕊️\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Entramos en nuestro espacio de oración y recogimiento comunitario.\n\n"
+                    "🤫 **POR FAVOR GUARDEN SILENCIO:**\n"
+                    "Durante estos 5 minutos mantengan sus micrófonos apagados para honrar la concentración y paz de todos.\n\n"
+                    "⏰ **Cronograma del momento:**\n"
+                    "• **8:24 PM – 8:29 PM:** Oración y recogimiento en silencio (5 min).\n"
+                    "• **8:29 PM – 8:32 PM:** Espera y respiración consciente (3 min).\n"
+                    "• **8:32 PM:** Inicio de la Meditación diaria."
+                )
+                avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion)
+
+            # 8:29 PM: Fin de los 5 minutos de oración y comienzo de los 3 minutos de transición/espera
+            if hora_col == 20 and min_col == 29 and not aviso_espera_enviado and aviso_oracion_enviado:
+                aviso_espera_enviado = True
+                texto_espera = (
+                    "⏳✨ **Concluyen los 5 minutos de oración.**\n"
+                    "Iniciamos 3 minutos de pausa y respiración consciente antes de dar inicio a la meditación diaria a las 8:32 PM.\n"
+                    "Por favor continúen en silencio interior y preparen su postura."
+                )
+                avisar_con_bot(texto_espera)
+
+            # 8:31 PM: Alerta 1 minuto antes de la meditación
             if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado and ruta_meditacion and os.path.exists(ruta_meditacion):
-                avisar_con_bot("🧘 **En 1 minuto dará inicio la meditación diaria.**\nPor favor silencien sus micrófonos y tomen una postura cómoda.")
+                avisar_con_bot("🧘 **En 1 minuto dará inicio la meditación diaria.**\nPor favor continúen en silencio y tomen una postura cómoda.")
                 aviso_meditacion_enviado = True
 
+            # 8:32 PM: Reproducción automática de la meditación
             if hora_col == 20 and min_col >= 32 and not reproduccion_iniciada and ruta_meditacion and os.path.exists(ruta_meditacion):
                 reproduccion_iniciada = True
                 await reproducir_meditacion()
@@ -1262,11 +1348,16 @@ async def main() -> None:
 
             # Actualización del mensaje fijado dinámico cada ~5 min
             if msg_fijado and (segundos_totales // INTERVALO_SONDEO_SEGUNDOS) % 15 == 0:
-                fase = (
-                    "🧘 Meditación diaria en curso..."
-                    if reproduciendo_meditacion
-                    else ("🎙️ Ronda de preguntas y compartir" if reproduccion_iniciada else "💬 Charla inicial y bienvenida")
-                )
+                if reproduciendo_meditacion:
+                    fase = "🧘 Meditación diaria en curso..."
+                elif reproduccion_iniciada:
+                    fase = "🎙️ Ronda de preguntas y compartir"
+                elif aviso_espera_enviado and not reproduccion_iniciada:
+                    fase = "⏳ Pausa de transición hacia la meditación (3 min)"
+                elif aviso_oracion_enviado and not aviso_espera_enviado:
+                    fase = "🕊️ Momento de Oración en Silencio (5 min)"
+                else:
+                    fase = "💬 Charla inicial y bienvenida"
                 nuevo_texto_fijado = (
                     "🎙️ **ESTADO DE LA SALA EN VIVO**\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"

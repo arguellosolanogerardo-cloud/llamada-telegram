@@ -312,6 +312,17 @@ def escuchar_comandos() -> None:
                         enviar_documento(chat_id, minuta["ruta_pdf"], caption=f"📄 **Acta Oficial de la Reunión ({minuta['fecha']})**")
                     else:
                         enviar_mensaje(chat_id, "ℹ️ No hay un documento PDF de acta disponible para esa fecha.", reply_to_message_id=msg_id)
+                elif cmd in ("/oracion",) or (cmd == "/start" and param == "oracion"):
+                    resp = (
+                        "🕊️ **ORACIÓN Y RECOGIMIENTO COMUNITARIO**\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "\"En este momento de quietud y gratitud, acallamos nuestra mente y abrimos el corazón.\n\n"
+                        "Agradecemos por este día, por cada respiración, por los aprendizajes recibidos y por la presencia de cada persona en esta comunidad.\n\n"
+                        "Pedimos paz profunda en nuestro interior, claridad en los pensamientos, serenidad en las acciones y bienestar para nuestras familias.\n\n"
+                        "Guardamos silencio y respiramos en calma, presentes en el aquí y el ahora.\"\n\n"
+                        "🙏 *Mantengamos silencio en la sala para cultivar la paz interior de todos.*"
+                    )
+                    enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/reglas", "/ayuda") or (cmd == "/start" and param == "reglas") or cmd == "/start":
                     resp = generar_texto_reglas()
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
