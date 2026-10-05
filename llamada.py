@@ -2,9 +2,13 @@ import asyncio
 import csv
 from datetime import datetime, timedelta
 import json
+import math
 import os
 import random
+import struct
+import subprocess
 import urllib.request
+import wave
 from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient, events
@@ -135,6 +139,151 @@ def avisar_con_bot(texto: str, boton_url: str = None) -> None:
         print("Error al enviar mensaje con el bot:", e)
 
 
+def enviar_foto_con_bot(ruta_foto: str, caption: str = "") -> None:
+    if not BOT_TOKEN or not ruta_foto or not os.path.exists(ruta_foto):
+        return
+    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    try:
+        with open(ruta_foto, "rb") as f:
+            file_bytes = f.read()
+
+        body = bytearray()
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{CHAT_ID}\r\n".encode())
+        if caption:
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption}\r\n".encode())
+        filename = os.path.basename(ruta_foto)
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"{filename}\"\r\nContent-Type: image/png\r\n\r\n".encode())
+        body.extend(file_bytes)
+        body.extend(f"\r\n--{boundary}--\r\n".encode())
+
+        req = urllib.request.Request(
+            url,
+            data=bytes(body),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            print("Foto del podio enviada con bot exitosamente:", r.status)
+    except Exception as e:
+        print("Nota enviando foto con bot:", e)
+
+
+def generar_sonido_campana_gong(ruta_salida: str = os.path.join(CARPETA_MEDITACIONES, "campana.wav"), duracion: float = 3.5) -> str:
+    """Genera sintéticamente un tono armónico de cuenco tibetano / campana zen a 432 Hz."""
+    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
+    sample_rate = 44100
+    num_samples = int(sample_rate * duracion)
+    try:
+        with wave.open(ruta_salida, "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(sample_rate)
+            frames = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                envelope = math.exp(-t / 1.1)
+                sig = (
+                    0.60 * math.sin(2 * math.pi * 432.0 * t) +
+                    0.25 * math.sin(2 * math.pi * 864.0 * t) +
+                    0.15 * math.sin(2 * math.pi * 1296.0 * t)
+                ) * envelope
+                sample = int(sig * 32767 * 0.7)
+                sample = max(-32768, min(32767, sample))
+                frames.extend(struct.pack("<h", sample))
+            w.writeframes(frames)
+        return ruta_salida
+    except Exception as e:
+        print("Nota generando campana gong:", e)
+        return ruta_salida
+
+
+def agregar_gongs_al_audio(ruta_audio: str) -> str:
+    """Inserta campana de cuenco tibetano al inicio y al final de la meditación."""
+    if not os.path.exists(ruta_audio):
+        return ruta_audio
+    campana = generar_sonido_campana_gong()
+    ruta_con_gong = os.path.join(CARPETA_MEDITACIONES, "meditacion_con_gong.mp3")
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", campana,
+            "-i", ruta_audio,
+            "-i", campana,
+            "-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1[out]",
+            "-map", "[out]",
+            ruta_con_gong
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0 and os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 0:
+            return ruta_con_gong
+    except Exception as e:
+        print("Nota combinando gong con audio:", e)
+    return ruta_audio
+
+
+def generar_imagen_podio(fecha_str: str, duracion_min: int, total_personas: int, hubo_meditacion: bool, top_3: list, ruta_salida: str = os.path.join(CARPETA_ASISTENCIAS, "podio_hoy.png")) -> str | None:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
+        width, height = 1000, 1000
+        img = Image.new("RGB", (width, height), color=(15, 23, 42))
+        draw = ImageDraw.Draw(img)
+
+        # Header Box
+        draw.rounded_rectangle([(40, 40), (960, 180)], radius=20, fill=(30, 27, 75), outline=(79, 70, 229), width=2)
+        try:
+            font_title = ImageFont.truetype("arial.ttf", 38)
+            font_sub = ImageFont.truetype("arial.ttf", 24)
+            font_stats = ImageFont.truetype("arial.ttf", 22)
+            font_podio_num = ImageFont.truetype("arial.ttf", 32)
+            font_podio_name = ImageFont.truetype("arial.ttf", 28)
+            font_podio_pts = ImageFont.truetype("arial.ttf", 26)
+            font_footer = ImageFont.truetype("arial.ttf", 20)
+        except Exception:
+            font_title = font_sub = font_stats = font_podio_num = font_podio_name = font_podio_pts = font_footer = ImageFont.load_default()
+
+        draw.text((70, 65), "🏆 PODIO DE ASISTENCIA Y PUNTOS", fill=(251, 191, 36), font=font_title)
+        draw.text((70, 125), f"Fecha: {fecha_str} | Llamada Diaria 7:56 PM", fill=(199, 210, 254), font=font_sub)
+
+        # Stats Summary Box
+        draw.rounded_rectangle([(40, 205), (960, 285)], radius=15, fill=(30, 41, 59), outline=(51, 65, 85), width=2)
+        med_txt = "Sí (+30 pts)" if hubo_meditacion else "No"
+        stats_line = f"⏱️ Duración: {duracion_min} min   |   👥 Asistentes: {total_personas}   |   🧘 Meditación: {med_txt}"
+        draw.text((70, 235), stats_line, fill=(241, 245, 249), font=font_stats)
+
+        colors = [
+            ((69, 26, 3), (245, 158, 11), "1", (254, 243, 199)),
+            ((30, 41, 59), (148, 163, 184), "2", (241, 245, 249)),
+            ((67, 20, 7), (217, 119, 6), "3", (255, 237, 213)),
+        ]
+
+        y_start = 315
+        for i in range(3):
+            bg, border, num, txt_color = colors[i]
+            top_y = y_start + (i * 185)
+            bot_y = top_y + 160
+            draw.rounded_rectangle([(40, top_y), (960, bot_y)], radius=20, fill=bg, outline=border, width=3)
+            draw.rounded_rectangle([(65, top_y + 25), (175, bot_y - 25)], radius=15, fill=border)
+            draw.text((105, top_y + 55), f"#{num}", fill=(15, 23, 42), font=font_podio_num)
+
+            if i < len(top_3):
+                p = top_3[i]
+                nombre = p.get("nombre", "Participante")[:28]
+                pts = p.get("pts_hoy", 0)
+                rango = p.get("rango", "")
+                draw.text((205, top_y + 40), nombre, fill=(255, 255, 255), font=font_podio_name)
+                draw.text((205, top_y + 90), f"+{pts} pts hoy  •  Rango: {rango}", fill=txt_color, font=font_podio_pts)
+            else:
+                draw.text((205, top_y + 65), "Lugar Disponible", fill=(148, 163, 184), font=font_podio_name)
+
+        draw.text((240, 930), "¡Nos vemos mañana a las 7:56 PM! • Bot de Asistencia", fill=(148, 163, 184), font=font_footer)
+        img.save(ruta_salida, "PNG")
+        return ruta_salida
+    except Exception as e:
+        print("Nota generando imagen del podio:", e)
+        return None
+
+
 def obtener_rango(puntos: int) -> str:
     if puntos >= 1800:
         return "💎 Diamante"
@@ -235,6 +384,7 @@ def generar_texto_reglas() -> str:
         "🏅 **MEDALLAS ESPECIALES:**\n"
         "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 3 primeros).\n"
         "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
+        "• 🧘 *Mente Serena:* Completar 10 meditaciones en el mes.\n"
         "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
@@ -355,6 +505,24 @@ async def main() -> None:
         input_call = full_chat.call
         print(f"Iniciando monitoreo de la sala (Máx: {DURACION_MAXIMA_MINUTOS} min)...")
 
+        # Mensaje fijado dinámico en el grupo
+        msg_fijado = None
+        texto_fijado_base = (
+            "🎙️ **ESTADO DE LA SALA EN VIVO**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📅 Fecha: {fecha_hoy} | ⏰ Inicio: {inicio_llamada.strftime('%I:%M %p')}\n"
+            "👥 **Conectados ahora:** 0 personas\n"
+            "⏳ **Fase actual:** 💬 Charla inicial y bienvenida\n"
+            "🧘 **Meditación programada:** 8:32 PM\n\n"
+            "🟢 Entra al chat de voz tocando el botón del anuncio principal."
+        )
+        try:
+            msg_fijado = await client.send_message(entidad, texto_fijado_base)
+            await client.pin_message(entidad, msg_fijado, notify=False)
+            print("Mensaje de estado fijado dinámicamente en el grupo.")
+        except Exception as e:
+            print("Nota fijando mensaje de estado:", e)
+
         # Iniciar servicio PyTgCalls si está disponible
         tgcalls = None
         if PYTGCALLS_AVAILABLE:
@@ -370,6 +538,7 @@ async def main() -> None:
         reproduciendo_meditacion = False
         reproduccion_iniciada = False
         aviso_meditacion_enviado = False
+        alerta_falta_audio_enviada = False
         meditacion_activa_hoy = False
 
         async def reproducir_meditacion():
@@ -383,7 +552,10 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                await tgcalls.play(destino, ruta_meditacion)
+                # Incorporar campanas tibetanas / gong zen al inicio y final
+                ruta_a_reproducir = agregar_gongs_al_audio(ruta_meditacion)
+
+                await tgcalls.play(destino, ruta_a_reproducir)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
                 avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.")
@@ -411,8 +583,8 @@ async def main() -> None:
             except Exception as e:
                 print("Nota configurando StreamEnded handler:", e)
 
-        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda)
-        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start)"))
+        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion)
+        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio)"))
         async def responder_comandos_en_vivo(event):
             partes = event.raw_text.strip().split()
             texto_cmd = partes[0].lower().split("@")[0]
@@ -425,15 +597,22 @@ async def main() -> None:
 
             if texto_cmd in ("/puntos", "/miperfil"):
                 resp = generar_texto_miperfil(uid, db, nom, usr)
+                await event.reply(resp)
             elif texto_cmd in ("/ranking", "/top") or (texto_cmd == "/start" and param == "ranking"):
                 resp = generar_texto_ranking(db)
+                await event.reply(resp)
+            elif texto_cmd in ("/meditacion", "/audio"):
+                ruta_med = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
+                if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
+                    await event.reply("🧘 **Meditación del día:** Aquí tienes el audio para tu práctica diaria.", file=ruta_med)
+                else:
+                    await event.reply("🧘 Aún no hay un archivo de meditación disponible para hoy. Consulta más tarde.")
             else:
                 resp = generar_texto_reglas()
-
-            await event.reply(resp)
+                await event.reply(resp)
 
         # Escuchar controles de meditación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop)"))
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
@@ -441,7 +620,8 @@ async def main() -> None:
                 await event.reply("⛔ Solo los administradores pueden controlar la reproducción de la meditación.")
                 return
 
-            cmd = event.raw_text.strip().split()[0].lower().split("@")[0]
+            partes_cmd = event.raw_text.strip().split()
+            cmd = partes_cmd[0].lower().split("@")[0]
             if cmd in ("/reproducir", "/play"):
                 nonlocal ruta_meditacion
                 if not ruta_meditacion or not os.path.exists(ruta_meditacion):
@@ -468,6 +648,19 @@ async def main() -> None:
                         await event.reply("▶️ Meditación reanudada.")
                     except Exception as e:
                         await event.reply(f"Error al reanudar: {e}")
+            elif cmd in ("/volumen", "/vol"):
+                if len(partes_cmd) > 1 and partes_cmd[1].isdigit():
+                    nuevo_vol = max(1, min(200, int(partes_cmd[1])))
+                    if tgcalls:
+                        try:
+                            await tgcalls.change_volume_call(destino, nuevo_vol)
+                            await event.reply(f"🔊 Volumen ajustado a **{nuevo_vol}%**.")
+                        except Exception as e:
+                            await event.reply(f"Error al ajustar volumen: {e}")
+                    else:
+                        await event.reply("⚠️ El reproductor no está activo.")
+                else:
+                    await event.reply("ℹ️ Uso: `/volumen 1-200` (Ejemplo: `/volumen 80`).")
             elif cmd in ("/detener", "/stop"):
                 if tgcalls:
                     try:
@@ -534,6 +727,21 @@ async def main() -> None:
             # Control de hora para la Meditación Automática
             hora_col = ahora.hour
             min_col = ahora.minute
+
+            # Alerta preventiva a las 8:15 PM si aún no se ha subido el audio
+            if hora_col == 20 and min_col == 15 and not alerta_falta_audio_enviada:
+                alerta_falta_audio_enviada = True
+                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                    try:
+                        await client.send_message(
+                            "me",
+                            "⚠️ **RECORDATORIO PREVENTIVO DE MEDITACIÓN (8:15 PM)**\n\n"
+                            "Aún no se ha detectado el archivo de audio con `MEDITACION DE TAREA` en el grupo.\n"
+                            "Por favor súbelo antes de las 8:30 PM para que inicie automáticamente a las 8:32 PM."
+                        )
+                    except Exception:
+                        pass
+                    avisar_con_bot("⚠️ **Aviso Administradores:** Aún no se ha publicado la `MEDITACION DE TAREA` de hoy. Recuerden subir el archivo .mp3 antes de las 8:30 PM.")
 
             if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado and ruta_meditacion and os.path.exists(ruta_meditacion):
                 avisar_con_bot("🧘 **En 1 minuto dará inicio la meditación diaria.**\nPor favor silencien sus micrófonos y tomen una postura cómoda.")
@@ -646,6 +854,27 @@ async def main() -> None:
             num_activos = len(activos_en_tick)
             minutos_transcurridos = segundos_totales // 60
 
+            # Actualización del mensaje fijado dinámico cada ~5 min
+            if msg_fijado and (segundos_totales // INTERVALO_SONDEO_SEGUNDOS) % 15 == 0:
+                fase = (
+                    "🧘 Meditación diaria en curso..."
+                    if reproduciendo_meditacion
+                    else ("🎙️ Ronda de preguntas y compartir" if reproduccion_iniciada else "💬 Charla inicial y bienvenida")
+                )
+                nuevo_texto_fijado = (
+                    "🎙️ **ESTADO DE LA SALA EN VIVO**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📅 Fecha: {fecha_hoy} | ⏰ En vivo desde: {inicio_llamada.strftime('%I:%M %p')}\n"
+                    f"👥 **Conectados ahora:** {num_activos} personas\n"
+                    f"⏳ **Fase actual:** {fase}\n"
+                    f"🧘 **Meditación:** {'Reproducida' if reproduccion_iniciada else '8:32 PM'}\n\n"
+                    "🟢 Entra al chat de voz tocando el botón del anuncio principal."
+                )
+                try:
+                    await client.edit_message(entidad, msg_fijado, nuevo_texto_fijado)
+                except Exception:
+                    pass
+
             # Regla 1: Sala completamente vacía durante 2 min continuos (tras primeros 5 min)
             if minutos_transcurridos >= 5:
                 if num_activos == 0:
@@ -667,6 +896,13 @@ async def main() -> None:
                         break
                 else:
                     consecutivos_menos_de_dos = 0
+
+        # Desfijar mensaje dinámico al terminar la llamada
+        if msg_fijado:
+            try:
+                await client.unpin_message(entidad, msg_fijado)
+            except Exception:
+                pass
 
         # 3. Finalización y Consolidación de Asistencia
         fin_llamada = datetime.now(tz_col)
@@ -704,6 +940,7 @@ async def main() -> None:
                 u["puntos_mes"] = 0
                 u["asistencias_mes"] = 0
                 u["minutos_mes"] = 0
+                u["meditaciones_mes"] = 0
 
         db_puntos["total_llamadas_mes"] = db_puntos.get("total_llamadas_mes", 0) + 1
         total_llamadas_mes = db_puntos["total_llamadas_mes"]
@@ -743,6 +980,8 @@ async def main() -> None:
                     "asistencias_totales": 0,
                     "minutos_mes": 0,
                     "minutos_totales": 0,
+                    "meditaciones_mes": 0,
+                    "meditaciones_totales": 0,
                     "medallas": [],
                     "ultima_fecha": "",
                 })
@@ -784,6 +1023,14 @@ async def main() -> None:
                     if "👑 Centinela" not in medallas_set:
                         medallas_set.add("👑 Centinela")
                         nuevas_medallas.append("👑 Centinela")
+
+                # Medalla especial: Mente Serena (10 meditaciones en el mes)
+                if part.get("meditacion_completada"):
+                    u_data["meditaciones_mes"] = u_data.get("meditaciones_mes", 0) + 1
+                    u_data["meditaciones_totales"] = u_data.get("meditaciones_totales", 0) + 1
+                    if u_data["meditaciones_mes"] >= 10 and "🧘 Mente Serena" not in medallas_set:
+                        medallas_set.add("🧘 Mente Serena")
+                        nuevas_medallas.append("🧘 Mente Serena")
 
                 u_data["medallas"] = list(medallas_set)
 
@@ -904,8 +1151,22 @@ async def main() -> None:
             lineas_pub.append(f"{i}. {obtener_rango(u.get('puntos_totales', 0))} **{u['nombre']}** — {u.get('puntos_mes', 0)} pts {meds}".strip())
 
         lineas_pub.append("\n🎙️ = Participó hablando  |  🎧 = Oyente | 🧘 = Meditación")
-        lineas_pub.append("💡 Comandos disponibles: `/puntos` | `/ranking` | `/reglas`")
+        lineas_pub.append("💡 Comandos disponibles: `/puntos` | `/ranking` | `/reglas` | `/meditacion`")
         lineas_pub.append("¡Gracias a todos por participar! Nos vemos mañana a las 7:56 PM.")
+
+        # Generar imagen gráfica profesional del podio y enviarla al grupo
+        try:
+            ruta_img_podio = generar_imagen_podio(
+                fecha_str=inicio_llamada.strftime("%d/%m/%Y"),
+                duracion_min=duracion_reunion_minutos,
+                total_personas=len(participantes),
+                hubo_meditacion=meditacion_activa_hoy,
+                top_3=asistentes_validos[:3],
+            )
+            if ruta_img_podio and os.path.exists(ruta_img_podio):
+                enviar_foto_con_bot(ruta_img_podio, caption=f"🏆 **PODIO OFICIAL — LLAMADA {inicio_llamada.strftime('%d/%m/%Y')}** 🏆")
+        except Exception as e:
+            print("Nota generando o enviando imagen del podio:", e)
 
         reporte_publico = "\n".join(lineas_pub)
         avisar_con_bot(reporte_publico)

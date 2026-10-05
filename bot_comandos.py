@@ -111,6 +111,7 @@ def generar_texto_reglas() -> str:
         "🏅 **MEDALLAS ESPECIALES:**\n"
         "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 3 primeros).\n"
         "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
+        "• 🧘 *Mente Serena:* Completar 10 meditaciones en el mes.\n"
         "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
@@ -139,12 +140,47 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
         print(f"Error enviando mensaje a {chat_id}:", e)
 
 
+def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad") -> None:
+    if not BOT_TOKEN or not os.path.exists(ruta_audio):
+        return
+    boundary = "----WebKitFormBoundaryAudio7MA4YWxk"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
+
+    try:
+        with open(ruta_audio, "rb") as f:
+            file_bytes = f.read()
+
+        body = bytearray()
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode())
+        if caption:
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption}\r\n".encode())
+        if title:
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n{title}\r\n".encode())
+        if performer:
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"performer\"\r\n\r\n{performer}\r\n".encode())
+
+        filename = os.path.basename(ruta_audio)
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"{filename}\"\r\nContent-Type: audio/mpeg\r\n\r\n".encode())
+        body.extend(file_bytes)
+        body.extend(f"\r\n--{boundary}--\r\n".encode())
+
+        req = urllib.request.Request(
+            url,
+            data=bytes(body),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        )
+        with urllib.request.urlopen(req, timeout=60) as r:
+            print(f"Audio de meditación enviado a {chat_id}:", r.status)
+    except Exception as e:
+        print(f"Error enviando audio a {chat_id}:", e)
+
+
 def escuchar_comandos() -> None:
     if not BOT_TOKEN:
         print("Error: Define la variable de entorno BOT_TOKEN.")
         return
 
-    print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda...")
+    print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion...")
     offset = 0
 
     while True:
@@ -186,6 +222,20 @@ def escuchar_comandos() -> None:
                 elif cmd in ("/ranking", "/top") or (cmd == "/start" and param == "ranking"):
                     resp = generar_texto_ranking(db)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
+                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio"):
+                    ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
+                    if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
+                        enviar_audio(
+                            chat_id,
+                            ruta_med,
+                            caption="🧘 **Meditación Diaria**\nAquí tienes el audio de hoy para que realices tu práctica en diferido."
+                        )
+                    else:
+                        enviar_mensaje(
+                            chat_id,
+                            "🧘 **Meditación Diaria:**\nAún no hay un audio de meditación disponible para hoy. Consulta más tarde o revisa el grupo.",
+                            reply_to_message_id=msg_id
+                        )
                 elif cmd in ("/reglas", "/ayuda") or (cmd == "/start" and param == "reglas") or cmd == "/start":
                     resp = generar_texto_reglas()
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
