@@ -19,6 +19,7 @@ from telethon.tl.functions.messages import GetFullChatRequest
 from telethon.tl.functions.phone import (
     CreateGroupCallRequest,
     DiscardGroupCallRequest,
+    EditGroupCallParticipantRequest,
     GetGroupCallRequest,
     ToggleGroupCallSettingsRequest,
 )
@@ -43,12 +44,14 @@ AVISO = os.environ.get(
     "📞 ¡Empieza la llamada diaria! Entra al chat de voz del grupo.",
 )
 
-# Parámetros de monitoreo y asistencia
+# Parámetros de monitoreo, asistencia y moderación de voz
 DURACION_MAXIMA_MINUTOS = int(os.environ.get("DURACION_MAXIMA_MINUTOS", "360"))  # Hasta 6 horas
-INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "20"))
+INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "5"))  # Sondeo rápido a 5s
 MIN_MINUTOS_ASISTENCIA = int(os.environ.get("MIN_MINUTOS_ASISTENCIA", "10"))
 AUTO_CIERRE_MIN_USUARIOS = int(os.environ.get("AUTO_CIERRE_MIN_USUARIOS", "2"))
 AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "45"))
+SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "15"))  # 15s de silencio cierra mic
+MAX_ORADORES_SIMULTANEOS = int(os.environ.get("MAX_ORADORES_SIMULTANEOS", "2"))   # Máx 2 personas hablando
 
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 CARPETA_ASISTENCIAS = os.path.join("data", "asistencias")
@@ -418,6 +421,10 @@ def generar_texto_reglas() -> str:
         "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
         "• 🧘 *Mente Serena:* Completar 10 meditaciones en el mes.\n"
         "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
+        "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
+        "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
+        "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
+        "• Si dejas el micrófono abierto sin hablar por 15 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
     )
@@ -471,6 +478,29 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> str | None:
     except Exception as e:
         print("Nota buscando audio de meditación:", e)
     return None
+
+
+def generar_texto_turnos(cola: list, oradores: list) -> str:
+    lineas = [
+        "🎙️ **LISTA DE TURNOS EN VIVO** ✋",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    ]
+    if oradores:
+        txt_oradores = ", ".join([f"**{o}**" for o in oradores])
+        lineas.append(f"🗣️ **Hablando ahora:** {txt_oradores}")
+    else:
+        lineas.append("🗣️ **Hablando ahora:** Micrófono disponible 🎙️")
+
+    lineas.append("\n⏳ **En lista de espera:**")
+    if cola:
+        for idx, item in enumerate(cola, 1):
+            sufijo = " *(le toca a continuación)*" if idx == 1 else ""
+            lineas.append(f"{idx}. ✋ **{item['nombre']}**{sufijo}")
+    else:
+        lineas.append("Nadie en lista de espera.")
+
+    lineas.append("\n💡 Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.")
+    return "\n".join(lineas)
 
 
 async def main() -> None:
@@ -537,6 +567,27 @@ async def main() -> None:
         input_call = full_chat.call
         print(f"Iniciando monitoreo de la sala (Máx: {DURACION_MAXIMA_MINUTOS} min)...")
 
+        # Estado del sistema de moderación de voz y turnos
+        participantes = {}
+        cola_turnos = []  # [{"id": uid, "nombre": nom, "username": usr}]
+        oradores_activos = set()  # uids actualmente hablando
+        segundos_inactividad_mic = {}  # uid -> segundos con mic abierto y sin voz
+        avisados_auto_mute = set()  # uids notificados cordialmente
+        msg_turnos = None  # Mensaje en vivo con la cola de turnos
+
+        async def actualizar_mensaje_turnos():
+            nonlocal msg_turnos
+            nombres_oradores = [
+                participantes[u]["nombre"] if u in participantes else f"ID {u}"
+                for u in oradores_activos
+            ]
+            txt = generar_texto_turnos(cola_turnos, nombres_oradores)
+            if msg_turnos:
+                try:
+                    await client.edit_message(entidad, msg_turnos, txt)
+                except Exception:
+                    pass
+
         # Mensaje fijado dinámico en el grupo
         msg_fijado = None
         texto_fijado_base = (
@@ -554,6 +605,13 @@ async def main() -> None:
             print("Mensaje de estado fijado dinámicamente en el grupo.")
         except Exception as e:
             print("Nota fijando mensaje de estado:", e)
+
+        # Publicar mensaje de lista de turnos en vivo en el grupo
+        try:
+            msg_turnos = await client.send_message(entidad, generar_texto_turnos(cola_turnos, []))
+            print("Mensaje de turnos en vivo publicado en el grupo.")
+        except Exception as e:
+            print("Nota publicando mensaje de turnos:", e)
 
         # Iniciar servicio PyTgCalls si está disponible
         tgcalls = None
@@ -615,8 +673,8 @@ async def main() -> None:
             except Exception as e:
                 print("Nota configurando StreamEnded handler:", e)
 
-        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion)
-        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio)"))
+        # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos)
+        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos)"))
         async def responder_comandos_en_vivo(event):
             partes = event.raw_text.strip().split()
             texto_cmd = partes[0].lower().split("@")[0]
@@ -624,7 +682,7 @@ async def main() -> None:
             db = cargar_puntos()
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
-            nom = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".strip()
+            nom = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".strip() or "Participante"
             usr = getattr(sender, "username", "") or ""
 
             if texto_cmd in ("/puntos", "/miperfil"):
@@ -639,17 +697,53 @@ async def main() -> None:
                     await event.reply("🧘 **Meditación del día:** Aquí tienes el audio para tu práctica diaria.", file=ruta_med)
                 else:
                     await event.reply("🧘 Aún no hay un archivo de meditación disponible para hoy. Consulta más tarde.")
+            elif texto_cmd in ("/turno", "/pedirturno", "/mano"):
+                if uid in admin_ids:
+                    await event.reply("👑 Como administrador puedes hablar libremente cuando gustes.")
+                    return
+                for idx, t in enumerate(cola_turnos, 1):
+                    if t["id"] == uid:
+                        await event.reply(f"ℹ️ Ya estás en la lista de turnos (Posición #{idx}). Te avisaremos cuando sea tu momento.")
+                        return
+                if uid in oradores_activos:
+                    await event.reply("🎙️ ¡Ya tienes el micrófono habilitado para hablar!")
+                    return
+                cola_turnos.append({"id": uid, "nombre": nom, "username": usr})
+                pos = len(cola_turnos)
+                await event.reply(f"✋ **{nom}**, has sido añadido a la lista de turnos (Posición #{pos}). Te avisaremos cuando sea tu momento.")
+                await actualizar_mensaje_turnos()
+            elif texto_cmd in ("/ceder",):
+                en_cola = any(t["id"] == uid for t in cola_turnos)
+                era_orador = uid in oradores_activos
+                cola_turnos[:] = [t for t in cola_turnos if t["id"] != uid]
+                oradores_activos.discard(uid)
+                if era_orador or en_cola:
+                    try:
+                        input_peer = await client.get_input_entity(uid)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                    except Exception:
+                        pass
+                    await event.reply(f"🤝 **{nom}**, has cedido tu turno de palabra. ¡Muchas gracias por compartir!")
+                    await actualizar_mensaje_turnos()
+                else:
+                    await event.reply("ℹ️ No estás en la lista de turnos ni tienes el micrófono activo.")
+            elif texto_cmd in ("/turnos",):
+                nombres_oradores = [
+                    participantes[u]["nombre"] if u in participantes else f"ID {u}"
+                    for u in oradores_activos
+                ]
+                await event.reply(generar_texto_turnos(cola_turnos, nombres_oradores))
             else:
                 resp = generar_texto_reglas()
                 await event.reply(resp)
 
-        # Escuchar controles de meditación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol)"))
+        # Escuchar controles de meditación y moderación de turnos exclusivos para administradores
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|hablar|desmutear|mutear)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
             if uid not in admin_ids:
-                await event.reply("⛔ Solo los administradores pueden controlar la reproducción de la meditación.")
+                await event.reply("⛔ Solo los administradores pueden utilizar este comando.")
                 return
 
             partes_cmd = event.raw_text.strip().split()
@@ -705,6 +799,81 @@ async def main() -> None:
                         await event.reply("⏹️ Reproducción finalizada. Micrófonos restablecidos.")
                     except Exception as e:
                         await event.reply(f"Error al detener: {e}")
+            elif cmd in ("/siguiente", "/next"):
+                if not cola_turnos:
+                    await event.reply("ℹ️ No hay participantes esperando en la lista de turnos.")
+                    return
+                siguiente_u = cola_turnos.pop(0)
+                s_uid = siguiente_u["id"]
+                s_nom = siguiente_u["nombre"]
+                oradores_activos.add(s_uid)
+                segundos_inactividad_mic[s_uid] = 0
+                avisados_auto_mute.discard(s_uid)
+                try:
+                    input_peer = await client.get_input_entity(s_uid)
+                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                except Exception as e:
+                    print(f"Nota desmuteando a {s_nom}:", e)
+                await actualizar_mensaje_turnos()
+                await event.reply(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
+                avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.")
+            elif cmd in ("/limpiarturnos",):
+                cola_turnos.clear()
+                await actualizar_mensaje_turnos()
+                await event.reply("🧹 **Lista de turnos vaciada exitosamente.**")
+            elif cmd in ("/hablar", "/desmutear"):
+                target_user = None
+                if event.is_reply:
+                    reply_msg = await event.get_reply_message()
+                    if reply_msg:
+                        target_user = await reply_msg.get_sender()
+                elif len(partes_cmd) > 1:
+                    try:
+                        target_user = await client.get_entity(partes_cmd[1])
+                    except Exception:
+                        pass
+
+                if target_user:
+                    t_uid = target_user.id
+                    t_nom = f"{getattr(target_user, 'first_name', '') or ''} {getattr(target_user, 'last_name', '') or ''}".strip() or "Usuario"
+                    oradores_activos.add(t_uid)
+                    segundos_inactividad_mic[t_uid] = 0
+                    avisados_auto_mute.discard(t_uid)
+                    cola_turnos[:] = [t for t in cola_turnos if t["id"] != t_uid]
+                    try:
+                        input_peer = await client.get_input_entity(t_uid)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                    except Exception as e:
+                        print(f"Nota habilitando micrófono a {t_nom}:", e)
+                    await actualizar_mensaje_turnos()
+                    await event.reply(f"🎙️ Micrófono habilitado para **{t_nom}**.")
+                else:
+                    await event.reply("ℹ️ Uso: `/hablar @usuario` o responde al mensaje del usuario en el grupo.")
+            elif cmd in ("/mutear",):
+                target_user = None
+                if event.is_reply:
+                    reply_msg = await event.get_reply_message()
+                    if reply_msg:
+                        target_user = await reply_msg.get_sender()
+                elif len(partes_cmd) > 1:
+                    try:
+                        target_user = await client.get_entity(partes_cmd[1])
+                    except Exception:
+                        pass
+
+                if target_user:
+                    t_uid = target_user.id
+                    t_nom = f"{getattr(target_user, 'first_name', '') or ''} {getattr(target_user, 'last_name', '') or ''}".strip() or "Usuario"
+                    oradores_activos.discard(t_uid)
+                    try:
+                        input_peer = await client.get_input_entity(t_uid)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                    except Exception as e:
+                        print(f"Nota silenciando a {t_nom}:", e)
+                    await actualizar_mensaje_turnos()
+                    await event.reply(f"🔇 Micrófono silenciado para **{t_nom}**.")
+                else:
+                    await event.reply("ℹ️ Uso: `/mutear @usuario` o responde al mensaje del usuario en el grupo.")
 
         # Escuchar si un admin sube la meditación de tarea en vivo
         @client.on(events.NewMessage(chats=entidad))
@@ -742,7 +911,6 @@ async def main() -> None:
                     print("Nueva meditación recibida y guardada:", ruta)
                     await event.reply("✅ Meditación recibida. Programada para reproducirse hoy a las 8:32 PM en la sala de voz.")
 
-        participantes = {}
         segundos_totales = 0
         tiempo_limite_segundos = DURACION_MAXIMA_MINUTOS * 60
         consecutivos_vacio = 0
@@ -820,6 +988,7 @@ async def main() -> None:
 
             users_dict = {u.id: u for u in getattr(call_info, "users", [])}
             activos_en_tick = set()
+            hubo_cambio_turnos = False
 
             for p in getattr(call_info, "participants", []):
                 if getattr(p, "left", False):
@@ -833,12 +1002,71 @@ async def main() -> None:
                 nombre = f"{u.first_name or ''} {u.last_name or ''}".strip() if u else "Usuario"
                 username = u.username or "" if u else ""
 
-                # Detección de micrófono
+                # Detección de micrófono y estado de silencio
                 hablo_ahora = False
                 if getattr(p, "active_date", None):
                     hablo_ahora = True
                 elif getattr(p, "muted", True) is False and getattr(p, "volume", 0) and getattr(p, "volume", 0) > 0:
                     hablo_ahora = True
+
+                p_muted = getattr(p, "muted", True)
+
+                # Detección de mano levantada nativa en Telegram (✋ raise_hand_rating != 0)
+                raise_hand = getattr(p, "raise_hand_rating", 0)
+                if raise_hand and uid not in admin_ids:
+                    if not any(t["id"] == uid for t in cola_turnos) and uid not in oradores_activos:
+                        cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
+                        print(f"✋ {nombre} levantó la mano en Telegram y fue añadido a la lista de turnos.")
+                        hubo_cambio_turnos = True
+
+                # Moderación de micrófonos en vivo (No afecta a administradores)
+                if uid not in admin_ids:
+                    if not p_muted:
+                        # Micrófono abierto
+                        if hablo_ahora:
+                            segundos_inactividad_mic[uid] = 0
+                            avisados_auto_mute.discard(uid)
+                            if uid not in oradores_activos:
+                                oradores_activos.add(uid)
+                                hubo_cambio_turnos = True
+
+                            # Regla: Máximo MAX_ORADORES_SIMULTANEOS (2) personas a la vez
+                            if len(oradores_activos) > MAX_ORADORES_SIMULTANEOS and uid not in list(oradores_activos)[:MAX_ORADORES_SIMULTANEOS]:
+                                oradores_activos.discard(uid)
+                                try:
+                                    input_peer = await client.get_input_entity(uid)
+                                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                                    if not any(t["id"] == uid for t in cola_turnos):
+                                        cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
+                                    hubo_cambio_turnos = True
+                                    avisar_con_bot(f"⚠️ **{nombre}**, ya hay {MAX_ORADORES_SIMULTANEOS} personas hablando a la vez. Te hemos añadido a la lista de turnos para no interrumpir.")
+                                    print(f"Límite de oradores alcanzado. {nombre} silenciado y añadido a la cola.")
+                                except Exception as e:
+                                    print(f"Nota limitando oradores simultáneos para {nombre}:", e)
+                        else:
+                            # Micrófono abierto pero NO está hablando (olvido, ancianos, ruido de fondo)
+                            seg_inac = segundos_inactividad_mic.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
+                            segundos_inactividad_mic[uid] = seg_inac
+
+                            if seg_inac >= SEGUNDOS_INACTIVIDAD_MUTE:
+                                try:
+                                    input_peer = await client.get_input_entity(uid)
+                                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                                    oradores_activos.discard(uid)
+                                    segundos_inactividad_mic[uid] = 0
+                                    hubo_cambio_turnos = True
+                                    if uid not in avisados_auto_mute:
+                                        avisados_auto_mute.add(uid)
+                                        avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por 15s de inactividad (evita ruidos de fondo involuntarios). Puedes volver a pedir turno con `/turno` o levantando la mano ✋.")
+                                    print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de micrófono inactivo.")
+                                except Exception as e:
+                                    print(f"Nota auto-muteando a {nombre}:", e)
+                    else:
+                        # Micrófono cerrado
+                        segundos_inactividad_mic[uid] = 0
+                        if uid in oradores_activos:
+                            oradores_activos.discard(uid)
+                            hubo_cambio_turnos = True
 
                 if uid not in participantes:
                     participantes[uid] = {
@@ -875,6 +1103,9 @@ async def main() -> None:
                         part["segundos_acumulados"] += max(0.0, delta)
                         part["ultimo_check"] = ahora
                         part["ultima_salida"] = ahora
+
+            if hubo_cambio_turnos:
+                await actualizar_mensaje_turnos()
 
             # Marcar desconectados
             for uid, part in participantes.items():
@@ -929,10 +1160,15 @@ async def main() -> None:
                 else:
                     consecutivos_menos_de_dos = 0
 
-        # Desfijar mensaje dinámico al terminar la llamada
+        # Desfijar mensaje dinámico y limpiar mensaje de turnos al terminar la llamada
         if msg_fijado:
             try:
                 await client.unpin_message(entidad, msg_fijado)
+            except Exception:
+                pass
+        if msg_turnos:
+            try:
+                await client.delete_messages(entidad, msg_turnos)
             except Exception:
                 pass
 

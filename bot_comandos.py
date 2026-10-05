@@ -113,6 +113,10 @@ def generar_texto_reglas() -> str:
         "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
         "• 🧘 *Mente Serena:* Completar 10 meditaciones en el mes.\n"
         "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
+        "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
+        "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
+        "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
+        "• Si dejas el micrófono abierto sin hablar por 15 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
     )
@@ -236,6 +240,17 @@ def escuchar_comandos() -> None:
                             "🧘 **Meditación Diaria:**\nAún no hay un audio de meditación disponible para hoy. Consulta más tarde o revisa el grupo.",
                             reply_to_message_id=msg_id
                         )
+                elif cmd in ("/turno", "/pedirturno", "/ceder", "/turnos", "/mano"):
+                    resp = (
+                        "🎙️ **Moderación y Turnos de Palabra:**\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "La lista de turnos se gestiona en tiempo real dentro del grupo durante la llamada diaria (7:56 PM a 10:30 PM).\n\n"
+                        "✋ **Para pedir la palabra:** Escribe `/turno` en el grupo o levanta la mano ✋ en la sala de voz.\n"
+                        "🤝 **Para ceder la palabra:** Escribe `/ceder` en el grupo.\n"
+                        "📋 **Para ver la cola:** Escribe `/turnos` en el grupo.\n"
+                        "🔇 **Protección anti-ruido:** Si tu micrófono queda abierto sin hablar por 15 segundos, el sistema lo silenciará automáticamente para proteger la sala."
+                    )
+                    enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/reglas", "/ayuda") or (cmd == "/start" and param == "reglas") or cmd == "/start":
                     resp = generar_texto_reglas()
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
