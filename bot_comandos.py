@@ -244,22 +244,42 @@ def escuchar_comandos() -> None:
             for update in res.get("result", []):
                 offset = update["update_id"] + 1
                 msg = update.get("message")
-                if not msg or not msg.get("text"):
+                if not msg:
                     continue
 
-                texto = msg["text"].strip()
-                if not texto.startswith("/"):
-                    continue
-
-                partes = texto.split()
-                cmd = partes[0].lower().split("@")[0]
-
+                texto = (msg.get("text") or msg.get("caption") or "").strip()
                 chat_id = msg["chat"]["id"]
                 msg_id = msg["message_id"]
                 from_user = msg.get("from", {})
                 user_id = from_user.get("id")
                 nombre = f"{from_user.get('first_name', '')} {from_user.get('last_name', '')}".strip()
 
+                # Detectar si se subió un audio/documento de tarea o meditación
+                audio_obj = msg.get("audio") or msg.get("voice") or msg.get("document")
+                if audio_obj:
+                    nombre_archivo = audio_obj.get("file_name", "") if isinstance(audio_obj, dict) else ""
+                    if any(k in texto.upper() for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]) or any(k in nombre_archivo.upper() for k in ["MEDITACION", "MEDITACIÓN", "MENSAJE"]):
+                        info_cat = identificar_audio_catalogo(texto, nombre_archivo)
+                        if info_cat:
+                            txt_card = formatear_info_audio(info_cat)
+                            resp_confirmacion = (
+                                f"✅ **Audio identificado en el Catálogo:**\n\n"
+                                f"{txt_card}\n\n"
+                                f"Programado para reproducirse hoy a las 8:32 PM en la sala de voz."
+                            )
+                            enviar_mensaje(chat_id, resp_confirmacion, reply_to_message_id=msg_id)
+                            try:
+                                os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+                                with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
+                                    json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+                            except Exception:
+                                pass
+
+                if not texto.startswith("/"):
+                    continue
+
+                partes = texto.split()
+                cmd = partes[0].lower().split("@")[0]
                 param = partes[1].lower() if len(partes) > 1 else ""
                 db = cargar_puntos()
 
