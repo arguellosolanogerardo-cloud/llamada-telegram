@@ -100,6 +100,18 @@ def identificar_audio_catalogo(texto: str = "", nombre_archivo: str = "") -> dic
                 item["detectado_como"] = "MEDITACION"
                 return item
 
+    # 5. Búsqueda por número puro directo (ej: "20" o "#20")
+    texto_limpio = re.sub(r"[#\s]", "", texto.strip())
+    if texto_limpio.isdigit():
+        if texto_limpio in meditaciones:
+            item = dict(meditaciones[texto_limpio])
+            item["detectado_como"] = "MEDITACION"
+            return item
+        elif texto_limpio in mensajes:
+            item = dict(mensajes[texto_limpio])
+            item["detectado_como"] = "MENSAJE"
+            return item
+
     return None
 
 

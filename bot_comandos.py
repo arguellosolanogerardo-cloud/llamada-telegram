@@ -6,6 +6,7 @@ import urllib.parse
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
+from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
@@ -134,7 +135,7 @@ def generar_texto_reglas() -> str:
     )
 
 
-def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = None) -> None:
+def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = None, reply_markup: dict = None) -> None:
     if not BOT_TOKEN:
         print("BOT_TOKEN no configurado.")
         return
@@ -146,6 +147,8 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
     }
     if reply_to_message_id:
         payload["reply_to_message_id"] = reply_to_message_id
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
 
     datos = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json"})
@@ -261,19 +264,30 @@ def escuchar_comandos() -> None:
                     if any(k in texto.upper() for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]) or any(k in nombre_archivo.upper() for k in ["MEDITACION", "MEDITACIÓN", "MENSAJE"]):
                         info_cat = identificar_audio_catalogo(texto, nombre_archivo)
                         if info_cat:
-                            txt_card = formatear_info_audio(info_cat)
-                            resp_confirmacion = (
-                                f"✅ **Audio identificado en el Catálogo:**\n\n"
-                                f"{txt_card}\n\n"
-                                f"Programado para reproducirse hoy a las 8:32 PM en la sala de voz."
-                            )
-                            enviar_mensaje(chat_id, resp_confirmacion, reply_to_message_id=msg_id)
                             try:
                                 os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
                                 with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
                                     json.dump(info_cat, fm, ensure_ascii=False, indent=2)
                             except Exception:
                                 pass
+
+                            anuncio = generar_anuncio_tarea(info_cat)
+                            teclado = armar_teclado_audio(chat_id, msg_id)
+                            enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
+
+                            # Enviar notificación privada a miembros registrados
+                            usuarios = db.get("usuarios", {})
+                            for u_id, datos in usuarios.items():
+                                if str(u_id) == str(chat_id):
+                                    continue
+                                txt_priv = (
+                                    f"🕊️ **TAREA DEL DÍA** 🕊️\n"
+                                    f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
+                                    f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                    f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
+                                    f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                )
+                                enviar_mensaje(u_id, txt_priv, reply_markup=teclado)
 
                 if not texto.startswith("/"):
                     continue
@@ -349,13 +363,12 @@ def escuchar_comandos() -> None:
                             )
                 elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea"):
                     param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
-                    if not param_texto and msg.get("reply_to_message"):
-                        reply_m = msg.get("reply_to_message", {})
+                    reply_m = msg.get("reply_to_message") or {}
+                    if not param_texto and reply_m:
                         param_texto = (reply_m.get("text") or reply_m.get("caption") or "").strip()
                     if not param_texto:
                         enviar_mensaje(chat_id, "ℹ️ Uso: `/tarea [número o nombre]` (ej: `/tarea 20` o responde a un audio con `/tarea`).", reply_to_message_id=msg_id)
                     else:
-                        from publicar_tarea import generar_anuncio_tarea
                         info_cat = identificar_audio_catalogo(texto=param_texto)
                         if info_cat:
                             try:
@@ -365,20 +378,22 @@ def escuchar_comandos() -> None:
                             except Exception:
                                 pass
                             anuncio = generar_anuncio_tarea(info_cat)
-                            enviar_mensaje(chat_id, anuncio)
+                            msg_id_audio = reply_m.get("message_id") if msg.get("reply_to_message") else None
+                            teclado = armar_teclado_audio(chat_id, msg_id_audio)
+                            enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
                             db_pts = cargar_puntos()
                             usuarios = db_pts.get("usuarios", {})
                             for u_id, datos in usuarios.items():
                                 if str(u_id) == str(chat_id):
                                     continue
                                 txt_priv = (
-                                    f"🕊️ **TAREA ESPIRITUAL DEL DÍA**\n"
+                                    f"🕊️ **TAREA DEL DÍA** 🕊️\n"
                                     f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
                                     f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
                                     f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
                                     f"¡Te esperamos puntual esta noche a las 7:56 PM!"
                                 )
-                                enviar_mensaje(u_id, txt_priv)
+                                enviar_mensaje(u_id, txt_priv, reply_markup=teclado)
                         else:
                             enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
                 elif cmd in ("/turno", "/pedirturno", "/ceder", "/turnos", "/mano"):
