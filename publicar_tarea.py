@@ -3,7 +3,7 @@ import sys
 import re
 import json
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, cargar_catalogo
 
@@ -19,16 +19,46 @@ TG_SESSION = os.environ.get("TG_SESSION")
 def extraer_fecha_de_texto(texto: str) -> str | None:
     if not texto:
         return None
+
+    tz_col = ZoneInfo("America/Bogota")
+    ahora = datetime.now(tz_col)
+    t_lower = texto.lower()
+
+    # 1. "mañana" / "manana"
+    if "mañana" in t_lower or "manana" in t_lower:
+        manana = ahora + timedelta(days=1)
+        return manana.strftime("%d/%m/%Y")
+
+    # 2. "hoy"
+    if re.search(r"\bpara\s+hoy\b|\bhoy\b", t_lower):
+        return ahora.strftime("%d/%m/%Y")
+
+    # 3. Formato numérico standard: DD/MM/AAAA, DD-MM-AAAA, DD.MM.AAAA
     m = re.search(r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})\b", texto)
     if m:
         dia, mes, anio = m.group(1), m.group(2), m.group(3)
-        if len(dia) == 1:
-            dia = f"0{dia}"
-        if len(mes) == 1:
-            mes = f"0{mes}"
-        if len(anio) == 2:
-            anio = f"20{anio}"
+        if len(dia) == 1: dia = f"0{dia}"
+        if len(mes) == 1: mes = f"0{mes}"
+        if len(anio) == 2: anio = f"20{anio}"
         return f"{dia}/{mes}/{anio}"
+
+    # 4. Formato de texto: "6 de octubre", "6 octubre", "martes 6 octubre"
+    meses = {
+        "enero": "01", "febrero": "02", "marzo": "03", "abril": "04",
+        "mayo": "05", "junio": "06", "julio": "07", "agosto": "08",
+        "septiembre": "09", "setiembre": "09", "octubre": "10",
+        "noviembre": "11", "diciembre": "12"
+    }
+    pattern_mes = r"\b(\d{1,2})\s+(?:de\s+)?(" + "|".join(meses.keys()) + r")\b"
+    m_mes = re.search(pattern_mes, t_lower)
+    if m_mes:
+        dia = m_mes.group(1)
+        mes_txt = m_mes.group(2)
+        mes = meses[mes_txt]
+        if len(dia) == 1: dia = f"0{dia}"
+        anio = str(ahora.year)
+        return f"{dia}/{mes}/{anio}"
+
     return None
 
 

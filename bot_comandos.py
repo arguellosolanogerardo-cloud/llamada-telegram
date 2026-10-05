@@ -11,6 +11,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from ia_resumen import buscar_en_minutas, obtener_minuta
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
 from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto
+from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
@@ -248,9 +249,9 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
         print(f"Error enviando mensaje a {chat_id}:", e)
 
 
-def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad") -> bool:
+def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
     if not BOT_TOKEN or not ruta_audio:
-        return False
+        return False, None, None
 
     # Si es un file_id de Telegram (no existe como archivo local en disco)
     if not os.path.exists(ruta_audio):
@@ -263,16 +264,22 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
             "title": title,
             "performer": performer,
         }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         datos = json.dumps(payload).encode()
         req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 res = json.loads(r.read().decode())
-                print(f"Audio enviado via file_id a {chat_id}:", r.status)
-                return res.get("ok", False)
+                if res.get("ok"):
+                    res_m = res.get("result", {})
+                    m_id = res_m.get("message_id")
+                    f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id") or ruta_audio
+                    return True, m_id, f_id
+                return False, None, None
         except Exception as e:
             print(f"Error enviando audio por file_id a {chat_id}:", e)
-            return False
+            return False, None, None
 
     boundary = "----WebKitFormBoundaryAudio7MA4YWxk"
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
@@ -285,10 +292,13 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
         body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode())
         if caption:
             body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption}\r\n".encode())
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"parse_mode\"\r\n\r\nMarkdown\r\n".encode())
         if title:
             body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n{title}\r\n".encode())
         if performer:
             body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"performer\"\r\n\r\n{performer}\r\n".encode())
+        if reply_markup:
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{json.dumps(reply_markup)}\r\n".encode())
 
         filename = os.path.basename(ruta_audio)
         body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"{filename}\"\r\nContent-Type: audio/mpeg\r\n\r\n".encode())
@@ -300,13 +310,18 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
             data=bytes(body),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
         )
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=90) as r:
             res = json.loads(r.read().decode())
-            print(f"Audio de meditación enviado a {chat_id}:", r.status)
-            return res.get("ok", False)
+            if res.get("ok"):
+                res_m = res.get("result", {})
+                m_id = res_m.get("message_id")
+                f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id")
+                print(f"Audio de meditación enviado a {chat_id}: OK (msg_id={m_id})")
+                return True, m_id, f_id
+            return False, None, None
     except Exception as e:
         print(f"Error enviando audio a {chat_id}:", e)
-        return False
+        return False, None, None
 
 
 def copiar_mensaje(chat_id: int | str, from_chat_id: int | str, message_id: int | str, caption: str = "") -> bool:
@@ -405,7 +420,8 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
 
     # Intentar enviar vía file_id si lo tenemos
     if audio_file_id:
-        if enviar_audio(chat_id, audio_file_id, caption=caption, title=title, performer=performer):
+        ok, m_id, f_id = enviar_audio(chat_id, audio_file_id, caption=caption, title=title, performer=performer)
+        if ok:
             return
 
     # D) Buscar archivo local en disco
@@ -414,14 +430,17 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     if (not num or (meta_hoy and str(meta_hoy.get("numero", "")).strip() == num)) and os.path.exists(ruta_med_hoy) and os.path.getsize(ruta_med_hoy) > 0:
         ruta_local = ruta_med_hoy
     else:
-        for f_name in [f"meditacion_{num}.mp3", f"{num}.mp3"]:
+        for f_name in [f"meditacion_{num}.mp3", f"mensaje_{num}.mp3", f"{num}.mp3"]:
             candidato = os.path.join("data", "meditaciones", f_name)
             if os.path.exists(candidato) and os.path.getsize(candidato) > 0:
                 ruta_local = candidato
                 break
 
     if ruta_local:
-        if enviar_audio(chat_id, ruta_local, caption=caption, title=title, performer=performer):
+        ok, m_id, f_id = enviar_audio(chat_id, ruta_local, caption=caption, title=title, performer=performer)
+        if ok:
+            if f_id:
+                guardar_audio_registrado(info_cat, file_id=f_id, msg_id=m_id)
             return
 
     # E) Intentar copiar mensaje directamente desde el grupo oficial si conocemos el msg_id
@@ -438,14 +457,25 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
         if copiar_mensaje(chat_id, origen_grupo, msg_id_audio, caption=caption):
             return
 
-    # F) Si aún no está cargado el archivo en ninguna fuente, entregar ficha del catálogo con instrucciones
+    # F) Descargar automáticamente desde Google Drive!
+    if num and num.isdigit():
+        enviar_mensaje(chat_id, f"⏳ Descargando audio oficial de Google Drive para **{tipo_nombre} #{num}**...", reply_to_message_id=msg_id_reply)
+        ruta_drive = obtener_o_descargar_audio(tipo_nombre, int(num))
+        if ruta_drive:
+            ok, m_id, f_id = enviar_audio(chat_id, ruta_drive, caption=caption, title=title, performer=performer)
+            if ok:
+                if f_id:
+                    guardar_audio_registrado(info_cat, file_id=f_id, msg_id=m_id)
+                return
+
+    # G) Si aún no está cargado el archivo en ninguna fuente
     txt_cat = (
         f"🧘 **CATÁLOGO OFICIAL DE AUDIOS**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📌 **{tipo_nombre} #{num}:** «{titulo}»\n"
         f"👤 **Maestro / Guía:** {maestro}\n"
         f"🗓️ **Fecha de grabación original:** {fecha}\n\n"
-        f"ℹ️ El archivo .mp3 correspondiente aún no se encuentra registrado en el almacenamiento del bot.\n\n"
+        f"ℹ️ El archivo .mp3 correspondiente aún no se encuentra registrado en el almacenamiento del bot ni en la carpeta de Google Drive.\n\n"
         f"💡 **Para administradores:** Puedes enviar o reenviar el archivo de audio directamente a este chat privado para vincularlo a la meditación #{num}."
     )
     enviar_mensaje(chat_id, txt_cat, reply_to_message_id=msg_id_reply)
@@ -517,9 +547,21 @@ def escuchar_comandos() -> None:
                 user_id = from_user.get("id")
                 nombre = f"{from_user.get('first_name', '')} {from_user.get('last_name', '')}".strip()
 
-                # Detectar si se subió un audio/documento de tarea o meditación
+                # Detectar si se subió un audio/documento o se declaró tarea por texto
                 audio_obj = msg.get("audio") or msg.get("voice") or msg.get("document")
-                es_tarea_declarada = any(k in texto.upper() for k in ["MEDITACION DE TAREA", "TAREA DE MEDITACION", "TAREA DEL DÍA", "TAREA DEL DIA", "MEDITACION DE HOY"])
+                texto_upper = texto.upper()
+                es_tarea_declarada = any(k in texto_upper for k in [
+                    "MEDITACION DE TAREA", "TAREA DE MEDITACION",
+                    "MENSAJE DE TAREA", "TAREA DE MENSAJE",
+                    "TAREA PARA MAÑANA", "TAREA PARA MANANA", "TAREA PARA HOY",
+                    "TAREA DEL DÍA", "TAREA DEL DIA",
+                    "MEDITACION DE HOY", "MENSAJE DE HOY"
+                ]) or (
+                    any(t_pal in texto_upper for t_pal in ["TAREA", "MEDITACION", "MEDITACIÓN", "MENSAJE"])
+                    and any(w in texto_upper for w in ["MAÑANA", "MANANA", "PARA HOY", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO", "LUNES", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE", "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE"])
+                    and re.search(r"\b\d{1,4}\b", texto_upper)
+                )
+
                 if audio_obj or es_tarea_declarada:
                     nombre_archivo = audio_obj.get("file_name", "") if isinstance(audio_obj, dict) else ""
                     titulo_audio = audio_obj.get("title", "") if isinstance(audio_obj, dict) else ""
@@ -528,24 +570,51 @@ def escuchar_comandos() -> None:
                     info_cat = identificar_audio_catalogo(texto=texto_busq, nombre_archivo=nombre_archivo)
                     if info_cat:
                         f_id = audio_obj.get("file_id") if isinstance(audio_obj, dict) else None
-                        info_cat["file_id"] = f_id
-                        info_cat["msg_id_audio"] = msg_id
-                        guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id)
+                        num = info_cat["numero"]
+                        tipo_audio = info_cat.get("tipo", "MEDITACION")
 
-                        # Si se envió directamente al bot en chat privado, confirmar al usuario/admin
+                        # Si se envió directamente en privado con archivo físico
                         if chat_id > 0 and f_id:
+                            info_cat["file_id"] = f_id
+                            info_cat["msg_id_audio"] = msg_id
+                            guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id)
                             enviar_mensaje(
                                 chat_id,
                                 f"✅ **¡Audio guardado exitosamente!**\n\n"
-                                f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                f"🧘 **{tipo_audio.title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
                                 f"👤 **Guía:** {info_cat['maestro']}\n"
                                 f"🗓️ **Grabación:** {info_cat['fecha']}\n\n"
                                 f"El bot ha registrado este archivo y ahora se lo entregará directamente a cualquier usuario que lo solicite con `/meditacion` o el botón de audio.",
                                 reply_to_message_id=msg_id
                             )
 
-                        # Si se declara como tarea o se subió en el grupo oficial
-                        if es_tarea_declarada or (CHAT_ID and str(chat_id) == str(CHAT_ID)):
+                        # Si es declaración de tarea (en el grupo o en privado por admin)
+                        if es_tarea_declarada or (CHAT_ID and str(chat_id) == str(CHAT_ID) and audio_obj):
+                            chat_destino = CHAT_ID if CHAT_ID else chat_id
+                            fecha_admin = extraer_fecha_de_texto(texto)
+                            msg_id_audio_final = msg_id if audio_obj else None
+
+                            # Si no vino con audio físico, buscar y descargar automáticamente de Google Drive
+                            if not f_id:
+                                enviar_mensaje(chat_id, f"🔍 Buscando y descargando audio oficial de Google Drive para **{tipo_audio.title()} #{num}**...", reply_to_message_id=msg_id)
+                                ruta_audio_desc = obtener_o_descargar_audio(tipo_audio, int(num))
+                                if ruta_audio_desc:
+                                    cap_audio = f"🧘 **{tipo_audio.title()} #{num}:** «{info_cat['titulo']}»\n👤 **Guía:** {info_cat['maestro']}"
+                                    ok_a, m_id_a, f_id_a = enviar_audio(
+                                        chat_destino,
+                                        ruta_audio_desc,
+                                        caption=cap_audio,
+                                        title=f"{tipo_audio.title()} #{num} - {info_cat['titulo']}",
+                                        performer=info_cat['maestro']
+                                    )
+                                    if ok_a:
+                                        msg_id_audio_final = m_id_a
+                                        f_id = f_id_a
+
+                            info_cat["file_id"] = f_id
+                            info_cat["msg_id_audio"] = msg_id_audio_final
+                            guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id_audio_final)
+
                             try:
                                 os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
                                 with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
@@ -553,16 +622,18 @@ def escuchar_comandos() -> None:
                             except Exception:
                                 pass
 
-                            fecha_admin = extraer_fecha_de_texto(texto)
                             anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
-                            teclado = armar_teclado_audio(chat_id, msg_id)
-                            enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
+                            teclado = armar_teclado_audio(chat_destino, msg_id_audio_final)
+                            enviar_mensaje(chat_destino, anuncio, reply_markup=teclado)
+
+                            if chat_id > 0 and str(chat_destino) != str(chat_id):
+                                enviar_mensaje(chat_id, f"✅ Tarea anunciada con éxito en el grupo para el día {fecha_admin or 'hoy'}.", reply_to_message_id=msg_id)
 
                             # Enviar notificación privada a miembros registrados
                             fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
                             usuarios = db.get("usuarios", {})
                             for u_id, datos in usuarios.items():
-                                if str(u_id) == str(chat_id):
+                                if str(u_id) == str(chat_destino) or str(u_id) == str(chat_id):
                                     continue
                                 txt_priv = (
                                     f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
