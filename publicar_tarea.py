@@ -11,11 +11,14 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 
+TG_API_ID = os.environ.get("TG_API_ID")
+TG_API_HASH = os.environ.get("TG_API_HASH")
+TG_SESSION = os.environ.get("TG_SESSION")
+
 
 def extraer_fecha_de_texto(texto: str) -> str | None:
     if not texto:
         return None
-    # Detecta formatos DD/MM/AAAA, DD-MM-AAAA, D/M/AA, DD.MM.AAAA
     m = re.search(r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})\b", texto)
     if m:
         dia, mes, anio = m.group(1), m.group(2), m.group(3)
@@ -94,32 +97,83 @@ def generar_anuncio_tarea(info: dict, fecha_str: str = None) -> str:
     )
 
 
-def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_user: str = "") -> dict:
-    clean_id = str(chat_id).replace("-100", "")
+def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_user: str = "", username_grupo: str = None) -> dict:
     url_audio = None
-    if msg_id_audio:
-        url_audio = f"https://t.me/c/{clean_id}/{msg_id_audio}"
-    elif str(chat_id).startswith("-100"):
-        url_audio = f"https://t.me/c/{clean_id}"
-    elif str(chat_id).startswith("@"):
-        url_audio = f"https://t.me/{str(chat_id).lstrip('@')}"
+    if msg_id_audio and str(msg_id_audio).startswith("http"):
+        url_audio = str(msg_id_audio).strip()
+    elif msg_id_audio:
+        m_num = re.search(r"(\d+)", str(msg_id_audio))
+        id_msg = m_num.group(1) if m_num else str(msg_id_audio).strip()
+        if username_grupo:
+            url_audio = f"https://t.me/{username_grupo}/{id_msg}"
+        else:
+            clean_id = str(chat_id).replace("-100", "").lstrip("-")
+            url_audio = f"https://t.me/c/{clean_id}/{id_msg}"
 
     botones = []
     if url_audio:
         botones.append([{"text": "🎧 ESCUCHAR / VER AUDIO EN EL GRUPO 👆", "url": url_audio}])
+    elif username_grupo:
+        botones.append([{"text": "🎧 IR AL GRUPO 👆", "url": f"https://t.me/{username_grupo}"}])
+    else:
+        clean_id = str(chat_id).replace("-100", "").lstrip("-")
+        botones.append([{"text": "🎧 IR AL GRUPO 👆", "url": f"https://t.me/c/{clean_id}"}])
+
     if bot_user:
         botones.append([{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_user}?start=audio"}])
-    elif not url_audio:
-        botones.append([{"text": "🎧 ESCUCHAR AUDIO EN EL GRUPO 🎧", "url": "https://t.me"}])
 
     return {"inline_keyboard": botones}
 
 
-def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: int | str = None) -> dict | None:
-    """Identifica el audio por número o texto y envía el anuncio oficial al grupo y privados
+def buscar_id_audio_en_grupo(chat_id: int | str, numero: int | str = "") -> tuple[int | None, str | None]:
+    """Usa Telethon para escanear el grupo y encontrar el ID del mensaje del audio."""
+    if not (TG_API_ID and TG_API_HASH and TG_SESSION and chat_id):
+        return None, None
+    try:
+        import asyncio
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
 
-    utilizando la fecha provista por el administrador.
-    """
+        async def _buscar():
+            client = TelegramClient(StringSession(TG_SESSION), int(TG_API_ID), TG_API_HASH)
+            await client.connect()
+            if not await client.is_user_authorized():
+                await client.disconnect()
+                return None, None
+
+            destino = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
+            entidad = await client.get_entity(destino)
+            username = getattr(entidad, "username", None)
+            num_str = str(numero).strip()
+            msg_id_match = None
+
+            async for msg in client.iter_messages(entidad, limit=40):
+                es_audio = False
+                if msg.audio or msg.voice:
+                    es_audio = True
+                elif msg.document and any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(msg.document, "attributes", [])):
+                    es_audio = True
+
+                if es_audio:
+                    texto_m = (msg.raw_text or "").upper()
+                    nombre_m = getattr(getattr(msg, "file", None), "name", "") or ""
+                    if num_str and (num_str in texto_m or num_str in nombre_m):
+                        await client.disconnect()
+                        return msg.id, username
+                    elif msg_id_match is None:
+                        msg_id_match = msg.id
+
+            await client.disconnect()
+            return msg_id_match, username
+
+        return asyncio.run(_buscar())
+    except Exception as e:
+        print("Nota buscando ID del audio con Telethon:", e)
+        return None, None
+
+
+def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: int | str = None) -> dict | None:
+    """Identifica el audio por número o texto y envía el anuncio oficial al grupo y privados."""
     info = identificar_audio_catalogo(texto=parametro)
     if not info:
         print(f"No se encontró información en el catálogo para: {parametro}")
@@ -148,13 +202,21 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
 
     texto_anuncio = generar_anuncio_tarea(info, fecha_final)
     bot_username = obtener_info_bot()
-    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username) if CHAT_ID else None
 
-    # 1. Enviar al Grupo Principal con botón interactivo al audio
+    # Si no se pasó msg_id_audio, intentar localizarlo automáticamente en el grupo
+    username_grupo = None
+    if not msg_id_audio and CHAT_ID:
+        msg_id_audio, username_grupo = buscar_id_audio_en_grupo(CHAT_ID, info["numero"])
+        if msg_id_audio:
+            print(f"Mensaje del audio detectado automáticamente: ID {msg_id_audio}")
+
+    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo) if CHAT_ID else None
+
+    # 1. Enviar al Grupo Principal con botón directo al audio
     if CHAT_ID:
         ok_grupo = enviar_mensaje(CHAT_ID, texto_anuncio, reply_markup=teclado)
         if ok_grupo:
-            print(f"Anuncio de la tarea #{info['numero']} ({fecha_final}) publicado en el grupo {CHAT_ID} con botón de audio.")
+            print(f"Anuncio de la tarea #{info['numero']} ({fecha_final}) publicado en el grupo {CHAT_ID} con enlace directo al mensaje.")
         else:
             print(f"No se pudo publicar en el grupo {CHAT_ID}.")
     else:
@@ -177,7 +239,7 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                     f"👤 **Guía:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
                     f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                 )
-                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username)
+                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo)
                 if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):
                     enviados_priv += 1
             print(f"Notificación privada enviada a {enviados_priv} miembros con botón al audio.")

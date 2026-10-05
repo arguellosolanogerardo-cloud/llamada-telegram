@@ -12,7 +12,7 @@ on:
         required: false
         default: ''
       id_mensaje_audio:
-        description: 'ID o link del mensaje del audio en Telegram (opcional)'
+        description: 'ID o link del mensaje del audio en Telegram (opcional, se auto-detecta)'
         required: false
         default: ''
 
@@ -27,6 +27,9 @@ jobs:
       - run: pip install telethon
       - run: python -u publicar_tarea.py "${{ github.event.inputs.numero_o_nombre }}" "${{ github.event.inputs.fecha }}" "${{ github.event.inputs.id_mensaje_audio }}"
         env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TG_GROUP: ${{ secrets.TG_GROUP }}
