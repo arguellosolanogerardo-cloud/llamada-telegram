@@ -109,34 +109,66 @@ def obtener_username_bot() -> str | None:
     return None
 
 
+def dividir_mensaje(texto: str, limite: int = 3500) -> list:
+    """Divide un texto largo en bloques seguros (< límite de 4096 de Telegram) cortando por líneas."""
+    bloques, actual = [], ""
+    for linea in texto.split("\n"):
+        while len(linea) > limite:
+            if actual:
+                bloques.append(actual)
+                actual = ""
+            bloques.append(linea[:limite])
+            linea = linea[limite:]
+        if len(actual) + len(linea) + 1 > limite:
+            bloques.append(actual)
+            actual = linea
+        else:
+            actual = f"{actual}\n{linea}" if actual else linea
+    if actual:
+        bloques.append(actual)
+    return bloques or [""]
+
+
 def avisar_con_bot(texto: str, boton_url: str = None) -> None:
     if not BOT_TOKEN:
         return
     texto = texto.replace("{CA}", hora_california())
+    # El bot envía texto plano: quitar marcas Markdown para que no se vean asteriscos
+    texto = texto.replace("**", "").replace("`", "")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": texto}
 
-    if boton_url:
-        inline_keyboard = [
-            [{"text": "🟢 ¡SALA EN VIVO! TOCAR PARA ENTRAR 🎙️", "url": boton_url}]
-        ]
-        bot_user = obtener_username_bot()
-        if bot_user:
-            inline_keyboard.append([
-                {"text": "🏆 Ver Ranking", "url": f"https://t.me/{bot_user}?start=ranking"},
-                {"text": "📜 Reglas y Puntos", "url": f"https://t.me/{bot_user}?start=reglas"}
-            ])
-        payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+    bloques = dividir_mensaje(texto)
+    for idx, bloque in enumerate(bloques):
+        payload = {"chat_id": CHAT_ID, "text": bloque}
 
-    datos = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        url, data=datos, headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            print("Aviso del bot enviado:", r.status)
-    except Exception as e:
-        print("Error al enviar mensaje con el bot:", e)
+        if boton_url and idx == 0:
+            inline_keyboard = [
+                [{"text": "🟢 ¡SALA EN VIVO! TOCAR PARA ENTRAR 🎙️", "url": boton_url}]
+            ]
+            bot_user = obtener_username_bot()
+            if bot_user:
+                inline_keyboard.append([
+                    {"text": "🏆 Ver Ranking", "url": f"https://t.me/{bot_user}?start=ranking"},
+                    {"text": "📜 Reglas y Puntos", "url": f"https://t.me/{bot_user}?start=reglas"}
+                ])
+            payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+
+        datos = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            url, data=datos, headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                print(f"Aviso del bot enviado ({idx + 1}/{len(bloques)}):", r.status)
+        except urllib.error.HTTPError as e:
+            detalle = ""
+            try:
+                detalle = e.read().decode()
+            except Exception:
+                pass
+            print("Error al enviar mensaje con el bot:", e, detalle)
+        except Exception as e:
+            print("Error al enviar mensaje con el bot:", e)
 
 
 def enviar_foto_con_bot(ruta_foto: str, caption: str = "") -> None:
@@ -1239,16 +1271,27 @@ async def main() -> None:
         me = await client.get_me()
         if me:
             try:
-                await client.send_message(me.id, reporte_privado)
+                for bloque in dividir_mensaje(reporte_privado):
+                    await client.send_message(me.id, bloque)
+                print("Reporte privado enviado a Mensajes Guardados del dueño.")
+            except Exception as e:
+                print("Error enviando reporte privado al dueño:", e)
+            try:
                 if os.path.exists(ruta_csv):
                     await client.send_file(
                         me.id,
                         ruta_csv,
                         caption=f"📊 Archivo de Asistencia y Puntos - {fecha_hoy}",
                     )
-                print("Reporte privado y archivo CSV enviados a Mensajes Guardados del dueño.")
+                if os.path.exists(RUTA_PUNTOS):
+                    await client.send_file(
+                        me.id,
+                        RUTA_PUNTOS,
+                        caption=f"💾 Respaldo de puntos - {fecha_hoy}",
+                    )
+                print("CSV y respaldo de puntos enviados al dueño.")
             except Exception as e:
-                print("Error enviando reporte privado al dueño:", e)
+                print("Error enviando archivos al dueño:", e)
 
 
 if __name__ == "__main__":
