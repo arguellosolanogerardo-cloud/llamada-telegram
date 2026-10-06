@@ -851,6 +851,7 @@ async def main() -> None:
             admin_ids.add(me.id)
         if hasattr(entidad, "id"):
             admin_ids.add(entidad.id)
+        admin_ids.add(1087968824)  # @GroupAnonymousBot (modo anónimo)
 
         env_admins = os.environ.get("ADMIN_IDS", "") or os.environ.get("ADMIN_ID", "")
         for aid_str in env_admins.replace(",", " ").split():

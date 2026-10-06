@@ -272,25 +272,34 @@ def cargar_puntos() -> dict:
     return {"version": 2, "usuarios": {}}
 
 
-_ADMIN_IDS_CACHE = set()
-_ADMIN_IDS_TIMESTAMP = 0
+_ADMIN_IDS_CACHE = {}
+_ADMIN_IDS_TIMESTAMP = {}
 
 
-def obtener_admin_ids() -> set:
-    global _ADMIN_IDS_CACHE, _ADMIN_IDS_TIMESTAMP
+def obtener_admin_ids(target_chat=None) -> set:
+    target = target_chat or CHAT_ID
     ahora = time.time()
-    if _ADMIN_IDS_CACHE and (ahora - _ADMIN_IDS_TIMESTAMP < 300):
-        return _ADMIN_IDS_CACHE
+    t_str = str(target) if target else "default"
+    if t_str in _ADMIN_IDS_CACHE and (ahora - _ADMIN_IDS_TIMESTAMP.get(t_str, 0) < 300):
+        return _ADMIN_IDS_CACHE[t_str]
 
     admins = set()
+    # Identificadores de administradores anónimos en Telegram
+    admins.add(1087968824)  # @GroupAnonymousBot
+    if target:
+        try:
+            admins.add(int(target))
+        except (ValueError, TypeError):
+            pass
+
     env_admins = os.environ.get("ADMIN_IDS", "") or os.environ.get("ADMIN_ID", "")
     for aid_str in env_admins.replace(",", " ").split():
         if aid_str.strip().isdigit():
             admins.add(int(aid_str.strip()))
 
-    if BOT_TOKEN and CHAT_ID:
+    if BOT_TOKEN and target:
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={CHAT_ID}"
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={target}"
             req = urllib.request.Request(url, headers={"User-Agent": "BotComandos"})
             with urllib.request.urlopen(req, timeout=10) as r:
                 data = json.loads(r.read().decode())
@@ -302,9 +311,34 @@ def obtener_admin_ids() -> set:
         except Exception as e:
             print("Nota obteniendo getChatAdministrators:", e)
 
-    _ADMIN_IDS_CACHE = admins
-    _ADMIN_IDS_TIMESTAMP = ahora
+    _ADMIN_IDS_CACHE[t_str] = admins
+    _ADMIN_IDS_TIMESTAMP[t_str] = ahora
     return admins
+
+
+def es_mensaje_de_admin(msg: dict, chat_id: int | str) -> bool:
+    """Verifica si un mensaje proviene de un administrador o del dueño (incluye administradores anónimos o que envían como el grupo/canal)."""
+    # 1. Si el mensaje se envió a nombre del grupo o canal
+    sender_chat = msg.get("sender_chat")
+    if sender_chat:
+        sc_id = sender_chat.get("id")
+        if sc_id and (str(sc_id) == str(chat_id) or (CHAT_ID and str(sc_id) == str(CHAT_ID))):
+            return True
+
+    from_user = msg.get("from", {})
+    user_id = from_user.get("id")
+
+    # 2. Si el remitente es el bot anónimo oficial de Telegram (@GroupAnonymousBot)
+    if user_id == 1087968824 or from_user.get("username") == "GroupAnonymousBot":
+        return True
+
+    # 3. Verificar si el usuario está en la lista de administradores del grupo
+    if user_id:
+        admins_set = obtener_admin_ids(chat_id)
+        if user_id in admins_set:
+            return True
+
+    return False
 
 
 def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "", es_admin: bool = False) -> str:
@@ -976,8 +1010,7 @@ def escuchar_comandos() -> None:
                 ) or (cmd_primero in ("/limpiarsala", "/limpiaravisos", "/limpieza"))
 
                 if es_orden_limpieza:
-                    admins_set = obtener_admin_ids()
-                    if user_id not in admins_set:
+                    if not es_mensaje_de_admin(msg, chat_id):
                         enviar_mensaje(chat_id, "⛔ Solo los administradores pueden solicitar la limpieza de la sala.", reply_to_message_id=msg_id)
                         continue
 
