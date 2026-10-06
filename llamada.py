@@ -55,7 +55,8 @@ INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "2")
 MIN_MINUTOS_ASISTENCIA = int(os.environ.get("MIN_MINUTOS_ASISTENCIA", "10"))
 AUTO_CIERRE_MIN_USUARIOS = int(os.environ.get("AUTO_CIERRE_MIN_USUARIOS", "2"))
 AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "45"))
-SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "5"))  # 5s de silencio cierra mic
+SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "15"))  # 15s de silencio antes de cortar mic
+DURACION_BLOQUEO_MUTE_SEGUNDOS = int(os.environ.get("DURACION_BLOQUEO_MUTE_SEGUNDOS", "5"))  # Solo 5s de bloqueo antes de auto-desbloquear
 MAX_ORADORES_SIMULTANEOS = int(os.environ.get("MAX_ORADORES_SIMULTANEOS", "2"))   # Máx 2 personas hablando
 
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
@@ -799,6 +800,43 @@ async def main() -> None:
                 print("Error reproduciendo meditación:", e)
                 return False
 
+        async def auto_desbloquear_microfono(uid_target: int, segundos: int = DURACION_BLOQUEO_MUTE_SEGUNDOS):
+            """Espera los segundos configurados (5s) y retira el bloqueo de administrador de Telegram."""
+            await asyncio.sleep(segundos)
+            if reproduciendo_meditacion:
+                return
+            if aviso_oracion_enviado and not aviso_espera_enviado:
+                return
+            try:
+                input_peer = await client.get_input_entity(uid_target)
+                await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                print(f"🔓 Micrófono desbloqueado automáticamente para usuario {uid_target} tras {segundos}s.")
+            except Exception as e:
+                print(f"Nota auto-desbloqueando {uid_target}:", e)
+
+        async def desbloquear_todos_los_participantes():
+            """Retira el candado de silencio a todos los participantes no administradores."""
+            try:
+                call_info_actual = await client(GetGroupCallRequest(call=input_call, limit=100))
+                for p in getattr(call_info_actual, "participants", []):
+                    if getattr(p, "left", False):
+                        continue
+                    p_uid = getattr(p.peer, "user_id", None) if isinstance(getattr(p, "peer", None), PeerUser) else None
+                    if not p_uid or p_uid in admin_ids:
+                        continue
+                    try:
+                        input_peer = await client.get_input_entity(p.peer)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                    except Exception:
+                        pass
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                except Exception:
+                    pass
+                print("🔓 Todos los participantes han sido desbloqueados en la sala de voz.")
+            except Exception as e:
+                print("Nota desbloqueando todos los participantes:", e)
+
         # Configurar evento de fin de audio en PyTgCalls
         if tgcalls:
             try:
@@ -810,10 +848,7 @@ async def main() -> None:
                         if reproduciendo_meditacion:
                             reproduciendo_meditacion = False
                             print("Reproducción de meditación concluida automáticamente.")
-                            try:
-                                await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
-                            except Exception:
-                                pass
+                            await desbloquear_todos_los_participantes()
                             avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!")
                             # Reanudar grabación para el segmento post-meditación si no fue cancelada
                             if not grabacion_cancelada and not grabacion_pausada:
@@ -875,6 +910,7 @@ async def main() -> None:
                     try:
                         input_peer = await client.get_input_entity(uid)
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                        asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                     except Exception:
                         pass
                     await event.reply(f"🤝 **{nom}**, has cedido tu turno de palabra. ¡Muchas gracias por compartir!")
@@ -918,7 +954,7 @@ async def main() -> None:
                 await event.reply(resp)
 
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|hablar|desmutear|mutear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
@@ -972,13 +1008,14 @@ async def main() -> None:
                     try:
                         await tgcalls.leave_call(destino)
                         reproduciendo_meditacion = False
-                        try:
-                            await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
-                        except Exception:
-                            pass
-                        await event.reply("⏹️ Reproducción finalizada. Micrófonos restablecidos.")
+                        await desbloquear_todos_los_participantes()
+                        await event.reply("⏹️ Reproducción finalizada. Micrófonos restablecidos y desbloqueados.")
                     except Exception as e:
                         await event.reply(f"Error al detener: {e}")
+            elif cmd in ("/desmuteartodos", "/abrir", "/desbloquear"):
+                await desbloquear_todos_los_participantes()
+                await event.reply("🔓 **Todos los micrófonos han sido desbloqueados.**\nLos participantes ahora pueden activar su micrófono libremente cuando deseen hablar.")
+                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes. Pueden activar su micrófono para compartir.")
             elif cmd in ("/siguiente", "/next"):
                 if not cola_turnos:
                     await event.reply("ℹ️ No hay participantes esperando en la lista de turnos.")
@@ -1048,10 +1085,11 @@ async def main() -> None:
                     try:
                         input_peer = await client.get_input_entity(t_uid)
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                        asyncio.create_task(auto_desbloquear_microfono(t_uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                     except Exception as e:
                         print(f"Nota silenciando a {t_nom}:", e)
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                    await event.reply(f"🔇 Micrófono silenciado para **{t_nom}**.")
+                    await event.reply(f"🔇 Micrófono silenciado para **{t_nom}** (se desbloqueará automáticamente en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s).")
                 else:
                     await event.reply("ℹ️ Uso: `/mutear @usuario` o responde al mensaje del usuario en el grupo.")
             elif cmd in ("/pausargrabacion", "/pausar_rec"):
@@ -1136,6 +1174,68 @@ async def main() -> None:
                         avisar_con_bot(f"📢 **Tarea de hoy registrada:**\n\n{txt_card}")
                     else:
                         await event.reply("✅ Meditación recibida. Programada para reproducirse hoy a las 8:32 PM en la sala de voz.")
+
+        # Escuchar comandos por lenguaje natural de administradores en el grupo
+        @client.on(events.NewMessage(chats=entidad))
+        async def comandos_naturales_admin(event):
+            sender_id = event.sender_id
+            if sender_id not in admin_ids:
+                return
+            texto_raw = (event.raw_text or "").strip().lower()
+            if not texto_raw or texto_raw.startswith("/"):
+                return
+
+            # Pausar meditación
+            if any(p in texto_raw for p in ["pausar meditacion", "pausa la meditacion", "pausar meditación", "pausa la meditación", "pausar audio", "pausa el audio"]):
+                if tgcalls:
+                    try:
+                        await tgcalls.pause(destino)
+                        await event.reply("⏸️ Meditación pausada por indicación de administración.")
+                    except Exception as e:
+                        await event.reply(f"Nota al pausar: {e}")
+            # Reanudar meditación
+            elif any(p in texto_raw for p in ["reanudar meditacion", "continua la meditacion", "reanudar meditación", "continuar meditación", "seguir meditación", "reanudar audio", "seguir con el audio"]):
+                if tgcalls:
+                    try:
+                        await tgcalls.resume(destino)
+                        await event.reply("▶️ Meditación reanudada por indicación de administración.")
+                    except Exception as e:
+                        await event.reply(f"Nota al reanudar: {e}")
+            # Detener meditación
+            elif any(p in texto_raw for p in ["detener meditacion", "parar meditacion", "detener meditación", "parar meditación", "parar audio", "detener audio"]):
+                if tgcalls:
+                    try:
+                        nonlocal reproduciendo_meditacion
+                        await tgcalls.leave_call(destino)
+                        reproduciendo_meditacion = False
+                        await desbloquear_todos_los_participantes()
+                        await event.reply("⏹️ Meditación detenida. Micrófonos restablecidos y desbloqueados.")
+                    except Exception as e:
+                        await event.reply(f"Nota al detener: {e}")
+            # Desbloquear micrófonos / Abrir sala
+            elif any(p in texto_raw for p in ["abrir microfonos", "abrir micrófonos", "desmutear a todos", "desbloquear microfonos", "desbloquear micrófonos", "abrir la sala", "liberar microfonos", "liberar micrófonos"]):
+                await desbloquear_todos_los_participantes()
+                await event.reply("🔓 Micrófonos desbloqueados para todos los participantes.")
+                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes.")
+            # Siguiente orador
+            elif any(p in texto_raw for p in ["siguiente turno", "siguiente orador", "siguiente persona", "pasar al siguiente"]):
+                if not cola_turnos:
+                    await event.reply("ℹ️ No hay participantes en espera en la lista de turnos.")
+                else:
+                    siguiente_u = cola_turnos.pop(0)
+                    s_uid = siguiente_u["id"]
+                    s_nom = siguiente_u["nombre"]
+                    oradores_activos.add(s_uid)
+                    segundos_inactividad_mic[s_uid] = 0
+                    avisados_auto_mute.discard(s_uid)
+                    try:
+                        input_peer = await client.get_input_entity(s_uid)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                    except Exception as e:
+                        print(f"Nota desmuteando a {s_nom}:", e)
+                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
+                    await event.reply(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
+                    avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.")
 
         segundos_totales = 0
         tiempo_limite_segundos = DURACION_MAXIMA_MINUTOS * 60
@@ -1234,6 +1334,7 @@ async def main() -> None:
             # 8:29 PM: Fin de los 5 minutos de oración y comienzo de los 3 minutos de transición/espera
             if hora_col == 20 and min_col == 29 and not aviso_espera_enviado and aviso_oracion_enviado:
                 aviso_espera_enviado = True
+                await desbloquear_todos_los_participantes()
                 texto_espera = (
                     "⏳✨ **Concluyen los 5 minutos de oración.**\n"
                     "Iniciamos 3 minutos de pausa y respiración consciente antes de dar inicio a la meditación diaria a las 8:32 PM.\n"
@@ -1346,11 +1447,12 @@ async def main() -> None:
                                 try:
                                     input_peer = await client.get_input_entity(uid)
                                     await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                                    asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                                     if not any(t["id"] == uid for t in cola_turnos):
                                         cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
                                     hubo_cambio_turnos = True
-                                    avisar_con_bot(f"⚠️ **{nombre}**, ya hay {MAX_ORADORES_SIMULTANEOS} personas hablando a la vez. Te hemos añadido a la lista de turnos para no interrumpir.")
-                                    print(f"Límite de oradores alcanzado. {nombre} silenciado y añadido a la cola.")
+                                    avisar_con_bot(f"⚠️ **{nombre}**, ya hay {MAX_ORADORES_SIMULTANEOS} personas hablando a la vez. Tu micrófono se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s y te hemos añadido a la lista de turnos para no interrumpir.")
+                                    print(f"Límite de oradores alcanzado. {nombre} silenciado temporalmente ({DURACION_BLOQUEO_MUTE_SEGUNDOS}s) y añadido a la cola.")
                                 except Exception as e:
                                     print(f"Nota limitando oradores simultáneos para {nombre}:", e)
                         else:
@@ -1362,13 +1464,14 @@ async def main() -> None:
                                 try:
                                     input_peer = await client.get_input_entity(uid)
                                     await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                                    asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                                     oradores_activos.discard(uid)
                                     segundos_inactividad_mic[uid] = 0
                                     hubo_cambio_turnos = True
                                     if uid not in avisados_auto_mute:
                                         avisados_auto_mute.add(uid)
-                                        avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por 5s de inactividad (evita ruidos de fondo involuntarios). Puedes volver a pedir turno con `/turno` o levantando la mano ✋.")
-                                    print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de micrófono inactivo.")
+                                        avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por inactividad. Se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s para que puedas volver a hablar cuando desees.")
+                                    print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de inactividad. Desbloqueo programado en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s.")
                                 except Exception as e:
                                     print(f"Nota auto-muteando a {nombre}:", e)
                     else:
