@@ -873,8 +873,15 @@ def escuchar_comandos() -> None:
                         num = info_cat["numero"]
                         tipo_audio = info_cat.get("tipo", "MEDITACION")
 
-                        # Si se envió directamente en privado con archivo físico
+                        # Si se envió directamente en privado con archivo físico (solo administradores)
                         if chat_id > 0 and f_id:
+                            if not es_mensaje_de_admin(msg, chat_id):
+                                enviar_mensaje(
+                                    chat_id,
+                                    "⛔ Solo los administradores pueden registrar audios oficiales en el catálogo.",
+                                    reply_to_message_id=msg_id
+                                )
+                                continue
                             info_cat["file_id"] = f_id
                             info_cat["msg_id_audio"] = msg_id
                             guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id)
@@ -890,6 +897,23 @@ def escuchar_comandos() -> None:
 
                         # Si es declaración de tarea (en el grupo o en privado por admin)
                         if es_tarea_declarada or (CHAT_ID and str(chat_id) == str(CHAT_ID) and audio_obj):
+                            if not es_mensaje_de_admin(msg, chat_id):
+                                # Si un usuario no administrador menciona la tarea, solo entregarle la tarea actual que ya fue fijada por los admins
+                                log_debug(f"Usuario no admin {user_id} intentó programar tarea. Bloqueado.")
+                                ruta_meta_actual = os.path.join("data", "meditaciones", "meta_hoy.json")
+                                info_cat_act = None
+                                if os.path.exists(ruta_meta_actual):
+                                    try:
+                                        with open(ruta_meta_actual, "r", encoding="utf-8") as f_act:
+                                            info_cat_act = json.load(f_act)
+                                    except Exception:
+                                        pass
+                                if info_cat_act:
+                                    entregar_audio_meditacion(chat_id, info_cat_act, msg_id_reply=msg_id, user_id_privado=user_id)
+                                else:
+                                    enviar_mensaje(chat_id, "ℹ️ Solo los administradores pueden programar la tarea del día.", reply_to_message_id=msg_id)
+                                continue
+
                             fecha_admin = extraer_fecha_de_texto(texto)
                             msg_id_audio_final = msg_id if audio_obj else None
 
@@ -1069,6 +1093,24 @@ def escuchar_comandos() -> None:
 
                     entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
                 elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea", "/guardaraudio", "/setaudio"):
+                    if not es_mensaje_de_admin(msg, chat_id):
+                        if cmd == "/tarea" and len(partes) == 1:
+                            ruta_meta_act = os.path.join("data", "meditaciones", "meta_hoy.json")
+                            info_act = None
+                            if os.path.exists(ruta_meta_act):
+                                try:
+                                    with open(ruta_meta_act, "r", encoding="utf-8") as f_act:
+                                        info_act = json.load(f_act)
+                                except Exception:
+                                    pass
+                            if info_act:
+                                entregar_audio_meditacion(chat_id, info_act, msg_id_reply=msg_id, user_id_privado=user_id)
+                            else:
+                                enviar_mensaje(chat_id, "ℹ️ Aún no hay una tarea programada para hoy por los administradores.", reply_to_message_id=msg_id)
+                        else:
+                            enviar_mensaje(chat_id, "⛔ Solo los administradores pueden programar o anunciar la tarea del día.", reply_to_message_id=msg_id)
+                        continue
+
                     param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
                     reply_m = msg.get("reply_to_message") or {}
                     if not param_texto and reply_m:
