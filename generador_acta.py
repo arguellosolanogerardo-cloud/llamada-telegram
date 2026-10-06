@@ -1,4 +1,6 @@
 import os
+import re
+import html
 from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -203,13 +205,15 @@ def generar_acta_pdf(
             p_limpio = p.strip()
             if not p_limpio:
                 continue
-            # Formatear negritas básicas si vienen en Markdown
-            p_fmt = p_limpio.replace("**", "<b>", 1)
-            while "**" in p_fmt:
-                p_fmt = p_fmt.replace("**", "</b>", 1)
             if p_limpio.startswith("#"):
-                p_fmt = f"<b>{p_limpio.lstrip('#').strip()}</b>"
-            story.append(Paragraph(p_fmt, cuerpo_style))
+                p_fmt = f"<b>{html.escape(p_limpio.lstrip('#').strip())}</b>"
+            else:
+                p_fmt = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", p_limpio)
+                p_fmt = re.sub(r"\*(.*?)\*", r"<i>\1</i>", p_fmt)
+            try:
+                story.append(Paragraph(p_fmt, cuerpo_style))
+            except Exception:
+                story.append(Paragraph(html.escape(p_limpio), cuerpo_style))
     else:
         story.append(
             Paragraph(
