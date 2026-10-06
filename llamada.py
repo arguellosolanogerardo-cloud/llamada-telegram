@@ -29,6 +29,7 @@ from telethon.tl.types import Channel, ChannelParticipantsAdmins, Chat, PeerUser
 from ia_resumen import generar_resumen_ia, guardar_minuta, buscar_en_minutas, obtener_minuta
 from generador_acta import generar_acta_pdf
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
+from publicar_tarea import extraer_fecha_de_texto
 
 try:
     from pytgcalls import PyTgCalls
@@ -69,6 +70,54 @@ def hora_california() -> str:
     california = ZoneInfo("America/Los_Angeles")
     hoy = datetime.now(bogota).replace(hour=19, minute=56, second=0, microsecond=0)
     return hoy.astimezone(california).strftime("%I:%M %p").lstrip("0").lower()
+
+
+def determinar_fecha_y_etiqueta_tarea(texto: str) -> tuple[str, str]:
+    """Determina si la tarea es para 'hoy' o 'mañana' o una fecha específica."""
+    tz_col = ZoneInfo("America/Bogota")
+    ahora = datetime.now(tz_col)
+    t_lower = (texto or "").lower()
+
+    es_manana_explicito = "mañana" in t_lower or "manana" in t_lower
+    ya_paso_hora_hoy = ahora.hour > 20 or (ahora.hour == 20 and ahora.minute >= 32)
+    fecha_extraida = extraer_fecha_de_texto(texto)
+
+    dias_semana = {
+        0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves",
+        4: "viernes", 5: "sábado", 6: "domingo"
+    }
+    meses_nom = {
+        1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+        5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+        9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+    }
+
+    if fecha_extraida:
+        try:
+            d_obj = datetime.strptime(fecha_extraida, "%d/%m/%Y").replace(tzinfo=tz_col)
+            if d_obj.date() == ahora.date() and not ya_paso_hora_hoy:
+                return "hoy a las 8:32 PM", "Tarea de hoy"
+            elif d_obj.date() == (ahora + timedelta(days=1)).date():
+                nom_dia = dias_semana.get(d_obj.weekday(), "")
+                nom_mes = meses_nom.get(d_obj.month, "")
+                txt_dia = f"mañana {nom_dia} {d_obj.day} de {nom_mes}"
+                return f"{txt_dia} a las 8:32 PM", f"Tarea para mañana ({nom_dia.title()} {d_obj.day}/{d_obj.month})"
+            else:
+                nom_dia = dias_semana.get(d_obj.weekday(), "")
+                nom_mes = meses_nom.get(d_obj.month, "")
+                txt_dia = f"el {nom_dia} {d_obj.day} de {nom_mes}"
+                return f"{txt_dia} a las 8:32 PM", f"Tarea programada para el {d_obj.day}/{d_obj.month}"
+        except Exception:
+            pass
+
+    if es_manana_explicito or ya_paso_hora_hoy:
+        manana = ahora + timedelta(days=1)
+        nom_dia = dias_semana.get(manana.weekday(), "")
+        nom_mes = meses_nom.get(manana.month, "")
+        txt_dia = f"mañana {nom_dia} {manana.day} de {nom_mes}"
+        return f"{txt_dia} a las 8:32 PM", f"Tarea para mañana ({nom_dia.title()} {manana.day}/{manana.month})"
+
+    return "hoy a las 8:32 PM", "Tarea de hoy"
 
 
 async def obtener_url_llamada(client, entidad, full_chat) -> str | None:
@@ -1172,21 +1221,24 @@ async def main() -> None:
                     os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
                     ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
                     await client.download_media(target_msg, file=ruta)
-                    ruta_meditacion = ruta
-                    info_catalogo_hoy = identificar_audio_catalogo(event.raw_text or "", nombre_archivo)
-                    print("Nueva meditación recibida y guardada:", ruta)
-                    if info_catalogo_hoy:
+                    info_cat = identificar_audio_catalogo(event.raw_text or "", nombre_archivo)
+                    txt_horario, lbl_tarea = determinar_fecha_y_etiqueta_tarea(event.raw_text or "")
+                    if not reproduccion_iniciada and "hoy" in txt_horario:
+                        ruta_meditacion = ruta
+                        info_catalogo_hoy = info_cat
+                    print(f"Nueva meditación recibida y guardada ({lbl_tarea}):", ruta)
+                    if info_cat:
                         try:
                             ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
                             with open(ruta_meta, "w", encoding="utf-8") as fm:
-                                json.dump(info_catalogo_hoy, fm, ensure_ascii=False, indent=2)
+                                json.dump(info_cat, fm, ensure_ascii=False, indent=2)
                         except Exception:
                             pass
-                        txt_card = formatear_info_audio(info_catalogo_hoy)
-                        await event.reply(f"✅ **Audio identificado en el Catálogo:**\n\n{txt_card}\n\nProgramado para reproducirse hoy a las 8:32 PM.")
-                        avisar_con_bot(f"📢 **Tarea de hoy registrada:**\n\n{txt_card}")
+                        txt_card = formatear_info_audio(info_cat)
+                        await event.reply(f"✅ **Audio identificado en el Catálogo:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz.")
+                        avisar_con_bot(f"📢 **{lbl_tarea} registrada:**\n\n{txt_card}")
                     else:
-                        await event.reply("✅ Meditación recibida. Programada para reproducirse hoy a las 8:32 PM en la sala de voz.")
+                        await event.reply(f"✅ Meditación recibida. Programada para reproducirse {txt_horario} en la sala de voz.")
 
         # Escuchar comandos por lenguaje natural de administradores en el grupo
         @client.on(events.NewMessage(chats=entidad))

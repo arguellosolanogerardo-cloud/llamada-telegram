@@ -87,9 +87,19 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_markup: dict = None) ->
 
 
 def generar_anuncio_tarea(info: dict, fecha_str: str = None) -> str:
+    tz_col = ZoneInfo("America/Bogota")
+    ahora = datetime.now(tz_col)
     if not fecha_str:
-        tz_col = ZoneInfo("America/Bogota")
-        fecha_str = datetime.now(tz_col).strftime("%d/%m/%Y")
+        if ahora.hour > 20 or (ahora.hour == 20 and ahora.minute >= 32):
+            fecha_obj = ahora + timedelta(days=1)
+        else:
+            fecha_obj = ahora
+        fecha_str = fecha_obj.strftime("%d/%m/%Y")
+    else:
+        try:
+            fecha_obj = datetime.strptime(fecha_str, "%d/%m/%Y").replace(tzinfo=tz_col)
+        except Exception:
+            fecha_obj = ahora
 
     tipo_raw = str(info.get("tipo", "")).upper()
     tipo = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
@@ -98,17 +108,21 @@ def generar_anuncio_tarea(info: dict, fecha_str: str = None) -> str:
     maestro = info.get("maestro", "Guía Espiritual")
     fecha_orig = info.get("fecha", "")
 
+    es_hoy = fecha_obj.date() == ahora.date()
+    tiempo_palabra = "hoy" if es_hoy else "mañana" if fecha_obj.date() == (ahora + timedelta(days=1)).date() else f"el {fecha_str}"
+    cronograma_palabra = f"esta noche ({fecha_str})" if es_hoy else f"la noche del {fecha_str}"
+
     return (
-        f"🕊️ **TAREA DEL DÍA {fecha_str}—**🕊️\n"
+        f"🕊️ **TAREA DEL DÍA {fecha_str}** 🕊️\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Comunidad, hoy {fecha_str} trabajaremos con la siguiente práctica:\n\n"
+        f"Comunidad, {tiempo_palabra} ({fecha_str}) trabajaremos con la siguiente práctica:\n\n"
         f"🧘 **{tipo} #{num}:** «{titulo}»\n"
         f"👤 **Maestro / Guía:** {maestro}\n"
         f"🗓️ **Grabación original:** {fecha_orig}\n\n"
-        f"⏰ **Cronograma de esta noche {fecha_str} :**\n"
+        f"⏰ **Cronograma para {cronograma_palabra}:**\n"
         f"• **7:56 PM:** Apertura de la sala de voz en Telegram.\n"
-        f"• **8:24 PM:** Oración y recogimiento en silencio (5 min).\n"
-        f"• **8:29 PM:** Pausa de respiración consciente (3 min).\n"
+        f"• **8:24 PM:** Oración y recogimiento en silencio (3 min).\n"
+        f"• **8:27 PM:** Pausa de respiración consciente (5 min).\n"
         f"• **8:32 PM:** Reproducción en vivo de la {tipo.lower()}.\n\n"
         f"🎧 *El audio ya fue publicado en el grupo para su estudio previo.*"
     )

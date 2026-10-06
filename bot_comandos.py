@@ -715,14 +715,24 @@ def escuchar_comandos() -> None:
                                 enviar_mensaje(CHAT_ID, anuncio, reply_markup=teclado_grupo)
 
                             # 4. Enviar notificación privada a miembros registrados
-                            fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
+                            ahora_col = datetime.now(ZoneInfo("America/Bogota"))
+                            if not fecha_admin:
+                                if ahora_col.hour > 20 or (ahora_col.hour == 20 and ahora_col.minute >= 32):
+                                    fecha_priv = (ahora_col + timedelta(days=1)).strftime("%d/%m/%Y")
+                                else:
+                                    fecha_priv = ahora_col.strftime("%d/%m/%Y")
+                            else:
+                                fecha_priv = fecha_admin
+
+                            es_hoy_priv = fecha_priv == ahora_col.strftime("%d/%m/%Y")
+                            tiempo_saludo = "hoy" if es_hoy_priv else "mañana"
                             usuarios = db.get("usuarios", {})
                             for u_id, datos in usuarios.items():
                                 if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
                                     continue
                                 txt_priv = (
                                     f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                    f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
+                                    f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
                                     f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
                                     f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
                                     f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
