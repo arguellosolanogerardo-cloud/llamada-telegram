@@ -14,6 +14,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install telethon py-tgcalls pillow reportlab
+      - name: Preparar dependencias de audio y enlaces para PyTgCalls
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          ln -sf $(which ffmpeg) ./ffmpeg
+          ln -sf $(which ffprobe) ./ffprobe
+          chmod +x ./ffmpeg ./ffprobe
+          echo "FFmpeg instalado y enlazado: $(which ffmpeg) -> ./ffmpeg"
       - run: python -u llamada.py
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}

@@ -40,6 +40,41 @@ try:
 except ImportError:
     PYTGCALLS_AVAILABLE = False
 
+# Asegurar enlaces locales y absolutos de ffmpeg y ffprobe para Boost.Process v2 / NTgCalls en Linux
+for _tool in ("ffmpeg", "ffprobe"):
+    _tool_path = shutil.which(_tool)
+    if _tool_path and not os.path.exists(_tool):
+        try:
+            if hasattr(os, "symlink"):
+                os.symlink(_tool_path, _tool)
+                print(f"Enlace simbólico local creado: {_tool_path} -> ./{_tool}")
+        except Exception:
+            try:
+                shutil.copy2(_tool_path, _tool)
+                print(f"Copia local de {_tool} creada en el directorio de trabajo.")
+            except Exception:
+                pass
+
+if PYTGCALLS_AVAILABLE:
+    try:
+        from pytgcalls.types.stream.record_stream import RecordStream
+        from ntgcalls import MediaSource
+
+        _orig_get_audio_stream = RecordStream._get_audio_stream
+
+        def _patched_get_audio_stream(audio, raw_audio_parameters):
+            stream = _orig_get_audio_stream(audio, raw_audio_parameters)
+            if stream and getattr(stream, "media_source", None) == MediaSource.SHELL and hasattr(stream, "path"):
+                fbin = shutil.which("ffmpeg") or "ffmpeg"
+                if stream.path.startswith("ffmpeg "):
+                    stream.path = fbin + " " + stream.path[7:]
+            return stream
+
+        RecordStream._get_audio_stream = staticmethod(_patched_get_audio_stream)
+        print("RecordStream de PyTgCalls parcheado con ruta absoluta de ffmpeg.")
+    except Exception as e:
+        print("Nota parcheando RecordStream:", e)
+
 # Credenciales obligatorias
 API_ID = int(os.environ.get("TG_API_ID", "0"))
 API_HASH = os.environ.get("TG_API_HASH", "")
@@ -897,8 +932,8 @@ async def main() -> None:
 
         # Rutas y control para grabación selectiva de voz (excluyendo meditación)
         os.makedirs(CARPETA_ASISTENCIAS, exist_ok=True)
-        ruta_grabacion_pre = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_pre_{fecha_hoy}.wav")
-        ruta_grabacion_post = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_post_{fecha_hoy}.wav")
+        ruta_grabacion_pre = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_pre_{fecha_hoy}.mp3")
+        ruta_grabacion_post = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_post_{fecha_hoy}.mp3")
         ruta_grabacion_completa = os.path.join(CARPETA_ASISTENCIAS, f"audio_sesion_{fecha_hoy}.mp3")
 
         grabacion_activa = True
@@ -930,7 +965,7 @@ async def main() -> None:
                 return False, "ℹ️ La grabación ya está activa y grabando."
             grabacion_pausada = False
             contador_segmentos += 1
-            nueva_ruta = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_seg_{contador_segmentos}_{fecha_hoy}.wav")
+            nueva_ruta = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_seg_{contador_segmentos}_{fecha_hoy}.mp3")
             segmentos_grabados.append(nueva_ruta)
             if tgcalls:
                 try:
@@ -2383,7 +2418,14 @@ async def main() -> None:
         if not grabacion_cancelada:
             valid_segments = [s for s in segmentos_grabados if os.path.exists(s) and os.path.getsize(s) > 1000]
             if len(valid_segments) == 1:
-                audio_para_ia = valid_segments[0]
+                try:
+                    if valid_segments[0] != ruta_grabacion_completa:
+                        shutil.copy2(valid_segments[0], ruta_grabacion_completa)
+                        audio_para_ia = ruta_grabacion_completa
+                    else:
+                        audio_para_ia = valid_segments[0]
+                except Exception:
+                    audio_para_ia = valid_segments[0]
             elif len(valid_segments) > 1:
                 try:
                     ruta_concat_list = os.path.join(CARPETA_ASISTENCIAS, "concat_list.txt")
@@ -2412,6 +2454,7 @@ async def main() -> None:
         else:
             print("Grabación cancelada durante la sesión; no se procesará audio.")
 
+        ruta_transcripcion_txt = os.path.join(CARPETA_ASISTENCIAS, f"transcripcion_{fecha_hoy}.txt")
         resumen_ia = generar_resumen_ia(
             ruta_audio=audio_para_ia,
             oradores=oradores_sesion,
@@ -2419,6 +2462,7 @@ async def main() -> None:
             duracion_minutos=duracion_reunion_minutos,
             total_asistentes=len(participantes),
             info_catalogo=info_catalogo_hoy,
+            ruta_transcripcion_salida=ruta_transcripcion_txt,
         )
         if grabacion_cancelada:
             resumen_ia = "⚠️ *Nota: La grabación de audio fue cancelada por la administración durante la sesión. Este informe se generó con base en los datos de participación sin almacenamiento de audio.*\n\n" + resumen_ia
@@ -2478,21 +2522,35 @@ async def main() -> None:
                         ruta_acta_pdf,
                         caption=caption_acta,
                     )
+                # Enviar transcripción completa en texto generada por IA
+                if os.path.exists(ruta_transcripcion_txt) and os.path.getsize(ruta_transcripcion_txt) > 0:
+                    await client.send_file(
+                        me.id,
+                        ruta_transcripcion_txt,
+                        caption=f"📝 **Transcripción Oficial de la Reunión (Texto) - {fecha_hoy}**\nRegistro de intervenciones generado con IA.",
+                    )
+                    print("Transcripción de texto enviada a Mensajes Guardados del dueño.")
                 # Enviar grabación de audio de la sesión (excluyendo meditación) exclusivamente al dueño
-                if audio_para_ia and os.path.exists(audio_para_ia) and not grabacion_cancelada:
+                if audio_para_ia and os.path.exists(audio_para_ia) and os.path.getsize(audio_para_ia) > 1000 and not grabacion_cancelada:
                     await client.send_file(
                         me.id,
                         audio_para_ia,
                         caption=f"🎙️ **Grabación de Audio Oficial (MP3) - {fecha_hoy}**\nSesión comunitaria (sin meditación).",
                     )
                     print("Grabación de audio MP3 enviada a Mensajes Guardados del dueño.")
+                elif not grabacion_cancelada:
+                    msg_diag_audio = (
+                        "⚠️ **Aviso de Grabación de Audio:**\n"
+                        "No se pudo generar el archivo MP3 de la sesión porque no se capturaron flujos de voz entrantes en el servidor."
+                    )
+                    await client.send_message(me.id, msg_diag_audio)
                 if os.path.exists(RUTA_PUNTOS):
                     await client.send_file(
                         me.id,
                         RUTA_PUNTOS,
                         caption=f"💾 Respaldo de puntos - {fecha_hoy}",
                     )
-                print("CSV, Acta PDF, audio MP3 y respaldo de puntos enviados al dueño.")
+                print("CSV, Acta PDF, transcripción, audio MP3 y respaldo de puntos enviados al dueño.")
             except Exception as e:
                 print("Error enviando archivos al dueño:", e)
 

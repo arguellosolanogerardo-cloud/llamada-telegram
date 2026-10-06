@@ -18,3 +18,9 @@ google_credentials.json
 data/meditaciones/
 data/asistencias/*.png
 data/actas/*.pdf
+
+# Local ffmpeg binaries / symlinks
+ffmpeg
+ffprobe
+ffmpeg.exe
+ffprobe.exe
