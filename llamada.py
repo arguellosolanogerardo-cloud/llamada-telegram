@@ -314,62 +314,95 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
     return ruta_audio
 
 
-def generar_imagen_podio(fecha_str: str, duracion_min: int, total_personas: int, hubo_meditacion: bool, top_3: list, ruta_salida: str = os.path.join(CARPETA_ASISTENCIAS, "podio_hoy.png")) -> str | None:
+def generar_imagen_podio(fecha_str: str, duracion_min: int, total_personas: int, hubo_meditacion: bool, top_puntuales: list, ruta_salida: str = os.path.join(CARPETA_ASISTENCIAS, "podio_hoy.png")) -> str | None:
     try:
         from PIL import Image, ImageDraw, ImageFont
-        os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
-        width, height = 1000, 1000
+        dir_salida = os.path.dirname(ruta_salida)
+        if dir_salida:
+            os.makedirs(dir_salida, exist_ok=True)
+        width, height = 1080, 1190
         img = Image.new("RGB", (width, height), color=(15, 23, 42))
         draw = ImageDraw.Draw(img)
 
-        # Header Box
-        draw.rounded_rectangle([(40, 40), (960, 180)], radius=20, fill=(30, 27, 75), outline=(79, 70, 229), width=2)
-        try:
-            font_title = ImageFont.truetype("arial.ttf", 38)
-            font_sub = ImageFont.truetype("arial.ttf", 24)
-            font_stats = ImageFont.truetype("arial.ttf", 22)
-            font_podio_num = ImageFont.truetype("arial.ttf", 32)
-            font_podio_name = ImageFont.truetype("arial.ttf", 28)
-            font_podio_pts = ImageFont.truetype("arial.ttf", 26)
-            font_footer = ImageFont.truetype("arial.ttf", 20)
-        except Exception:
-            font_title = font_sub = font_stats = font_podio_num = font_podio_name = font_podio_pts = font_footer = ImageFont.load_default()
+        # Cargar fuentes compatibles
+        font_title = font_sub = font_stats = font_badge = font_name = font_info = font_footer = None
+        for font_candidate in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]:
+            try:
+                font_title = ImageFont.truetype(font_candidate, 36)
+                font_sub = ImageFont.truetype(font_candidate, 22)
+                font_stats = ImageFont.truetype(font_candidate, 20)
+                font_badge = ImageFont.truetype(font_candidate, 28)
+                font_name = ImageFont.truetype(font_candidate, 24)
+                font_info = ImageFont.truetype(font_candidate, 18)
+                font_footer = ImageFont.truetype(font_candidate, 18)
+                break
+            except Exception:
+                continue
+        if not font_title:
+            font_title = font_sub = font_stats = font_badge = font_name = font_info = font_footer = ImageFont.load_default()
 
-        draw.text((70, 65), "🏆 PODIO DE ASISTENCIA Y PUNTOS", fill=(251, 191, 36), font=font_title)
-        draw.text((70, 125), f"Fecha: {fecha_str} | Llamada Diaria 7:56 PM", fill=(199, 210, 254), font=font_sub)
+        # Header Box
+        draw.rounded_rectangle([(40, 35), (1040, 165)], radius=20, fill=(30, 27, 75), outline=(79, 70, 229), width=2)
+        draw.text((70, 55), "PODIO DE PUNTUALIDAD (TOP 9)", fill=(251, 191, 36), font=font_title)
+        draw.text((70, 115), f"Fecha: {fecha_str} | Apertura: 7:56 PM • Comunidad", fill=(199, 210, 254), font=font_sub)
 
         # Stats Summary Box
-        draw.rounded_rectangle([(40, 205), (960, 285)], radius=15, fill=(30, 41, 59), outline=(51, 65, 85), width=2)
+        draw.rounded_rectangle([(40, 185), (1040, 255)], radius=15, fill=(30, 41, 59), outline=(51, 65, 85), width=2)
         med_txt = "Sí (+30 pts)" if hubo_meditacion else "No"
-        stats_line = f"⏱️ Duración: {duracion_min} min   |   👥 Asistentes: {total_personas}   |   🧘 Meditación: {med_txt}"
-        draw.text((70, 235), stats_line, fill=(241, 245, 249), font=font_stats)
+        stats_line = f"Duracion: {duracion_min} min   |   Asistentes: {total_personas} personas   |   Meditacion: {med_txt}"
+        draw.text((70, 210), stats_line, fill=(241, 245, 249), font=font_stats)
 
-        colors = [
-            ((69, 26, 3), (245, 158, 11), "1", (254, 243, 199)),
-            ((30, 41, 59), (148, 163, 184), "2", (241, 245, 249)),
-            ((67, 20, 7), (217, 119, 6), "3", (255, 237, 213)),
+        colors_top3 = [
+            ((69, 26, 3), (245, 158, 11), (245, 158, 11), (15, 23, 42), "#1", (254, 243, 199)),
+            ((30, 41, 59), (148, 163, 184), (148, 163, 184), (15, 23, 42), "#2", (241, 245, 249)),
+            ((67, 20, 7), (217, 119, 6), (217, 119, 6), (15, 23, 42), "#3", (255, 237, 213)),
         ]
 
-        y_start = 315
-        for i in range(3):
-            bg, border, num, txt_color = colors[i]
-            top_y = y_start + (i * 185)
-            bot_y = top_y + 160
-            draw.rounded_rectangle([(40, top_y), (960, bot_y)], radius=20, fill=bg, outline=border, width=3)
-            draw.rounded_rectangle([(65, top_y + 25), (175, bot_y - 25)], radius=15, fill=border)
-            draw.text((105, top_y + 55), f"#{num}", fill=(15, 23, 42), font=font_podio_num)
+        y_start = 275
+        row_h = 82
+        row_gap = 10
 
-            if i < len(top_3):
-                p = top_3[i]
-                nombre = p.get("nombre", "Participante")[:28]
-                pts = p.get("pts_hoy", 0)
-                rango = p.get("rango", "")
-                draw.text((205, top_y + 40), nombre, fill=(255, 255, 255), font=font_podio_name)
-                draw.text((205, top_y + 90), f"+{pts} pts hoy  •  Rango: {rango}", fill=txt_color, font=font_podio_pts)
+        for i in range(9):
+            top_y = y_start + i * (row_h + row_gap)
+            bot_y = top_y + row_h
+            if i < 3:
+                bg, border, badge_bg, badge_txt, badge_label, info_color = colors_top3[i]
             else:
-                draw.text((205, top_y + 65), "Lugar Disponible", fill=(148, 163, 184), font=font_podio_name)
+                bg = (24, 32, 47)
+                border = (51, 65, 85)
+                badge_bg = (30, 41, 59)
+                badge_txt = (203, 213, 225)
+                badge_label = f"#{i+1}"
+                info_color = (148, 163, 184)
 
-        draw.text((240, 930), "¡Nos vemos mañana a las 7:56 PM! • Bot de Asistencia", fill=(148, 163, 184), font=font_footer)
+            draw.rounded_rectangle([(40, top_y), (1040, bot_y)], radius=16, fill=bg, outline=border, width=2)
+            draw.rounded_rectangle([(55, top_y + 14), (160, bot_y - 14)], radius=10, fill=badge_bg)
+            draw.text((85 if len(badge_label) == 2 else 75, top_y + 22), badge_label, fill=badge_txt, font=font_badge)
+
+            if i < len(top_puntuales):
+                p = top_puntuales[i]
+                nombre = str(p.get("nombre", "Participante"))[:30]
+                hora_str = ""
+                pe = p.get("primera_entrada")
+                if hasattr(pe, "strftime"):
+                    hora_str = pe.strftime("%I:%M:%S %p")
+                elif pe:
+                    hora_str = str(pe)
+
+                rango_str = str(p.get("rango", "Bronce")).split()[-1]
+                pts = p.get("pts_hoy", 0)
+
+                draw.text((185, top_y + 15), nombre, fill=(255, 255, 255), font=font_name)
+                detalles = f"Entrada: {hora_str}"
+                if pts:
+                    detalles += f"   •   +{pts} pts hoy"
+                if rango_str:
+                    detalles += f"   •   Rango: {rango_str}"
+                draw.text((185, top_y + 48), detalles, fill=info_color, font=font_info)
+            else:
+                draw.text((185, top_y + 26), "Lugar Disponible (Únete a las 7:56 PM)", fill=(100, 116, 139), font=font_name)
+
+        draw.text((280, 1125), "¡Nos vemos mañana a las 7:56 PM! • Bot Oficial de Asistencia", fill=(148, 163, 184), font=font_footer)
         img.save(ruta_salida, "PNG")
         return ruta_salida
     except Exception as e:
@@ -403,7 +436,16 @@ def guardar_puntos(data: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "", username: str = "") -> str:
+def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "", username: str = "", es_admin: bool = False) -> str:
+    if es_admin:
+        nombre = user_nombre or "Administrador"
+        return (
+            f"👑 **PERFIL DE MODERACIÓN: {nombre}**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🛡️ **Rol:** Administrador / Moderador de la Sala\n\n"
+            "ℹ️ *Los administradores y moderadores están exentos del sistema de puntos y no participan en los rankings ni podios de puntualidad, garantizando una competencia justa y transparente para toda la comunidad.*"
+        )
+
     usuarios = db_puntos.get("usuarios", {})
     str_uid = str(user_id)
     u = usuarios.get(str_uid)
@@ -436,12 +478,20 @@ def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "",
     )
 
 
-def generar_texto_ranking(db_puntos: dict) -> str:
+def generar_texto_ranking(db_puntos: dict, admin_ids: set = None) -> str:
     usuarios = db_puntos.get("usuarios", {})
     if not usuarios:
         return "🏆 **Ranking Mensual:** Aún no hay registros de asistencia este mes."
 
-    top = sorted(usuarios.values(), key=lambda x: x.get("puntos_mes", x.get("puntos_totales", 0)), reverse=True)[:10]
+    if admin_ids:
+        usuarios_filtrados = [u for u in usuarios.values() if int(u.get("id", 0)) not in admin_ids]
+    else:
+        usuarios_filtrados = list(usuarios.values())
+
+    if not usuarios_filtrados:
+        return "🏆 **Ranking Mensual:** Aún no hay registros de participantes de la comunidad este mes."
+
+    top = sorted(usuarios_filtrados, key=lambda x: x.get("puntos_mes", x.get("puntos_totales", 0)), reverse=True)[:10]
     lineas = [
         "🏆 **TOP 10 DE ASISTENCIA Y PUNTOS (ESTE MES)** 🏆",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -475,10 +525,12 @@ def generar_texto_reglas() -> str:
         "🔥 **RACHAS:**\n"
         "• Asistir días seguidos: **+5 pts extra por día consecutivo**\n\n"
         "🏅 **MEDALLAS ESPECIALES:**\n"
-        "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 3 primeros).\n"
+        "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 9 de puntualidad).\n"
         "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
         "• 🧘 *Mente Serena:* Completar 10 meditaciones en el mes.\n"
         "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
+        "👑 **ADMINISTRADORES Y MODERADORES:**\n"
+        "• Los administradores y moderadores están exentos del sistema de puntos y no participan en rankings ni podios, garantizando una competencia comunitaria justa.\n\n"
         "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
         "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
         "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
@@ -936,10 +988,10 @@ async def main() -> None:
             usr = getattr(sender, "username", "") or ""
 
             if texto_cmd in ("/puntos", "/miperfil"):
-                resp = generar_texto_miperfil(uid, db, nom, usr)
+                resp = generar_texto_miperfil(uid, db, nom, usr, es_admin=(uid in admin_ids))
                 await event.reply(resp)
             elif texto_cmd in ("/ranking", "/top") or (texto_cmd == "/start" and param == "ranking"):
-                resp = generar_texto_ranking(db)
+                resp = generar_texto_ranking(db, admin_ids=admin_ids)
                 await event.reply(resp)
             elif texto_cmd in ("/meditacion", "/audio"):
                 ruta_med = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
@@ -1744,7 +1796,14 @@ async def main() -> None:
         total_llamadas_mes = db_puntos["total_llamadas_mes"]
 
         usuarios_db = db_puntos.setdefault("usuarios", {})
-        podio_puntuales = sorted(participantes.values(), key=lambda x: x["primera_entrada"])[:3]
+
+        # Purgar administradores de la base de datos de puntos
+        for aid in admin_ids:
+            usuarios_db.pop(str(aid), None)
+
+        # Filtrar solo participantes de la comunidad (excluir administradores para el podio de 9 puestos)
+        participantes_comunidad = [p for p in participantes.values() if p["id"] not in admin_ids]
+        podio_puntuales = sorted(participantes_comunidad, key=lambda x: x["primera_entrada"])[:9]
         ids_podio = {p["id"] for p in podio_puntuales}
 
         asistentes_validos = []
@@ -1755,6 +1814,21 @@ async def main() -> None:
             part["minutos"] = mins
             pct = int(round((part["segundos_acumulados"] / (duracion_reunion_minutos * 60)) * 100))
             part["porcentaje"] = min(100, pct)
+
+            # Si es administrador, no gana puntos ni entra al ranking
+            if uid in admin_ids:
+                part["pts_hoy"] = 0
+                part["pts_mes"] = 0
+                part["pts_totales"] = 0
+                part["racha"] = 0
+                part["rango"] = "👑 Admin"
+                part["nuevas_medallas"] = []
+                part["desglose"] = "👑 Moderador / Admin (Exento de puntos)"
+                if mins >= MIN_MINUTOS_ASISTENCIA:
+                    asistentes_validos.append(part)
+                else:
+                    visitas_fugaces.append(part)
+                continue
 
             if mins >= MIN_MINUTOS_ASISTENCIA:
                 minutos_desde_inicio = (part["primera_entrada"] - inicio_llamada).total_seconds() / 60
@@ -1903,7 +1977,7 @@ async def main() -> None:
 
         # 6. Construir y Enviar Reportes
         asistentes_validos.sort(key=lambda x: x.get("pts_hoy", 0), reverse=True)
-        ranking_mes = sorted(usuarios_db.values(), key=lambda x: x.get("puntos_mes", 0), reverse=True)[:5]
+        ranking_mes = sorted([u for u in usuarios_db.values() if int(u.get("id", 0)) not in admin_ids], key=lambda x: x.get("puntos_mes", 0), reverse=True)[:5]
         es_fin_de_mes = (inicio_llamada + timedelta(days=1)).month != inicio_llamada.month
 
         lineas_pub = [
@@ -1911,17 +1985,21 @@ async def main() -> None:
             f"🗓️ Fecha: {inicio_llamada.strftime('%d/%m/%Y')}",
             f"⏱️ Duración: {duracion_reunion_minutos} min | 👥 Asistentes: {len(asistentes_validos)} personas\n",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "🏆 **PODIO DE PUNTUALIDAD:**",
+            "🏆 **PODIO DE PUNTUALIDAD (TOP 9):**",
         ]
-        medallas_podio = ["🥇", "🥈", "🥉"]
-        for idx, p in enumerate(podio_puntuales):
-            tag = f"(@{p['username']})" if p["username"] else ""
-            lineas_pub.append(f"{medallas_podio[idx]} {p['nombre']} {tag} — {p['primera_entrada'].strftime('%I:%M:%S %p')}")
+        simbolos_podio = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
+        if podio_puntuales:
+            for idx, p in enumerate(podio_puntuales):
+                tag = f"(@{p['username']})" if p["username"] else ""
+                lineas_pub.append(f"{simbolos_podio[idx]} **{p['nombre']}** {tag} — {p['primera_entrada'].strftime('%I:%M:%S %p')}")
+        else:
+            lineas_pub.append("No se registraron participantes de la comunidad hoy.")
 
         lineas_pub.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         lineas_pub.append("🌟 **PUNTOS GANADOS HOY:**")
-        if asistentes_validos:
-            for p in asistentes_validos:
+        puntos_comunidad = [p for p in asistentes_validos if p["id"] not in admin_ids and p.get("pts_hoy", 0) > 0]
+        if puntos_comunidad:
+            for p in puntos_comunidad:
                 tag = f"(@{p['username']})" if p["username"] else ""
                 icono_voz = "🎙️" if p["hablo"] else "🎧"
                 estrella = "⭐ " if p["porcentaje"] >= 80 else "• "
@@ -1931,12 +2009,12 @@ async def main() -> None:
                     f"   [{p['desglose']}] — Racha: 🔥 {p['racha']} días ({p['rango']}){aviso_medalla}"
                 )
         else:
-            lineas_pub.append("No se registraron asistencias que cumplieran el tiempo mínimo hoy.")
+            lineas_pub.append("No se registraron asistencias comunitarias que sumaran puntos hoy.")
 
         if es_fin_de_mes:
             lineas_pub.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             lineas_pub.append("👑 **🏆 CUADRO DE HONOR — CAMPEONES DEL MES 🏆** 👑")
-            campeones_mes = sorted(usuarios_db.values(), key=lambda x: x.get("puntos_mes", 0), reverse=True)[:3]
+            campeones_mes = sorted([u for u in usuarios_db.values() if int(u.get("id", 0)) not in admin_ids], key=lambda x: x.get("puntos_mes", 0), reverse=True)[:3]
             titulos = ["🥇 CAMPEÓN DEL MES", "🥈 SUBCAMPEÓN", "🥉 TERCER PUESTO"]
             for idx, c in enumerate(campeones_mes):
                 lineas_pub.append(f"{titulos[idx]}: **{c['nombre']}** con {c.get('puntos_mes', 0)} pts")
@@ -1952,27 +2030,29 @@ async def main() -> None:
         lineas_pub.append("💡 Comandos disponibles: `/puntos` | `/ranking` | `/reglas` | `/meditacion`")
         lineas_pub.append("¡Gracias a todos por participar! Nos vemos mañana a las 7:56 PM.")
 
-        # Generar imagen gráfica profesional del podio y enviarla al grupo
+        # Generar imagen gráfica profesional del podio de puntualidad (Top 9) y enviarla al grupo
         try:
             ruta_img_podio = generar_imagen_podio(
                 fecha_str=inicio_llamada.strftime("%d/%m/%Y"),
                 duracion_min=duracion_reunion_minutos,
                 total_personas=len(participantes),
                 hubo_meditacion=meditacion_activa_hoy,
-                top_3=asistentes_validos[:3],
+                top_puntuales=podio_puntuales,
             )
             if ruta_img_podio and os.path.exists(ruta_img_podio):
-                enviar_foto_con_bot(ruta_img_podio, caption=f"🏆 **PODIO OFICIAL — LLAMADA {inicio_llamada.strftime('%d/%m/%Y')}** 🏆")
+                enviar_foto_con_bot(ruta_img_podio, caption=f"🏆 **PODIO OFICIAL DE PUNTUALIDAD — LLAMADA {inicio_llamada.strftime('%d/%m/%Y')}** 🏆")
         except Exception as e:
             print("Nota generando o enviando imagen del podio:", e)
 
         reporte_publico = "\n".join(lineas_pub)
         avisar_con_bot(reporte_publico)
 
-        # Enviar notificación privada personalizada a cada asistente
+        # Enviar notificación privada personalizada a cada asistente de la comunidad (excluye administradores)
         if BOT_TOKEN and asistentes_validos:
             print("Enviando resúmenes individuales privados a asistentes...")
             for p in asistentes_validos:
+                if p["id"] in admin_ids:
+                    continue
                 try:
                     meds_p = p.get("nuevas_medallas", [])
                     txt_nuevas_meds = f"\n🎖️ **¡Nueva medalla desbloqueada!** {', '.join(meds_p)}" if meds_p else ""
