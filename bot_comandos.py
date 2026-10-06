@@ -11,7 +11,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
-from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto
+from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -376,7 +376,7 @@ def copiar_mensaje(chat_id: int | str, from_chat_id: int | str, message_id: int 
     return False
 
 
-def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: int | str = None) -> None:
+def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: int | str = None, user_id_privado: int | str = None) -> None:
     if not info_cat:
         enviar_mensaje(
             chat_id,
@@ -400,6 +400,16 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     )
     title = f"{tipo_nombre} #{num} - {titulo}"
     performer = maestro
+
+    bot_u = obtener_info_bot()
+    teclado_grupo = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start=audio"}]]} if (int(chat_id) < 0 and bot_u) else None
+
+    def enviar_copia_privada(ref_audio):
+        if user_id_privado and str(user_id_privado) != str(chat_id) and int(user_id_privado) > 0:
+            try:
+                enviar_audio(user_id_privado, ref_audio, caption=caption, title=title, performer=performer)
+            except Exception:
+                pass
 
     # 1. Buscar en fuentes de audio disponibles
     # A) file_id directo en info_cat
@@ -428,8 +438,9 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
 
     # Intentar enviar vía file_id si lo tenemos
     if audio_file_id:
-        ok, m_id, f_id = enviar_audio(chat_id, audio_file_id, caption=caption, title=title, performer=performer)
+        ok, m_id, f_id = enviar_audio(chat_id, audio_file_id, caption=caption, title=title, performer=performer, reply_markup=teclado_grupo)
         if ok:
+            enviar_copia_privada(audio_file_id)
             return
 
     # D) Buscar archivo local en disco
@@ -445,10 +456,11 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
                 break
 
     if ruta_local:
-        ok, m_id, f_id = enviar_audio(chat_id, ruta_local, caption=caption, title=title, performer=performer)
+        ok, m_id, f_id = enviar_audio(chat_id, ruta_local, caption=caption, title=title, performer=performer, reply_markup=teclado_grupo)
         if ok:
             if f_id:
                 guardar_audio_registrado(info_cat, file_id=f_id, msg_id=m_id)
+            enviar_copia_privada(f_id or ruta_local)
             return
 
     # E) Intentar copiar mensaje directamente desde el grupo oficial si conocemos el msg_id
@@ -463,6 +475,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     origen_grupo = CHAT_ID or meta_hoy.get("chat_id_grupo")
     if msg_id_audio and origen_grupo:
         if copiar_mensaje(chat_id, origen_grupo, msg_id_audio, caption=caption):
+            enviar_copia_privada(audio_file_id)
             return
 
     # F) Descargar automáticamente desde Google Drive!
@@ -470,10 +483,11 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
         enviar_mensaje(chat_id, f"🔍 Buscando audio para {tipo_nombre} #{num}...", reply_to_message_id=msg_id_reply)
         ruta_drive = obtener_o_descargar_audio(tipo_nombre, int(num))
         if ruta_drive:
-            ok, m_id, f_id = enviar_audio(chat_id, ruta_drive, caption=caption, title=title, performer=performer)
+            ok, m_id, f_id = enviar_audio(chat_id, ruta_drive, caption=caption, title=title, performer=performer, reply_markup=teclado_grupo)
             if ok:
                 if f_id:
                     guardar_audio_registrado(info_cat, file_id=f_id, msg_id=m_id)
+                enviar_copia_privada(f_id or ruta_drive)
                 return
 
     # G) Si aún no está cargado el archivo en ninguna fuente
@@ -518,6 +532,52 @@ def enviar_documento(chat_id: int | str, ruta_doc: str, caption: str = "") -> No
             print(f"Documento enviado a {chat_id}:", r.status)
     except Exception as e:
         print(f"Error enviando documento a {chat_id}:", e)
+
+
+def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
+    """
+    Detecta si un mensaje es una pregunta o petición de un audio del catálogo (meditación o mensaje).
+    Ejemplos:
+      - 'tienes el mensaje 989?'
+      - '¿Tienes la meditacion 21?'
+      - 'me pasas el mensaje 800'
+      - 'audio del mensaje 989'
+      - 'meditacion 21' (en privado o grupo)
+    """
+    if not texto:
+        return False
+    t_up = texto.upper()
+
+    # Si es declaración de tarea diaria para el grupo, no es solicitud individual
+    if any(k in t_up for k in ["TAREA PARA MAÑANA", "TAREA PARA MANANA", "MEDITACION DE TAREA", "MENSAJE DE TAREA", "TAREA DE MEDITACION", "TAREA DE MENSAJE"]):
+        return False
+
+    tiene_palabra_audio = any(w in t_up for w in ["MEDITACION", "MEDITACIÓN", "MENSAJE", "AUDIO"])
+    tiene_numero = bool(re.search(r"\b\d{1,4}\b", t_up))
+
+    if not (tiene_palabra_audio and tiene_numero):
+        return False
+
+    # En chat privado (chat_id > 0), cualquier mención de meditación/mensaje con número es para el bot
+    if int(chat_id) > 0:
+        return True
+
+    # En grupos (chat_id < 0), verificar que sea una pregunta o petición
+    verbos = [
+        "TIENES", "TIENE", "TIENEN", "HAY", "PASAME", "PASA", "PASAS",
+        "COMPARTE", "COMPARTIR", "QUIERO", "QUISIERA", "ENVIAME", "ENVIA",
+        "MANDAME", "MANDA", "AUDIO DE", "AUDIO DEL", "BUSCA", "BUSCAR",
+        "REGALAME", "ME DAS", "ME PASAS", "QUIEN TIENE", "ALGUIEN TIENE",
+        "POR FAVOR", "DESCARGAR", "SUBIR", "DONDE ESTA", "¿TIENES", "¿HAY",
+        "DISPONIBLE", "COMPARTEN"
+    ]
+    if any(v in t_up for v in verbos):
+        return True
+
+    if re.match(r"^(?:MEDITACI[OÓ]N|MENSAJE|AUDIO)\s+#?\d{1,4}", t_up.strip()):
+        return True
+
+    return False
 
 
 def escuchar_comandos() -> None:
@@ -669,6 +729,19 @@ def escuchar_comandos() -> None:
                                 )
                                 enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
 
+                # Petición de audio en lenguaje natural (ej: "¿Tienes el mensaje 989?", "meditación 21")
+                if not es_tarea_declarada and not audio_obj and es_solicitud_de_audio(texto, chat_id):
+                    info_cat = identificar_audio_catalogo(texto=texto)
+                    if not info_cat:
+                        m_num = re.search(r"\b(\d{1,4})\b", texto)
+                        if m_num:
+                            tipo_req = "MENSAJE" if "MENSAJE" in texto_upper else "MEDITACION"
+                            num_req = int(m_num.group(1))
+                            info_cat = {"numero": num_req, "tipo": tipo_req, "titulo": f"{tipo_req.title()} #{num_req}", "maestro": "Comunidad", "fecha": ""}
+                    if info_cat:
+                        entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
+                        continue
+
                 if not texto.startswith("/"):
                     continue
 
@@ -711,7 +784,7 @@ def escuchar_comandos() -> None:
                             if db_a:
                                 info_cat = list(db_a.values())[-1]
 
-                    entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id)
+                    entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
                 elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea", "/guardaraudio", "/setaudio"):
                     param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
                     reply_m = msg.get("reply_to_message") or {}

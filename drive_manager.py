@@ -81,13 +81,23 @@ def buscar_audio_en_drive(tipo: str, numero: int) -> tuple[str | None, str | Non
         return None, None
 
     try:
-        url = f"https://drive.google.com/drive/folders/{sub_id}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        # 1. Probar primero con embeddedfolderview (obtiene todos los archivos sin límite de 50)
+        url_embed = f"https://drive.google.com/embeddedfolderview?id={sub_id}#list"
+        req = urllib.request.Request(url_embed, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req, timeout=12) as r:
             html = r.read().decode("utf-8", errors="ignore")
 
-        pattern = r'aria-label="([^"]+?\.(?:mp3|m4a|wav|ogg))[^\"]*"\s+data-handled-by-drag-and-drop="true"\s+ssk=[\'"]5:auSv138:([a-zA-Z0-9_-]+?)(?:-\d+-\d+)?[\'"]'
-        matches = re.findall(pattern, html, re.IGNORECASE)
+        items_embed = re.findall(r'id="entry-([a-zA-Z0-9_-]+?)".*?flip-entry-title[^>]*>([^<]+?)<', html, re.DOTALL)
+        matches = [(nombre.strip(), f_id) for f_id, nombre in items_embed]
+
+        # 2. Si no arrojó resultados, fallback a la URL estándar de carpeta
+        if not matches:
+            url = f"https://drive.google.com/drive/folders/{sub_id}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                html = r.read().decode("utf-8", errors="ignore")
+            pattern = r'aria-label="([^"]+?\.(?:mp3|m4a|wav|ogg))[^\"]*"\s+data-handled-by-drag-and-drop="true"\s+ssk=[\'"]5:auSv138:([a-zA-Z0-9_-]+?)(?:-\d+-\d+)?[\'"]'
+            matches = re.findall(pattern, html, re.IGNORECASE)
 
         # Reglas de coincidencia para el número solicitado
         s_num = str(numero)
