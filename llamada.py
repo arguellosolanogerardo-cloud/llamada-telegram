@@ -1282,7 +1282,7 @@ async def main() -> None:
                 await responder(resp)
 
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
@@ -1375,6 +1375,22 @@ async def main() -> None:
                 cola_turnos.clear()
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 await responder_admin("🧹 **Lista de turnos vaciada exitosamente.**")
+            elif cmd in ("/limpiarsala", "/limpiaravisos"):
+                cant = len(ids_mensajes_efimeros)
+                if cant > 0:
+                    a_borrar = set(ids_mensajes_efimeros)
+                    ids_mensajes_efimeros.clear()
+                    r_aviso = await responder_admin(f"🧹 Limpiando {cant} notificaciones y ventanas temporales de la sala...")
+                    await limpiar_mensajes_temporales(client, entidad, a_borrar)
+                    if r_aviso and hasattr(r_aviso, "id"):
+                        ids_mensajes_efimeros.discard(r_aviso.id)
+                        await asyncio.sleep(4)
+                        try:
+                            await client.delete_messages(entidad, [r_aviso.id])
+                        except Exception:
+                            pass
+                else:
+                    await responder_admin("✨ La sala ya está limpia de notificaciones temporales.")
             elif cmd in ("/hablar", "/desmutear"):
                 target_user = None
                 if event.is_reply:
@@ -1617,6 +1633,43 @@ async def main() -> None:
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
                     await responder_nat(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
                     avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
+            # Limpiar notificaciones y ventanas de la sala a petición del administrador
+            elif any(p in texto_raw for p in [
+                "notificaciones del robot",
+                "notificaciones del bot",
+                "ventanas del robot",
+                "ventanas del bot",
+                "limpia la sala de notificaciones",
+                "limpiar la sala de notificaciones",
+                "limpiar notificaciones",
+                "limpia las notificaciones",
+                "limpia la sala",
+                "limpiar la sala",
+                "limpiar sala",
+                "borrar notificaciones",
+                "borra las notificaciones",
+                "borrar ventanas",
+                "limpiar avisos",
+            ]) or (
+                any(v in texto_raw for v in ["limpia", "limpiar", "borra", "borrar"])
+                and any(t in texto_raw for t in ["notificacion", "notificaciones", "ventana", "ventanas", "aviso", "avisos"])
+                and "turno" not in texto_raw
+            ):
+                cant = len(ids_mensajes_efimeros)
+                if cant > 0:
+                    a_borrar = set(ids_mensajes_efimeros)
+                    ids_mensajes_efimeros.clear()
+                    r_aviso = await responder_nat(f"🧹 Limpiando {cant} notificaciones y ventanas temporales de la sala...")
+                    await limpiar_mensajes_temporales(client, entidad, a_borrar)
+                    if r_aviso and hasattr(r_aviso, "id"):
+                        ids_mensajes_efimeros.discard(r_aviso.id)
+                        await asyncio.sleep(4)
+                        try:
+                            await client.delete_messages(entidad, [r_aviso.id])
+                        except Exception:
+                            pass
+                else:
+                    await responder_nat("✨ La sala ya está limpia de notificaciones temporales.")
 
         segundos_totales = 0
         tiempo_limite_segundos = DURACION_MAXIMA_MINUTOS * 60

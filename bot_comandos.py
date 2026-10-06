@@ -1,11 +1,13 @@
+import asyncio
 import json
 import os
+import re
 import time
 import urllib.request
 import urllib.parse
 import threading
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -16,8 +18,14 @@ from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
+TG_API_ID = os.environ.get("TG_API_ID")
+TG_API_HASH = os.environ.get("TG_API_HASH")
+TG_SESSION = os.environ.get("TG_SESSION")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 RUTA_AUDIOS_REGISTRADOS = os.path.join("data", "meditaciones", "audios_registrados.json")
+RUTA_MSGS_BOT = os.path.join("data", "mensajes_bot_grupo.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
 
 COLA_LOGS = []
@@ -61,6 +69,121 @@ def guardar_audio_registrado(info_cat: dict, file_id: str = None, msg_id: int | 
             json.dump(db, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("Nota guardando audio registrado:", e)
+
+
+def cargar_msgs_bot() -> list:
+    if os.path.exists(RUTA_MSGS_BOT):
+        try:
+            with open(RUTA_MSGS_BOT, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def registrar_msg_bot(mid: int | str) -> None:
+    if not mid:
+        return
+    try:
+        os.makedirs(os.path.dirname(RUTA_MSGS_BOT), exist_ok=True)
+        msgs = cargar_msgs_bot()
+        m_int = int(mid)
+        if m_int not in msgs:
+            msgs.append(m_int)
+        msgs = msgs[-300:]
+        with open(RUTA_MSGS_BOT, "w", encoding="utf-8") as f:
+            json.dump(msgs, f)
+    except Exception:
+        pass
+
+
+def eliminar_mensaje(chat_id: int | str, message_id: int | str) -> bool:
+    if not BOT_TOKEN or not chat_id or not message_id:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
+        datos = json.dumps({"chat_id": chat_id, "message_id": int(message_id)}).encode()
+        req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return True
+    except Exception:
+        return False
+
+
+def limpiar_sala_notificaciones(chat_id: int | str) -> int:
+    """Borra notificaciones y ventanas creadas por el robot en la sala."""
+    borrados = 0
+    # 1. Borrar mensajes registrados del bot
+    msgs = cargar_msgs_bot()
+    if msgs:
+        for mid in list(msgs):
+            if eliminar_mensaje(chat_id, mid):
+                borrados += 1
+                time.sleep(0.05)
+        try:
+            with open(RUTA_MSGS_BOT, "w", encoding="utf-8") as f:
+                json.dump([], f)
+        except Exception:
+            pass
+
+    # 2. Si cuenta con credenciales Telethon (TG_SESSION), realizar escaneo profundo
+    if TG_SESSION and TG_API_ID and TG_API_HASH:
+        try:
+            from telethon import TelegramClient
+            from telethon.sessions import StringSession
+
+            async def _scan_telethon():
+                cant_tel = 0
+                async with TelegramClient(StringSession(TG_SESSION), int(TG_API_ID), TG_API_HASH) as client:
+                    try:
+                        dest = int(chat_id)
+                    except ValueError:
+                        dest = chat_id
+                    entidad = await client.get_entity(dest)
+                    ids_del = []
+                    async for m in client.iter_messages(entidad, limit=120):
+                        es_bot = False
+                        if getattr(m, "out", False):
+                            es_bot = True
+                        elif getattr(m, "sender", None) and getattr(m.sender, "bot", False):
+                            es_bot = True
+                        elif getattr(m, "via_bot_id", None):
+                            es_bot = True
+                        if es_bot:
+                            ids_del.append(m.id)
+                    if ids_del:
+                        for k in range(0, len(ids_del), 100):
+                            await client.delete_messages(entidad, ids_del[k:k+100])
+                        cant_tel = len(ids_del)
+                return cant_tel
+
+            cant_tel = asyncio.run(_scan_telethon())
+            borrados += cant_tel
+            log_debug(f"Limpieza Telethon completada: {cant_tel} mensajes eliminados.")
+        except Exception as e:
+            log_debug(f"Nota en limpieza Telethon: {e}")
+
+    # 3. Disparar workflow de limpieza en GitHub Actions si GITHUB_TOKEN está presente
+    if GITHUB_TOKEN:
+        try:
+            url_gh = "https://api.github.com/repos/arguellosolanogerardo-cloud/llamada-telegram/actions/workflows/limpieza.yml/dispatches"
+            payload_gh = json.dumps({"ref": "main", "inputs": {"modo_profundo": True}}).encode()
+            req_gh = urllib.request.Request(
+                url_gh,
+                data=payload_gh,
+                headers={
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github.v3+json",
+                    "User-Agent": "BotComandos",
+                    "Content-Type": "application/json"
+                }
+            )
+            with urllib.request.urlopen(req_gh, timeout=10) as r:
+                log_debug(f"Workflow de limpieza GitHub Actions disparado: {r.status}")
+        except Exception as e:
+            log_debug(f"Nota disparando GitHub Actions: {e}")
+
+    return borrados
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -298,10 +421,10 @@ def generar_texto_reglas() -> str:
     )
 
 
-def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = None, reply_markup: dict = None) -> None:
+def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = None, reply_markup: dict = None) -> int | None:
     if not BOT_TOKEN:
         print("BOT_TOKEN no configurado.")
-        return
+        return None
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -317,9 +440,14 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
     req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
-            pass
+            res_data = json.loads(r.read().decode())
+            m_id = res_data.get("result", {}).get("message_id")
+            if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                registrar_msg_bot(m_id)
+            return m_id
     except Exception as e:
         print(f"Error enviando mensaje a {chat_id}:", e)
+    return None
 
 
 def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
@@ -346,6 +474,8 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
             if res.get("ok"):
                 res_m = res.get("result", {})
                 m_id = res_m.get("message_id")
+                if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                    registrar_msg_bot(m_id)
                 f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id") or ruta_audio
                 log_debug(f"Audio enviado vía file_id a {chat_id}: msg_id={m_id}")
                 return True, m_id, f_id
@@ -377,6 +507,8 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
             if res.get("ok"):
                 res_m = res.get("result", {})
                 m_id = res_m.get("message_id")
+                if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                    registrar_msg_bot(m_id)
                 f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id")
                 dur = round(time.time() - t_inicio, 1)
                 log_debug(f"Audio subido con éxito a {chat_id} en {dur}s: msg_id={m_id}, file_id={f_id}")
@@ -407,6 +539,9 @@ def copiar_mensaje(chat_id: int | str, from_chat_id: int | str, message_id: int 
         with urllib.request.urlopen(req, timeout=15) as r:
             res = json.loads(r.read().decode())
             if res.get("ok"):
+                c_id = res.get("result", {}).get("message_id")
+                if c_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                    registrar_msg_bot(c_id)
                 print(f"Audio copiado de {from_chat_id}:{m_id} a {chat_id}")
                 return True
     except Exception as e:
@@ -424,6 +559,9 @@ def copiar_mensaje(chat_id: int | str, from_chat_id: int | str, message_id: int 
         with urllib.request.urlopen(req_fwd, timeout=15) as rf:
             res_fwd = json.loads(rf.read().decode())
             if res_fwd.get("ok"):
+                f_id = res_fwd.get("result", {}).get("message_id")
+                if f_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                    registrar_msg_bot(f_id)
                 print(f"Audio reenviado a {chat_id}")
                 return True
     except Exception as ef:
@@ -585,6 +723,10 @@ def enviar_documento(chat_id: int | str, ruta_doc: str, caption: str = "") -> No
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
         )
         with urllib.request.urlopen(req, timeout=60) as r:
+            res_doc = json.loads(r.read().decode())
+            d_id = res_doc.get("result", {}).get("message_id")
+            if d_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                registrar_msg_bot(d_id)
             print(f"Documento enviado a {chat_id}:", r.status)
     except Exception as e:
         print(f"Error enviando documento a {chat_id}:", e)
@@ -807,6 +949,46 @@ def escuchar_comandos() -> None:
                     if info_cat:
                         entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
                         continue
+
+                # Detectar orden de administradores para limpiar la sala de notificaciones del robot
+                texto_lower = texto.lower()
+                cmd_primero = texto.split()[0].lower().split("@")[0] if texto else ""
+                es_orden_limpieza = any(p in texto_lower for p in [
+                    "notificaciones del robot",
+                    "notificaciones del bot",
+                    "ventanas del robot",
+                    "ventanas del bot",
+                    "limpia la sala de notificaciones",
+                    "limpiar la sala de notificaciones",
+                    "limpiar notificaciones",
+                    "limpia las notificaciones",
+                    "limpia la sala",
+                    "limpiar la sala",
+                    "limpiar sala",
+                    "borrar notificaciones",
+                    "borra las notificaciones",
+                    "borrar ventanas",
+                    "limpiar avisos",
+                ]) or (
+                    any(v in texto_lower for v in ["limpia", "limpiar", "borra", "borrar"])
+                    and any(t in texto_lower for t in ["notificacion", "notificaciones", "ventana", "ventanas", "aviso", "avisos"])
+                    and "turno" not in texto_lower
+                ) or (cmd_primero in ("/limpiarsala", "/limpiaravisos", "/limpieza"))
+
+                if es_orden_limpieza:
+                    admins_set = obtener_admin_ids()
+                    if user_id not in admins_set:
+                        enviar_mensaje(chat_id, "⛔ Solo los administradores pueden solicitar la limpieza de la sala.", reply_to_message_id=msg_id)
+                        continue
+
+                    # Eliminar la orden escrita por el admin para no dejar rastro
+                    eliminar_mensaje(chat_id, msg_id)
+                    m_aviso = enviar_mensaje(chat_id, "🧹 **Iniciando limpieza:** Eliminando notificaciones y ventanas del bot en la sala...")
+                    cant = limpiar_sala_notificaciones(chat_id)
+                    if m_aviso:
+                        time.sleep(3)
+                        eliminar_mensaje(chat_id, m_aviso)
+                    continue
 
                 if not texto.startswith("/"):
                     continue
