@@ -30,7 +30,7 @@ from telethon.tl.types import Channel, ChannelParticipantsAdmins, Chat, PeerUser
 
 from ia_resumen import generar_resumen_ia, guardar_minuta, buscar_en_minutas, obtener_minuta
 from generador_acta import generar_acta_pdf
-from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
+from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, identificar_todos_los_audios, formatear_cola_audios
 from publicar_tarea import extraer_fecha_de_texto
 from drive_manager import obtener_o_descargar_audio
 import re
@@ -701,32 +701,62 @@ async def obtener_todos_participantes_llamada(client, input_call) -> tuple[list,
     return participantes_completos, users_dict, chats_dict
 
 
-async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | None, dict | None]:
+def guardar_cola_hoy(cola: list[dict]) -> None:
+    """Guarda la lista de reproducción del día en cola_hoy.json y meta_hoy.json."""
+    try:
+        os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+        ruta_cola = os.path.join(CARPETA_MEDITACIONES, "cola_hoy.json")
+        with open(ruta_cola, "w", encoding="utf-8") as f:
+            json.dump(cola, f, ensure_ascii=False, indent=2)
+        if cola:
+            ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+            with open(ruta_meta, "w", encoding="utf-8") as fm:
+                json.dump(cola[0].get("info") or {}, fm, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Nota guardando cola_hoy.json:", e)
+
+
+def cargar_cola_hoy() -> list[dict]:
+    """Carga y valida los audios previamente guardados en cola_hoy.json."""
+    try:
+        ruta_cola = os.path.join(CARPETA_MEDITACIONES, "cola_hoy.json")
+        if os.path.exists(ruta_cola):
+            with open(ruta_cola, "r", encoding="utf-8") as f:
+                datos = json.load(f)
+            if isinstance(datos, list):
+                validos = [
+                    d for d in datos
+                    if isinstance(d, dict) and d.get("ruta")
+                    and os.path.exists(d["ruta"]) and os.path.getsize(d["ruta"]) > 5000
+                ]
+                if validos:
+                    return validos
+    except Exception as e:
+        print("Nota cargando cola_hoy.json:", e)
+    return []
+
+
+async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | None, dict | None, list[dict]]:
     """
-    Busca el audio de la tarea de hoy:
-    1. En los últimos 60 mensajes del grupo (audio adjunto subido por administradores).
-    2. Si no hay archivo adjunto en Telegram pero hay un anuncio de tarea (o meta_hoy.json),
-       lo descarga automáticamente desde Google Drive sin requerir intervención manual.
+    Busca uno o varios audios de la tarea de hoy:
+    1. En cola_hoy.json si ya fue programada.
+    2. En los últimos 60 mensajes del grupo (audios adjuntos subidos por administradores).
+    3. Si no hay archivo adjunto pero hay anuncio de tarea en texto, descarga los audios de Google Drive.
+    Retorna (ruta_primera, info_primera, lista_cola_completa).
     """
     try:
         os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
-        ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
-        info_cat_anuncio = None
 
-        # Revisar si ya existe meta_hoy.json guardado previamente
-        if os.path.exists(ruta_meta):
-            try:
-                with open(ruta_meta, "r", encoding="utf-8") as fm:
-                    meta_guardada = json.load(fm)
-                if meta_guardada.get("numero") and meta_guardada.get("tipo"):
-                    info_cat_anuncio = meta_guardada
-            except Exception:
-                pass
+        # 1. Revisar si ya existe cola_hoy.json guardada previamente
+        cola_guardada = cargar_cola_hoy()
+        if cola_guardada:
+            primera = cola_guardada[0]
+            return primera["ruta"], primera.get("info"), cola_guardada
 
-        audio_msg = None
-        nombre_archivo_tg = ""
+        # 2. Escanear los últimos 60 mensajes del chat
+        mensajes_audio = []
+        textos_anuncio = []
 
-        # Escanear los últimos 60 mensajes del chat
         async for msg in client.iter_messages(entidad, limit=60):
             texto = (msg.raw_text or "").upper()
             sender_id = msg.sender_id
@@ -764,65 +794,78 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
                             if getattr(a, "file_name", ""):
                                 nombre_archivo = getattr(a, "file_name", "")
 
-            # Si encontramos un archivo de audio físico en Telegram
-            if es_audio and not audio_msg:
-                audio_msg = target_msg
-                nombre_archivo_tg = nombre_archivo
-                info_audio = identificar_audio_catalogo(msg.raw_text or "", nombre_archivo)
-                if info_audio:
-                    info_cat_anuncio = info_audio
+            if es_audio:
+                mensajes_audio.append((target_msg, nombre_archivo, msg.raw_text or ""))
+            elif any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
+                textos_anuncio.append(msg.raw_text or "")
 
-            # Si encontramos el anuncio de la tarea en texto pero aún no tenemos info
-            if not info_cat_anuncio and any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
-                info_cat_texto = identificar_audio_catalogo(msg.raw_text or "")
-                if info_cat_texto:
-                    info_cat_anuncio = info_cat_texto
+        # Caso A: Se encontraron archivos de audio físicos en Telegram
+        if mensajes_audio:
+            cola_descargada = []
+            mensajes_audio.reverse()  # Orden cronológico
+            for idx, (m_audio, f_name, txt_m) in enumerate(mensajes_audio):
+                nombre_base = "meditacion_hoy.mp3" if len(mensajes_audio) == 1 else f"meditacion_hoy_{idx+1}.mp3"
+                ruta = os.path.join(CARPETA_MEDITACIONES, nombre_base)
+                print(f"Descargando audio {idx+1}/{len(mensajes_audio)} desde mensaje ID {m_audio.id}...")
+                await client.download_media(m_audio, file=ruta)
+                info_cat = identificar_audio_catalogo(txt_m, f_name)
+                cola_descargada.append({
+                    "ruta": ruta,
+                    "info": info_cat,
+                    "titulo": (info_cat or {}).get("titulo") or f_name or f"Audio #{idx+1}"
+                })
 
-            # Si ya encontramos audio físico e info del catálogo, no necesitamos seguir buscando
-            if audio_msg and info_cat_anuncio:
-                break
+            if cola_descargada:
+                guardar_cola_hoy(cola_descargada)
+                primera = cola_descargada[0]
+                return primera["ruta"], primera.get("info"), cola_descargada
 
-        # Caso 1: Se encontró archivo de audio físico adjunto en Telegram
-        if audio_msg:
-            ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
-            print(f"Descargando audio de meditación desde mensaje de Telegram ID {audio_msg.id}...")
-            await client.download_media(audio_msg, file=ruta)
-            print("Audio de meditación descargado exitosamente de Telegram en:", ruta)
-            if not info_cat_anuncio:
-                info_cat_anuncio = identificar_audio_catalogo(audio_msg.raw_text or "", nombre_archivo_tg)
-            if info_cat_anuncio:
-                try:
-                    with open(ruta_meta, "w", encoding="utf-8") as fm:
-                        json.dump(info_cat_anuncio, fm, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
-            return ruta, info_cat_anuncio
+        # Caso B: No hay archivos adjuntos en Telegram pero hay anuncios en texto -> Buscar en Drive
+        for txt_anuncio in textos_anuncio:
+            items_detectados = identificar_todos_los_audios(txt_anuncio)
+            if items_detectados:
+                cola_drive = []
+                for it in items_detectados:
+                    t = it.get("tipo", "MEDITACION")
+                    try:
+                        n = int(it.get("numero"))
+                    except (ValueError, TypeError):
+                        n = None
+                    if n:
+                        print(f"Buscando audio de {t} #{n} en Google Drive...")
+                        r_drive = obtener_o_descargar_audio(t, n)
+                        if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
+                            cola_drive.append({
+                                "ruta": r_drive,
+                                "info": it,
+                                "titulo": it.get("titulo", f"{t} #{n}")
+                            })
+                if cola_drive:
+                    guardar_cola_hoy(cola_drive)
+                    primera = cola_drive[0]
+                    return primera["ruta"], primera.get("info"), cola_drive
 
-        # Caso 2: No se subió archivo a Telegram, pero tenemos la tarea anunciada -> Descargar de Google Drive
-        if info_cat_anuncio and info_cat_anuncio.get("numero") and info_cat_anuncio.get("tipo"):
-            tipo = info_cat_anuncio["tipo"]
-            numero = int(info_cat_anuncio["numero"])
-            print(f"Buscando audio de {tipo} #{numero} en Google Drive...")
-            ruta_drive = obtener_o_descargar_audio(tipo, numero)
-            if ruta_drive and os.path.exists(ruta_drive) and os.path.getsize(ruta_drive) > 5000:
-                ruta_final = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
-                if os.path.abspath(ruta_drive) != os.path.abspath(ruta_final):
-                    shutil.copyfile(ruta_drive, ruta_final)
-                else:
-                    ruta_final = ruta_drive
-
-                print(f"✅ Audio de {tipo} #{numero} descargado automáticamente desde Google Drive: {ruta_final}")
-                try:
-                    with open(ruta_meta, "w", encoding="utf-8") as fm:
-                        json.dump(info_cat_anuncio, fm, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
-                return ruta_final, info_cat_anuncio
+        # Caso C: Respaldo de meta_hoy.json si existía
+        ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+        if os.path.exists(ruta_meta):
+            try:
+                with open(ruta_meta, "r", encoding="utf-8") as fm:
+                    meta = json.load(fm)
+                if meta.get("numero") and meta.get("tipo"):
+                    t = meta["tipo"]
+                    n = int(meta["numero"])
+                    r_drive = obtener_o_descargar_audio(t, n)
+                    if r_drive and os.path.exists(r_drive):
+                        item_c = {"ruta": r_drive, "info": meta, "titulo": meta.get("titulo", f"{t} #{n}")}
+                        guardar_cola_hoy([item_c])
+                        return r_drive, meta, [item_c]
+            except Exception:
+                pass
 
     except Exception as e:
         print("Nota buscando audio de meditación:", e)
 
-    return None, None
+    return None, None, []
 
 
 def generar_texto_turnos(cola: list, oradores: list) -> str:
@@ -1100,8 +1143,9 @@ async def main() -> None:
             except Exception as e:
                 print("Nota iniciando PyTgCalls:", e)
 
-        # Buscar si ya existe un audio de meditación subido hoy por administradores
-        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
+        # Buscar si ya existe un audio o cola de meditación subida hoy por administradores
+        ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
+        indice_pista_actual = 0
         reproduciendo_meditacion = False
         reproduccion_iniciada = False
         aviso_oracion_enviado = False
@@ -1147,18 +1191,36 @@ async def main() -> None:
             ref = eq_estado["t_pausa"] or time.monotonic()
             return max(0.0, eq_estado["offset"] + ref - eq_estado["t_play"] - eq_estado["seg_pausa"])
 
-        async def preparar_audio_eq() -> str:
+        async def preparar_audio_eq(ruta_especifica: str | None = None) -> str:
             """Devuelve el audio ya mejorado (con caché) o el original si algo falla."""
-            if not MEJORA_AUDIO or not ruta_meditacion or not os.path.exists(ruta_meditacion):
-                return ruta_meditacion
+            if not MEJORA_AUDIO:
+                return ruta_especifica or (ruta_meditacion or "")
+
+            if ruta_especifica is None:
+                # Pre-procesa todas las pistas de la cola en segundo plano
+                rutas_a_preparar = [p["ruta"] for p in cola_reproduccion if p.get("ruta") and os.path.exists(p["ruta"])]
+                if not rutas_a_preparar and ruta_meditacion:
+                    rutas_a_preparar = [ruta_meditacion]
+                for r in rutas_a_preparar:
+                    async with lock_eq:
+                        try:
+                            if eq_estado["manual"] is None and eq_estado["auto"] is None:
+                                eq_estado["auto"] = await analizar_audio_async(r)
+                            await mejorar_audio_async(r, eq_efectivo())
+                        except Exception as e:
+                            print(f"Nota pre-procesando {r}:", e)
+                return cola_reproduccion[0]["ruta"] if cola_reproduccion else (ruta_meditacion or "")
+
+            if not os.path.exists(ruta_especifica):
+                return ruta_especifica
             async with lock_eq:
                 try:
-                    if eq_estado["manual"] is None:
-                        eq_estado["auto"] = await analizar_audio_async(ruta_meditacion)
-                    return await mejorar_audio_async(ruta_meditacion, eq_efectivo())
+                    if eq_estado["manual"] is None and eq_estado["auto"] is None:
+                        eq_estado["auto"] = await analizar_audio_async(ruta_especifica)
+                    return await mejorar_audio_async(ruta_especifica, eq_efectivo())
                 except Exception as e:
-                    print("Nota preparando audio mejorado:", e)
-                    return ruta_meditacion
+                    print(f"Nota preparando audio mejorado ({ruta_especifica}):", e)
+                    return ruta_especifica
 
         async def aplicar_eq_en_vivo() -> str:
             """Re-procesa con los niveles actuales y cambia el stream desde el mismo segundo."""
@@ -1190,14 +1252,34 @@ async def main() -> None:
                     print("Error aplicando ecualizador en vivo:", e)
                     return "error"
 
-        if MEJORA_AUDIO and ruta_meditacion:
-            # Pre-procesa en segundo plano para que el audio esté listo a la hora de reproducir
+        if MEJORA_AUDIO and (cola_reproduccion or ruta_meditacion):
+            # Pre-procesa en segundo plano para que los audios estén listos a la hora de reproducir
             asyncio.create_task(preparar_audio_eq())
 
-        async def reproducir_meditacion():
-            nonlocal reproduciendo_meditacion, meditacion_activa_hoy
-            if not tgcalls or not ruta_meditacion or not os.path.exists(ruta_meditacion):
+        async def reproducir_meditacion(pista_idx: int = 0):
+            nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy
+            if not tgcalls:
                 return False
+
+            if not cola_reproduccion and ruta_meditacion and os.path.exists(ruta_meditacion):
+                cola_reproduccion.append({
+                    "ruta": ruta_meditacion,
+                    "info": info_catalogo_hoy,
+                    "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
+                })
+
+            if not cola_reproduccion or pista_idx >= len(cola_reproduccion):
+                return False
+
+            indice_pista_actual = pista_idx
+            pista_actual = cola_reproduccion[indice_pista_actual]
+            ruta_pista = pista_actual.get("ruta")
+            if not ruta_pista or not os.path.exists(ruta_pista):
+                return False
+
+            ruta_meditacion = ruta_pista
+            info_catalogo_hoy = pista_actual.get("info")
+
             try:
                 # Silenciar a nuevos participantes para evitar ruidos de fondo
                 try:
@@ -1214,7 +1296,7 @@ async def main() -> None:
                         pass
 
                 # Incorporar campanas tibetanas / gong zen al inicio y final
-                ruta_base_audio = await preparar_audio_eq()
+                ruta_base_audio = await preparar_audio_eq(ruta_pista)
                 ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
 
                 # PyTgCalls conmuta a reproducir el audio de meditación (omitiendo meditación de la grabación)
@@ -1226,10 +1308,17 @@ async def main() -> None:
                 iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
-                if info_catalogo_hoy:
-                    avisar_con_bot(f"▶️ **Iniciando reproducción oficial:**\n{formatear_info_audio(info_catalogo_hoy)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+
+                total_pistas = len(cola_reproduccion)
+                info_act = pista_actual.get("info")
+                if total_pistas == 1:
+                    if info_act:
+                        avisar_con_bot(f"▶️ **Iniciando reproducción oficial:**\n{formatear_info_audio(info_act)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                    else:
+                        avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
                 else:
-                    avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                    txt_act = formatear_info_audio(info_act) if info_act else f"🧘 **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Meditación')}"
+                    avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
                 return True
             except Exception as e:
                 print("Error reproduciendo meditación:", e)
@@ -1279,20 +1368,38 @@ async def main() -> None:
                 @tgcalls.on_update()
                 async def manejar_fin_stream(client_call, update):
                     if isinstance(update, StreamEnded):
-                        nonlocal reproduciendo_meditacion
+                        nonlocal reproduciendo_meditacion, indice_pista_actual
                         if reproduciendo_meditacion and not eq_estado["cambiando"]:
-                            reproduciendo_meditacion = False
-                            print("Reproducción de meditación concluida automáticamente.")
-                            await desbloquear_todos_los_participantes()
-                            avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
-                            # Reanudar grabación para el segmento post-meditación si no fue cancelada
-                            if not grabacion_cancelada and not grabacion_pausada:
-                                segmentos_grabados.append(ruta_grabacion_post)
-                                try:
-                                    await tgcalls.record(destino, ruta_grabacion_post)
-                                    print("Grabación de preguntas y testimonios reanudada tras la meditación.")
-                                except Exception as e:
-                                    print("Nota reanudando grabación:", e)
+                            # Verificar si aún quedan más audios en la cola
+                            if indice_pista_actual + 1 < len(cola_reproduccion):
+                                print(f"Pista {indice_pista_actual + 1} finalizada. Pasando a pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
+                                sig_idx = indice_pista_actual + 1
+                                siguiente_item = cola_reproduccion[sig_idx]
+                                total_p = len(cola_reproduccion)
+                                inf_sig = siguiente_item.get("info")
+                                txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"🧘 **Audio #{sig_idx + 1}:** {siguiente_item.get('titulo', 'Meditación')}"
+                                avisar_con_bot(
+                                    f"🔔 **Pista {indice_pista_actual + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {total_p}:**\n{txt_sig}\n\n🧘 Por favor continúen en silencio...",
+                                    es_efimero=True
+                                )
+                                ok_sig = await reproducir_meditacion(sig_idx)
+                                if not ok_sig:
+                                    print("Error reproduciendo siguiente pista, finalizando sesión de meditación.")
+                                    reproduciendo_meditacion = False
+                                    await desbloquear_todos_los_participantes()
+                            else:
+                                reproduciendo_meditacion = False
+                                print("Reproducción de la sesión de meditación concluida automáticamente.")
+                                await desbloquear_todos_los_participantes()
+                                avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
+                                # Reanudar grabación para el segmento post-meditación si no fue cancelada
+                                if not grabacion_cancelada and not grabacion_pausada:
+                                    segmentos_grabados.append(ruta_grabacion_post)
+                                    try:
+                                        await tgcalls.record(destino, ruta_grabacion_post)
+                                        print("Grabación de preguntas y testimonios reanudada tras la meditación.")
+                                    except Exception as e:
+                                        print("Nota reanudando grabación:", e)
             except Exception as e:
                 print("Nota configurando StreamEnded handler:", e)
 
@@ -1400,7 +1507,7 @@ async def main() -> None:
                 await responder(resp)
 
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
@@ -1420,17 +1527,29 @@ async def main() -> None:
             partes_cmd = event.raw_text.strip().split()
             cmd = partes_cmd[0].lower().split("@")[0]
             if cmd in ("/reproducir", "/play"):
-                nonlocal ruta_meditacion, info_catalogo_hoy
-                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
-                    ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
-                if tgcalls and ruta_meditacion and os.path.exists(ruta_meditacion):
-                    ok = await reproducir_meditacion()
+                nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual
+                if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
+                    ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
+                if tgcalls and (cola_reproduccion or (ruta_meditacion and os.path.exists(ruta_meditacion))):
+                    ok = await reproducir_meditacion(indice_pista_actual)
                     if ok:
                         await responder_admin("▶️ Reproduciendo meditación en la sala de voz...")
                     else:
                         await responder_admin("❌ Error iniciando la reproducción de la meditación.")
                 else:
                     await responder_admin("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
+            elif cmd in ("/saltaraudio", "/siguienteaudio", "/nextaudio"):
+                if not reproduciendo_meditacion:
+                    await responder_admin("⚠️ No hay reproducción activa en este momento.")
+                elif indice_pista_actual + 1 < len(cola_reproduccion):
+                    await responder_admin(f"⏭️ Saltando a la pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
+                    await reproducir_meditacion(indice_pista_actual + 1)
+                else:
+                    if tgcalls:
+                        await tgcalls.leave_call(destino)
+                    reproduciendo_meditacion = False
+                    await desbloquear_todos_los_participantes()
+                    await responder_admin("⏹️ Era la última pista de la lista. Reproducción finalizada y micrófonos desbloqueados.")
             elif cmd in ("/pausar", "/pause"):
                 if tgcalls:
                     try:
@@ -1670,6 +1789,86 @@ async def main() -> None:
 
             asyncio.create_task(_aplicar())
 
+        # Gestionar lista de reproducción: /cola, /playlist, /encolar, /agregar, /limpiarcola
+        @client.on(events.NewMessage(pattern=r"(?i)^/(cola|playlist|encolar|agregar|limpiarcola|vaciarcola)(@\w+)?(\s|$)"))
+        async def gestionar_cola_reproduccion(event):
+            sender = await event.get_sender()
+            uid = sender.id if sender else event.sender_id
+            if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
+                ids_mensajes_efimeros.add(event.message.id)
+
+            async def resp_q(texto_resp, **kwargs):
+                r = await event.reply(texto_resp, **kwargs)
+                if event.is_group and r and hasattr(r, "id"):
+                    ids_mensajes_efimeros.add(r.id)
+                return r
+
+            if uid not in admin_ids:
+                await resp_q("⛔ Solo los administradores pueden gestionar la lista de reproducción.")
+                return
+
+            partes = event.raw_text.strip().split(maxsplit=1)
+            cmd_q = partes[0].lower().split("@")[0]
+            arg_q = partes[1].strip() if len(partes) > 1 else ""
+
+            nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual
+
+            if cmd_q in ("/cola", "/playlist"):
+                if not cola_reproduccion and ruta_meditacion:
+                    cola_reproduccion.append({
+                        "ruta": ruta_meditacion,
+                        "info": info_catalogo_hoy,
+                        "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
+                    })
+                txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
+                txt_ayuda = "\n\n💡 *Comandos disponibles:*\n• `/encolar [número]` — Añadir audio a la lista\n• `/saltaraudio` — Pasar al siguiente audio\n• `/limpiarcola` — Vaciar la programación"
+                await resp_q(txt_cola + txt_ayuda)
+
+            elif cmd_q in ("/limpiarcola", "/vaciarcola"):
+                cola_reproduccion.clear()
+                ruta_meditacion = None
+                info_catalogo_hoy = None
+                indice_pista_actual = 0
+                guardar_cola_hoy([])
+                await resp_q("🗑️ **Lista de reproducción vaciada.** Puedes encolar nuevos audios con `/encolar` o enviándolos al grupo.")
+
+            elif cmd_q in ("/encolar", "/agregar"):
+                if not arg_q:
+                    await resp_q("ℹ️ Uso: `/encolar [número]` (Ejemplo: `/encolar 15` o `/encolar mensaje 606`).")
+                    return
+                items_encontrados = identificar_todos_los_audios(arg_q)
+                if not items_encontrados:
+                    await resp_q(f"⚠️ No se encontró ningún audio en el catálogo para: «{arg_q}».")
+                    return
+                anadidos = []
+                for it in items_encontrados:
+                    t = it.get("tipo", "MEDITACION")
+                    try:
+                        n = int(it.get("numero"))
+                    except (ValueError, TypeError):
+                        n = None
+                    if n:
+                        r_drive = obtener_o_descargar_audio(t, n)
+                        if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
+                            item_c = {
+                                "ruta": r_drive,
+                                "info": it,
+                                "titulo": it.get("titulo", f"{t} #{n}")
+                            }
+                            cola_reproduccion.append(item_c)
+                            anadidos.append(it)
+                            if MEJORA_AUDIO:
+                                asyncio.create_task(preparar_audio_eq(r_drive))
+                if anadidos:
+                    if not reproduccion_iniciada and len(cola_reproduccion) > 0:
+                        ruta_meditacion = cola_reproduccion[0]["ruta"]
+                        info_catalogo_hoy = cola_reproduccion[0].get("info")
+                    guardar_cola_hoy(cola_reproduccion)
+                    txt_anadidos = "\n".join(f"• **{x.get('tipo', 'Audio').capitalize()} #{x.get('numero')}:** «{x.get('titulo', '')}»" for x in anadidos)
+                    await resp_q(f"✅ **Audios añadidos a la lista de reproducción:**\n{txt_anadidos}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas**.")
+                else:
+                    await resp_q("⚠️ No se pudieron descargar los audios correspondientes desde Google Drive.")
+
         # Mantener la lista de turnos siempre visible al fondo si hay conversación activa en el chat
         @client.on(events.NewMessage(chats=entidad))
         async def mantener_turnos_al_fondo_por_chat(event):
@@ -1680,10 +1879,10 @@ async def main() -> None:
             if mensajes_chat_recientes >= 6 and (cola_turnos or oradores_activos):
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
 
-        # Escuchar si un admin sube la meditación de tarea en vivo
+        # Escuchar si un admin sube la meditación de tarea en vivo o la anuncia
         @client.on(events.NewMessage(chats=entidad))
         async def detectar_nueva_meditacion(event):
-            nonlocal ruta_meditacion, info_catalogo_hoy
+            nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual
             sender_id = event.sender_id
             if sender_id not in admin_ids:
                 return
@@ -1719,58 +1918,70 @@ async def main() -> None:
 
                 if es_audio:
                     os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
-                    ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
+                    idx_nuevo = len(cola_reproduccion) + 1
+                    nombre_f = "meditacion_hoy.mp3" if idx_nuevo == 1 else f"meditacion_hoy_{idx_nuevo}.mp3"
+                    ruta = os.path.join(CARPETA_MEDITACIONES, nombre_f)
                     await client.download_media(target_msg, file=ruta)
                     info_cat = identificar_audio_catalogo(event.raw_text or "", nombre_archivo)
                     txt_horario, lbl_tarea = determinar_fecha_y_etiqueta_tarea(event.raw_text or "")
-                    if not reproduccion_iniciada and "hoy" in txt_horario:
+
+                    item_cola = {
+                        "ruta": ruta,
+                        "info": info_cat,
+                        "titulo": (info_cat or {}).get("titulo") or nombre_archivo or f"Audio #{idx_nuevo}"
+                    }
+                    cola_reproduccion.append(item_cola)
+
+                    if not reproduccion_iniciada and len(cola_reproduccion) == 1:
                         ruta_meditacion = ruta
                         info_catalogo_hoy = info_cat
+
+                    if MEJORA_AUDIO:
+                        asyncio.create_task(preparar_audio_eq(ruta))
+
+                    guardar_cola_hoy(cola_reproduccion)
                     print(f"Nueva meditación recibida y guardada ({lbl_tarea}):", ruta)
+
                     if info_cat:
-                        try:
-                            ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
-                            with open(ruta_meta, "w", encoding="utf-8") as fm:
-                                json.dump(info_cat, fm, ensure_ascii=False, indent=2)
-                        except Exception:
-                            pass
                         txt_card = formatear_info_audio(info_cat)
-                        await event.reply(f"✅ **Audio identificado en el Catálogo:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz.")
-                        avisar_con_bot(f"📢 **{lbl_tarea} registrada:**\n\n{txt_card}")
+                        await event.reply(f"✅ **Audio #{len(cola_reproduccion)} añadido a la lista de reproducción:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz (Total en cola: {len(cola_reproduccion)}).")
+                        avisar_con_bot(f"📢 **{lbl_tarea} registrada (Pista #{len(cola_reproduccion)}):**\n\n{txt_card}")
                     else:
-                        await event.reply(f"✅ Meditación recibida. Programada para reproducirse {txt_horario} en la sala de voz.")
+                        await event.reply(f"✅ Meditación recibida (Pista #{len(cola_reproduccion)}). Programada para reproducirse {txt_horario} en la sala de voz.")
                 else:
-                    info_cat = identificar_audio_catalogo(event.raw_text or "", "")
-                    if info_cat and info_cat.get("numero") and info_cat.get("tipo"):
-                        tipo = info_cat["tipo"]
-                        try:
-                            numero = int(info_cat["numero"])
-                        except (ValueError, TypeError):
-                            numero = None
-                        if numero:
-                            txt_horario, lbl_tarea = determinar_fecha_y_etiqueta_tarea(event.raw_text or "")
-                            print(f"Detectado anuncio de tarea en texto ({lbl_tarea}). Buscando en Google Drive...")
-                            r_drive = obtener_o_descargar_audio(tipo, numero)
-                            if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
-                                os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
-                                ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
-                                if os.path.abspath(r_drive) != os.path.abspath(ruta):
-                                    shutil.copyfile(r_drive, ruta)
-                                else:
-                                    ruta = r_drive
-                                if not reproduccion_iniciada and "hoy" in txt_horario:
-                                    ruta_meditacion = ruta
-                                    info_catalogo_hoy = info_cat
-                                print(f"Audio descargado de Google Drive para ({lbl_tarea}):", ruta)
-                                try:
-                                    ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
-                                    with open(ruta_meta, "w", encoding="utf-8") as fm:
-                                        json.dump(info_cat, fm, ensure_ascii=False, indent=2)
-                                except Exception:
-                                    pass
-                                txt_card = formatear_info_audio(info_cat)
-                                await event.reply(f"✅ **Audio obtenido automáticamente desde Google Drive:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz.")
-                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_card}")
+                    items_cat = identificar_todos_los_audios(event.raw_text or "")
+                    if items_cat:
+                        txt_horario, lbl_tarea = determinar_fecha_y_etiqueta_tarea(event.raw_text or "")
+                        anadidos = []
+                        for it in items_cat:
+                            tipo = it.get("tipo", "MEDITACION")
+                            try:
+                                numero = int(it.get("numero"))
+                            except (ValueError, TypeError):
+                                numero = None
+                            if numero:
+                                print(f"Detectado anuncio de {tipo} #{numero} en texto ({lbl_tarea}). Buscando en Google Drive...")
+                                r_drive = obtener_o_descargar_audio(tipo, numero)
+                                if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
+                                    item_cola = {
+                                        "ruta": r_drive,
+                                        "info": it,
+                                        "titulo": it.get("titulo", f"{tipo} #{numero}")
+                                    }
+                                    cola_reproduccion.append(item_cola)
+                                    anadidos.append(it)
+                                    if MEJORA_AUDIO:
+                                        asyncio.create_task(preparar_audio_eq(r_drive))
+
+                        if anadidos:
+                            if not reproduccion_iniciada and len(cola_reproduccion) > 0:
+                                ruta_meditacion = cola_reproduccion[0]["ruta"]
+                                info_catalogo_hoy = cola_reproduccion[0].get("info")
+
+                            guardar_cola_hoy(cola_reproduccion)
+                            txt_cola = formatear_cola_audios(cola_reproduccion)
+                            await event.reply(f"✅ **Audios obtenidos automáticamente desde Google Drive:**\n\n{txt_cola}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.")
+                            avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola}")
 
         # Escuchar comandos por lenguaje natural de administradores en el grupo
         @client.on(events.NewMessage(chats=entidad))
@@ -1820,6 +2031,19 @@ async def main() -> None:
                         await responder_nat("⏹️ Meditación detenida. Micrófonos restablecidos y desbloqueados.")
                     except Exception as e:
                         await responder_nat(f"Nota al detener: {e}")
+            # Siguiente audio en la cola de reproducción
+            elif any(p in texto_raw for p in ["siguiente audio", "pasar al siguiente audio", "saltar audio", "siguiente meditacion", "siguiente meditación", "pasar audio"]):
+                if not reproduciendo_meditacion:
+                    await responder_nat("⚠️ No hay reproducción activa en este momento.")
+                elif indice_pista_actual + 1 < len(cola_reproduccion):
+                    await responder_nat(f"⏭️ Saltando a la pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
+                    await reproducir_meditacion(indice_pista_actual + 1)
+                else:
+                    if tgcalls:
+                        await tgcalls.leave_call(destino)
+                    reproduciendo_meditacion = False
+                    await desbloquear_todos_los_participantes()
+                    await responder_nat("⏹️ Era la última pista de la lista. Reproducción finalizada y micrófonos desbloqueados.")
             # Desbloquear micrófonos / Abrir sala
             elif any(p in texto_raw for p in ["abrir microfonos", "abrir micrófonos", "desmutear a todos", "desbloquear microfonos", "desbloquear micrófonos", "abrir la sala", "liberar microfonos", "liberar micrófonos"]):
                 await desbloquear_todos_los_participantes()
@@ -1903,12 +2127,12 @@ async def main() -> None:
             # Alerta preventiva a las 8:15 PM si aún no se ha subido el audio
             if hora_col == 20 and min_col == 15 and not alerta_falta_audio_enviada:
                 alerta_falta_audio_enviada = True
-                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     try:
-                        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
+                        ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
                     except Exception as e:
                         print("Nota re-buscando audio a las 8:15 PM:", e)
-                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     try:
                         await client.send_message(
                             "me",
@@ -2000,14 +2224,25 @@ async def main() -> None:
                 else:
                     prefijo = ""
 
-                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     try:
-                        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
+                        ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
                     except Exception as e:
                         print("Nota re-buscando audio a las 8:31 PM:", e)
 
-                if ruta_meditacion and os.path.exists(ruta_meditacion):
-                    if info_catalogo_hoy:
+                if cola_reproduccion or (ruta_meditacion and os.path.exists(ruta_meditacion)):
+                    total_p = len(cola_reproduccion)
+                    if total_p > 1:
+                        lista_txt = "\n".join(
+                            f"• {x.get('tipo', 'Audio').capitalize()} #{x.get('info', {}).get('numero', i+1)}: «{x.get('titulo', '')}»"
+                            for i, x in enumerate(cola_reproduccion)
+                        )
+                        txt_alerta_med = (
+                            f"{prefijo}🧘 **En 1 minuto (8:32 PM) dará inicio la sesión de meditación ({total_p} audios programados):**\n\n"
+                            f"{lista_txt}\n\n"
+                            "Los micrófonos han sido habilitados. Por favor tomen una postura cómoda y permanezcan en silencio."
+                        )
+                    elif info_catalogo_hoy:
                         txt_alerta_med = (
                             f"{prefijo}🧘 **En 1 minuto (8:32 PM) dará inicio la {info_catalogo_hoy['tipo'].lower()} diaria:**\n"
                             f"📌 **{info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}:** «{info_catalogo_hoy['titulo']}»\n"
@@ -2026,14 +2261,14 @@ async def main() -> None:
 
             # 8:32 PM: Reproducción automática de la meditación
             if hora_col == 20 and min_col >= 32 and not reproduccion_iniciada:
-                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     try:
-                        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
+                        ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
                     except Exception as e:
                         print("Nota re-buscando audio a las 8:32 PM:", e)
-                if ruta_meditacion and os.path.exists(ruta_meditacion):
+                if cola_reproduccion or (ruta_meditacion and os.path.exists(ruta_meditacion)):
                     reproduccion_iniciada = True
-                    await reproducir_meditacion()
+                    await reproducir_meditacion(0)
 
             try:
                 call_info = await client(GetGroupCallRequest(call=input_call, limit=100))

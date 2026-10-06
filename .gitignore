@@ -18,6 +18,7 @@ google_credentials.json
 data/meditaciones/*.mp3
 data/meditaciones/*.wav
 data/meditaciones/*.png
+data/meditaciones/cola_hoy.json
 data/asistencias/*.png
 data/actas/*.pdf
 *demucs_cache/
