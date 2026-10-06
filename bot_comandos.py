@@ -4,6 +4,7 @@ import time
 import urllib.request
 import urllib.parse
 import threading
+import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -18,6 +19,16 @@ CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 RUTA_AUDIOS_REGISTRADOS = os.path.join("data", "meditaciones", "audios_registrados.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
+
+COLA_LOGS = []
+
+def log_debug(msg: str) -> None:
+    timestamp = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
+    linea = f"[{timestamp}] {msg}"
+    print(linea)
+    COLA_LOGS.append(linea)
+    if len(COLA_LOGS) > 100:
+        COLA_LOGS.pop(0)
 
 
 def cargar_audios_registrados() -> dict:
@@ -54,6 +65,12 @@ def guardar_audio_registrado(info_cat: dict, file_id: str = None, msg_id: int | 
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/logs":
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write("\n".join(COLA_LOGS[-60:]).encode("utf-8"))
+            return
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
@@ -253,74 +270,65 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
     if not BOT_TOKEN or not ruta_audio:
         return False, None, None
 
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
+
     # Si es un file_id de Telegram (no existe como archivo local en disco)
     if not os.path.exists(ruta_audio):
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
         payload = {
-            "chat_id": chat_id,
-            "audio": ruta_audio,
+            "chat_id": str(chat_id),
+            "audio": str(ruta_audio),
             "caption": caption,
             "parse_mode": "Markdown",
             "title": title,
             "performer": performer,
         }
         if reply_markup:
-            payload["reply_markup"] = reply_markup
-        datos = json.dumps(payload).encode()
-        req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json"})
+            payload["reply_markup"] = json.dumps(reply_markup)
         try:
-            with urllib.request.urlopen(req, timeout=15) as r:
-                res = json.loads(r.read().decode())
-                if res.get("ok"):
-                    res_m = res.get("result", {})
-                    m_id = res_m.get("message_id")
-                    f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id") or ruta_audio
-                    return True, m_id, f_id
-                return False, None, None
+            r = requests.post(url, data=payload, timeout=25)
+            res = r.json()
+            if res.get("ok"):
+                res_m = res.get("result", {})
+                m_id = res_m.get("message_id")
+                f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id") or ruta_audio
+                log_debug(f"Audio enviado vía file_id a {chat_id}: msg_id={m_id}")
+                return True, m_id, f_id
+            log_debug(f"Telegram rechazó audio file_id ({chat_id}): {res}")
+            return False, None, None
         except Exception as e:
-            print(f"Error enviando audio por file_id a {chat_id}:", e)
+            log_debug(f"Error enviando audio por file_id a {chat_id}: {e}")
             return False, None, None
 
-    boundary = "----WebKitFormBoundaryAudio7MA4YWxk"
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
+    # Si es archivo local en disco
+    data = {
+        "chat_id": str(chat_id),
+        "caption": caption,
+        "parse_mode": "Markdown",
+        "title": title,
+        "performer": performer,
+    }
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
 
     try:
+        t_inicio = time.time()
+        tam_mb = round(os.path.getsize(ruta_audio) / (1024 * 1024), 2)
+        log_debug(f"Iniciando subida de audio local a {chat_id} ({os.path.basename(ruta_audio)}, {tam_mb} MB)...")
         with open(ruta_audio, "rb") as f:
-            file_bytes = f.read()
-
-        body = bytearray()
-        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode())
-        if caption:
-            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption}\r\n".encode())
-            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"parse_mode\"\r\n\r\nMarkdown\r\n".encode())
-        if title:
-            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n{title}\r\n".encode())
-        if performer:
-            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"performer\"\r\n\r\n{performer}\r\n".encode())
-        if reply_markup:
-            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{json.dumps(reply_markup)}\r\n".encode())
-
-        filename = os.path.basename(ruta_audio)
-        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"{filename}\"\r\nContent-Type: audio/mpeg\r\n\r\n".encode())
-        body.extend(file_bytes)
-        body.extend(f"\r\n--{boundary}--\r\n".encode())
-
-        req = urllib.request.Request(
-            url,
-            data=bytes(body),
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
-        )
-        with urllib.request.urlopen(req, timeout=90) as r:
-            res = json.loads(r.read().decode())
+            files = {"audio": (os.path.basename(ruta_audio), f, "audio/mpeg")}
+            r = requests.post(url, data=data, files=files, timeout=180)
+            res = r.json()
             if res.get("ok"):
                 res_m = res.get("result", {})
                 m_id = res_m.get("message_id")
                 f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id")
-                print(f"Audio de meditación enviado a {chat_id}: OK (msg_id={m_id})")
+                dur = round(time.time() - t_inicio, 1)
+                log_debug(f"Audio subido con éxito a {chat_id} en {dur}s: msg_id={m_id}, file_id={f_id}")
                 return True, m_id, f_id
+            log_debug(f"Telegram rechazó audio local ({chat_id}): {res}")
             return False, None, None
     except Exception as e:
-        print(f"Error enviando audio a {chat_id}:", e)
+        log_debug(f"Error enviando audio local a {chat_id}: {e}")
         return False, None, None
 
 
@@ -590,18 +598,18 @@ def escuchar_comandos() -> None:
 
                         # Si es declaración de tarea (en el grupo o en privado por admin)
                         if es_tarea_declarada or (CHAT_ID and str(chat_id) == str(CHAT_ID) and audio_obj):
-                            chat_destino = CHAT_ID if CHAT_ID else chat_id
                             fecha_admin = extraer_fecha_de_texto(texto)
                             msg_id_audio_final = msg_id if audio_obj else None
 
                             # Si no vino con audio físico, buscar y descargar automáticamente de Google Drive
                             if not f_id:
-                                enviar_mensaje(chat_id, f"🔍 Buscando y descargando audio oficial de Google Drive para **{tipo_audio.title()} #{num}**...", reply_to_message_id=msg_id)
+                                log_debug(f"Buscando audio en Drive para {tipo_audio} #{num}...")
                                 ruta_audio_desc = obtener_o_descargar_audio(tipo_audio, int(num))
                                 if ruta_audio_desc:
-                                    cap_audio = f"🧘 **{tipo_audio.title()} #{num}:** «{info_cat['titulo']}»\n👤 **Guía:** {info_cat['maestro']}"
+                                    cap_audio = f"🧘 **{tipo_audio.title()} #{num}:** «{info_cat['titulo']}»\n👤 **Guía:** {info_cat['maestro']}\n🗓️ **Grabación:** {info_cat['fecha']}"
+                                    # 1. Enviar el archivo descargado directamente al chat que dio la orden
                                     ok_a, m_id_a, f_id_a = enviar_audio(
-                                        chat_destino,
+                                        chat_id,
                                         ruta_audio_desc,
                                         caption=cap_audio,
                                         title=f"{tipo_audio.title()} #{num} - {info_cat['titulo']}",
@@ -622,18 +630,34 @@ def escuchar_comandos() -> None:
                             except Exception:
                                 pass
 
+                            # 2. Enviar anuncio con botones al chat actual
                             anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
-                            teclado = armar_teclado_audio(chat_destino, msg_id_audio_final)
-                            enviar_mensaje(chat_destino, anuncio, reply_markup=teclado)
+                            teclado_actual = armar_teclado_audio(chat_id, msg_id_audio_final)
+                            enviar_mensaje(chat_id, anuncio, reply_markup=teclado_actual)
 
-                            if chat_id > 0 and str(chat_destino) != str(chat_id):
-                                enviar_mensaje(chat_id, f"✅ Tarea anunciada con éxito en el grupo para el día {fecha_admin or 'hoy'}.", reply_to_message_id=msg_id)
+                            # 3. Si la orden se dio en privado Y CHAT_ID del grupo está configurado, publicar también en el grupo
+                            if chat_id > 0 and CHAT_ID and str(chat_id) != str(CHAT_ID):
+                                log_debug(f"Publicando copia de la tarea en el grupo {CHAT_ID}...")
+                                msg_id_grupo = None
+                                if f_id:
+                                    ok_g, m_id_g, _ = enviar_audio(
+                                        CHAT_ID,
+                                        f_id,
+                                        caption=f"🧘 **{tipo_audio.title()} #{num}:** «{info_cat['titulo']}»\n👤 **Guía:** {info_cat['maestro']}",
+                                        title=f"{tipo_audio.title()} #{num} - {info_cat['titulo']}",
+                                        performer=info_cat['maestro']
+                                    )
+                                    if ok_g:
+                                        msg_id_grupo = m_id_g
 
-                            # Enviar notificación privada a miembros registrados
+                                teclado_grupo = armar_teclado_audio(CHAT_ID, msg_id_grupo or msg_id_audio_final)
+                                enviar_mensaje(CHAT_ID, anuncio, reply_markup=teclado_grupo)
+
+                            # 4. Enviar notificación privada a miembros registrados
                             fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
                             usuarios = db.get("usuarios", {})
                             for u_id, datos in usuarios.items():
-                                if str(u_id) == str(chat_destino) or str(u_id) == str(chat_id):
+                                if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
                                     continue
                                 txt_priv = (
                                     f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
@@ -642,7 +666,7 @@ def escuchar_comandos() -> None:
                                     f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
                                     f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                                 )
-                                enviar_mensaje(u_id, txt_priv, reply_markup=teclado)
+                                enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
 
                 if not texto.startswith("/"):
                     continue
