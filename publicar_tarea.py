@@ -121,8 +121,7 @@ def generar_anuncio_tarea(info: dict, fecha_str: str = None) -> str:
         f"🗓️ **Grabación original:** {fecha_orig}\n\n"
         f"⏰ **Cronograma para {cronograma_palabra}:**\n"
         f"• **7:56 PM:** Apertura de la sala de voz en Telegram.\n"
-        f"• **8:24 PM:** Oración y recogimiento en silencio (3 min).\n"
-        f"• **8:27 PM:** Pausa de respiración consciente (5 min).\n"
+        f"• **8:28 PM:** Oración y recogimiento en silencio (3 min).\n"
         f"• **8:32 PM:** Reproducción en vivo de la {tipo.lower()}.\n\n"
         f"🎧 *El audio ya fue publicado en el grupo para su estudio previo.*"
     )

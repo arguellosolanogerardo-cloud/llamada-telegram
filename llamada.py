@@ -1335,12 +1335,12 @@ async def main() -> None:
                         pass
                     avisar_con_bot("⚠️ **Aviso Administradores:** Aún no se ha publicado la `MEDITACION DE TAREA` de hoy. Recuerden subir el archivo .mp3 antes de las 8:30 PM.")
 
-            # 8:24 PM: Inicio de los 3 Minutos de Oración en Silencio Comunitario
-            if hora_col == 20 and min_col == 24 and not aviso_oracion_enviado:
+            # 8:28 PM: Inicio de los 3 Minutos de Oración en Silencio Comunitario
+            if hora_col == 20 and min_col == 28 and not aviso_oracion_enviado:
                 aviso_oracion_enviado = True
                 oracion_activa_hoy = True
 
-                # Pausar grabación para omitir los 3 min de oración y los 5 min de espera
+                # Pausar grabación para omitir los 3 min de oración
                 if tgcalls and not grabacion_pausada and not grabacion_cancelada:
                     try:
                         for m in ("pause_record", "stop_record", "pause"):
@@ -1399,38 +1399,39 @@ async def main() -> None:
                     "🤫 **POR FAVOR GUARDEN SILENCIO:**\n"
                     "Durante estos 3 minutos mantengan sus micrófonos apagados para honrar la concentración y paz de todos.\n\n"
                     "⏰ **Cronograma del momento:**\n"
-                    "• **8:24 PM – 8:27 PM:** Oración y recogimiento en silencio (3 min).\n"
-                    "• **8:27 PM – 8:32 PM:** Espera y respiración consciente (5 min).\n"
+                    "• **8:28 PM – 8:31 PM:** Oración y recogimiento en silencio (3 min).\n"
                     f"• **8:32 PM:** Inicio de la Meditación diaria{extra_med_txt}."
                 )
                 avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion)
 
-            # 8:27 PM: Fin de los 3 minutos de oración y comienzo de los 5 minutos de transición/espera
-            if hora_col == 20 and min_col == 27 and not aviso_espera_enviado and aviso_oracion_enviado:
-                aviso_espera_enviado = True
-                oracion_activa_hoy = False
-                await desbloquear_todos_los_participantes()
-                texto_espera = (
-                    "⏳✨ **Concluyen los 3 minutos de oración.**\n"
-                    "Iniciamos 5 minutos de pausa y respiración consciente antes de dar inicio a la meditación diaria a las 8:32 PM.\n"
-                    "Los micrófonos han sido desbloqueados. Por favor continúen en silencio interior y preparen su postura."
-                )
-                avisar_con_bot(texto_espera)
-
-            # 8:31 PM: Alerta 1 minuto antes de la meditación
-            if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado and ruta_meditacion and os.path.exists(ruta_meditacion):
-                if info_catalogo_hoy:
-                    txt_alerta_med = (
-                        f"🧘 **En 1 minuto dará inicio la {info_catalogo_hoy['tipo'].lower()} diaria:**\n"
-                        f"📌 **{info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}:** «{info_catalogo_hoy['titulo']}»\n"
-                        f"👤 **Guía / Maestro:** {info_catalogo_hoy['maestro']}\n"
-                        f"🗓️ **Grabación original:** {info_catalogo_hoy['fecha']}\n\n"
-                        "Por favor continúen en silencio y tomen una postura cómoda."
-                    )
-                else:
-                    txt_alerta_med = "🧘 **En 1 minuto dará inicio la meditación diaria.**\nPor favor continúen en silencio y tomen una postura cómoda."
-                avisar_con_bot(txt_alerta_med)
+            # 8:31 PM: Conclusión de los 3 minutos de oración y alerta 1 minuto antes de la meditación
+            if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado:
                 aviso_meditacion_enviado = True
+                if aviso_oracion_enviado and not aviso_espera_enviado:
+                    aviso_espera_enviado = True
+                    oracion_activa_hoy = False
+                    await desbloquear_todos_los_participantes()
+                    prefijo = "⏳✨ **Concluyen los 3 minutos de oración.**\n\n"
+                else:
+                    prefijo = ""
+
+                if ruta_meditacion and os.path.exists(ruta_meditacion):
+                    if info_catalogo_hoy:
+                        txt_alerta_med = (
+                            f"{prefijo}🧘 **En 1 minuto (8:32 PM) dará inicio la {info_catalogo_hoy['tipo'].lower()} diaria:**\n"
+                            f"📌 **{info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}:** «{info_catalogo_hoy['titulo']}»\n"
+                            f"👤 **Guía / Maestro:** {info_catalogo_hoy['maestro']}\n"
+                            f"🗓️ **Grabación original:** {info_catalogo_hoy['fecha']}\n\n"
+                            "Los micrófonos han sido habilitados. Por favor tomen una postura cómoda y permanezcan en silencio."
+                        )
+                    else:
+                        txt_alerta_med = (
+                            f"{prefijo}🧘 **En 1 minuto (8:32 PM) dará inicio la meditación diaria.**\n"
+                            "Los micrófonos han sido habilitados. Por favor tomen una postura cómoda y permanezcan en silencio."
+                        )
+                    avisar_con_bot(txt_alerta_med)
+                elif prefijo:
+                    avisar_con_bot(f"{prefijo}Los micrófonos han sido habilitados para la comunidad.")
 
             # 8:32 PM: Reproducción automática de la meditación
             if hora_col == 20 and min_col >= 32 and not reproduccion_iniciada and ruta_meditacion and os.path.exists(ruta_meditacion):
@@ -1643,7 +1644,7 @@ async def main() -> None:
                 elif reproduccion_iniciada:
                     fase = "🎙️ Ronda de preguntas y compartir"
                 elif aviso_espera_enviado and not reproduccion_iniciada:
-                    fase = "⏳ Pausa de transición hacia la meditación (5 min)"
+                    fase = "🧘 Preparación para la meditación (8:32 PM)"
                 elif aviso_oracion_enviado and not aviso_espera_enviado:
                     fase = "🕊️ Momento de Oración en Silencio (3 min)"
                 else:
