@@ -467,7 +467,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
 
     # F) Descargar automáticamente desde Google Drive!
     if num and num.isdigit():
-        enviar_mensaje(chat_id, f"⏳ Descargando audio oficial de Google Drive para **{tipo_nombre} #{num}**...", reply_to_message_id=msg_id_reply)
+        enviar_mensaje(chat_id, f"🔍 Buscando audio para {tipo_nombre} #{num}...", reply_to_message_id=msg_id_reply)
         ruta_drive = obtener_o_descargar_audio(tipo_nombre, int(num))
         if ruta_drive:
             ok, m_id, f_id = enviar_audio(chat_id, ruta_drive, caption=caption, title=title, performer=performer)
@@ -603,7 +603,8 @@ def escuchar_comandos() -> None:
 
                             # Si no vino con audio físico, buscar y descargar automáticamente de Google Drive
                             if not f_id:
-                                log_debug(f"Buscando audio en Drive para {tipo_audio} #{num}...")
+                                enviar_mensaje(chat_id, f"🔍 Buscando audio para {tipo_audio.title()} #{num}...", reply_to_message_id=msg_id)
+                                log_debug(f"Buscando audio para {tipo_audio} #{num}...")
                                 ruta_audio_desc = obtener_o_descargar_audio(tipo_audio, int(num))
                                 if ruta_audio_desc:
                                     cap_audio = f"🧘 **{tipo_audio.title()} #{num}:** «{info_cat['titulo']}»\n👤 **Guía:** {info_cat['maestro']}\n🗓️ **Grabación:** {info_cat['fecha']}"
