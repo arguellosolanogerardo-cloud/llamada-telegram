@@ -560,6 +560,11 @@ async def main() -> None:
         if hasattr(entidad, "id"):
             admin_ids.add(entidad.id)
 
+        env_admins = os.environ.get("ADMIN_IDS", "") or os.environ.get("ADMIN_ID", "")
+        for aid_str in env_admins.replace(",", " ").split():
+            if aid_str.strip().isdigit():
+                admin_ids.add(int(aid_str.strip()))
+
         try:
             if isinstance(entidad, (Channel, Chat)):
                 async for admin in client.iter_participants(entidad, filter=ChannelParticipantsAdmins):
@@ -784,6 +789,14 @@ async def main() -> None:
                 except Exception:
                     pass
 
+                # Garantizar explícitamente que los administradores NUNCA tengan el micrófono bloqueado
+                for aid in admin_ids:
+                    try:
+                        admin_peer = await client.get_input_entity(aid)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                    except Exception:
+                        pass
+
                 # Incorporar campanas tibetanas / gong zen al inicio y final
                 ruta_a_reproducir = agregar_gongs_al_audio(ruta_meditacion)
 
@@ -803,9 +816,9 @@ async def main() -> None:
         async def auto_desbloquear_microfono(uid_target: int, segundos: int = DURACION_BLOQUEO_MUTE_SEGUNDOS):
             """Espera los segundos configurados (5s) y retira el bloqueo de administrador de Telegram."""
             await asyncio.sleep(segundos)
-            if reproduciendo_meditacion:
+            if reproduciendo_meditacion and uid_target not in admin_ids:
                 return
-            if aviso_oracion_enviado and not aviso_espera_enviado:
+            if aviso_oracion_enviado and not aviso_espera_enviado and uid_target not in admin_ids:
                 return
             try:
                 input_peer = await client.get_input_entity(uid_target)
@@ -1270,12 +1283,12 @@ async def main() -> None:
                         pass
                     avisar_con_bot("⚠️ **Aviso Administradores:** Aún no se ha publicado la `MEDITACION DE TAREA` de hoy. Recuerden subir el archivo .mp3 antes de las 8:30 PM.")
 
-            # 8:24 PM: Inicio de los 5 Minutos de Oración en Silencio Comunitario
+            # 8:24 PM: Inicio de los 3 Minutos de Oración en Silencio Comunitario
             if hora_col == 20 and min_col == 24 and not aviso_oracion_enviado:
                 aviso_oracion_enviado = True
                 oracion_activa_hoy = True
 
-                # Pausar grabación para omitir los 5 min de oración y los 3 min de espera
+                # Pausar grabación para omitir los 3 min de oración y los 5 min de espera
                 if tgcalls and not grabacion_pausada and not grabacion_cancelada:
                     try:
                         for m in ("pause_record", "stop_record", "pause"):
@@ -1289,16 +1302,25 @@ async def main() -> None:
                     except Exception as e:
                         print("Nota pausando grabación en oración:", e)
 
-                # Silenciar micrófonos para garantizar silencio y respeto en la sala
+                # Silenciar micrófonos para garantizar silencio y respeto en la sala (No afecta a administradores)
                 try:
                     await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
                     for uid_orador in list(oradores_activos):
+                        if uid_orador in admin_ids:
+                            continue
                         try:
                             input_peer = await client.get_input_entity(uid_orador)
                             await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
                         except Exception:
                             pass
-                    oradores_activos.clear()
+                    oradores_activos = {u for u in oradores_activos if u in admin_ids}
+                    # Garantizar que todos los administradores tengan el micrófono habilitado
+                    for aid in admin_ids:
+                        try:
+                            admin_peer = await client.get_input_entity(aid)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                        except Exception:
+                            pass
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 except Exception as e:
                     print("Nota silenciando micrófonos para oración:", e)
@@ -1310,7 +1332,7 @@ async def main() -> None:
                     "inline_keyboard": [
                         [{"text": "🕊️ ENTRAR A LA SALA DE VOZ (ORACIÓN) 🎧", "url": link_sala}],
                         [{"text": "📖 LEER GUÍA DE ORACIÓN DEL DÍA 🕊️", "url": f"https://t.me/{bot_user}?start=oracion" if bot_user else link_sala}],
-                        [{"text": "🤫 SILENCIO SAGRADO EN CURSO (5 MIN)", "url": link_sala}],
+                        [{"text": "🤫 SILENCIO SAGRADO EN CURSO (3 MIN)", "url": link_sala}],
                     ]
                 }
 
@@ -1319,26 +1341,27 @@ async def main() -> None:
                     extra_med_txt = f": {info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']} - «{info_catalogo_hoy['titulo']}» ({info_catalogo_hoy['maestro']})"
 
                 texto_oracion = (
-                    "🕊️ **MOMENTO DE ORACIÓN EN SILENCIO (5 MINUTOS)** 🕊️\n"
+                    "🕊️ **MOMENTO DE ORACIÓN EN SILENCIO (3 MINUTOS)** 🕊️\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     "Entramos en nuestro espacio de oración y recogimiento comunitario.\n\n"
                     "🤫 **POR FAVOR GUARDEN SILENCIO:**\n"
-                    "Durante estos 5 minutos mantengan sus micrófonos apagados para honrar la concentración y paz de todos.\n\n"
+                    "Durante estos 3 minutos mantengan sus micrófonos apagados para honrar la concentración y paz de todos.\n\n"
                     "⏰ **Cronograma del momento:**\n"
-                    "• **8:24 PM – 8:29 PM:** Oración y recogimiento en silencio (5 min).\n"
-                    "• **8:29 PM – 8:32 PM:** Espera y respiración consciente (3 min).\n"
+                    "• **8:24 PM – 8:27 PM:** Oración y recogimiento en silencio (3 min).\n"
+                    "• **8:27 PM – 8:32 PM:** Espera y respiración consciente (5 min).\n"
                     f"• **8:32 PM:** Inicio de la Meditación diaria{extra_med_txt}."
                 )
                 avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion)
 
-            # 8:29 PM: Fin de los 5 minutos de oración y comienzo de los 3 minutos de transición/espera
-            if hora_col == 20 and min_col == 29 and not aviso_espera_enviado and aviso_oracion_enviado:
+            # 8:27 PM: Fin de los 3 minutos de oración y comienzo de los 5 minutos de transición/espera
+            if hora_col == 20 and min_col == 27 and not aviso_espera_enviado and aviso_oracion_enviado:
                 aviso_espera_enviado = True
+                oracion_activa_hoy = False
                 await desbloquear_todos_los_participantes()
                 texto_espera = (
-                    "⏳✨ **Concluyen los 5 minutos de oración.**\n"
-                    "Iniciamos 3 minutos de pausa y respiración consciente antes de dar inicio a la meditación diaria a las 8:32 PM.\n"
-                    "Por favor continúen en silencio interior y preparen su postura."
+                    "⏳✨ **Concluyen los 3 minutos de oración.**\n"
+                    "Iniciamos 5 minutos de pausa y respiración consciente antes de dar inicio a la meditación diaria a las 8:32 PM.\n"
+                    "Los micrófonos han sido desbloqueados. Por favor continúen en silencio interior y preparen su postura."
                 )
                 avisar_con_bot(texto_espera)
 
@@ -1430,56 +1453,77 @@ async def main() -> None:
                         print(f"✋ {nombre} levantó la mano en Telegram y fue añadido a la lista de turnos.")
                         hubo_cambio_turnos = True
 
-                # Moderación de micrófonos en vivo (No afecta a administradores)
-                if uid not in admin_ids:
-                    if not p_muted:
-                        # Micrófono abierto
-                        if hablo_ahora:
-                            segundos_inactividad_mic[uid] = 0
-                            avisados_auto_mute.discard(uid)
-                            if uid not in oradores_activos:
-                                oradores_activos.add(uid)
-                                hubo_cambio_turnos = True
-
-                            # Regla: Máximo MAX_ORADORES_SIMULTANEOS (2) personas a la vez
-                            if len(oradores_activos) > MAX_ORADORES_SIMULTANEOS and uid not in list(oradores_activos)[:MAX_ORADORES_SIMULTANEOS]:
+                # Moderación de micrófonos en vivo
+                if uid in admin_ids:
+                    # Garantizar que ningún administrador tenga candado de silencio en ningún momento (ni en meditación)
+                    if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
+                        try:
+                            input_peer = await client.get_input_entity(p.peer)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                            print(f"🔓 Candado de silencio retirado para administrador {nombre} ({uid}).")
+                        except Exception:
+                            pass
+                else:
+                    if reproduciendo_meditacion:
+                        # Durante la meditación, silenciar a cualquier participante regular que tenga el micrófono abierto
+                        if not p_muted:
+                            try:
+                                input_peer = await client.get_input_entity(uid)
+                                await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
                                 oradores_activos.discard(uid)
-                                try:
-                                    input_peer = await client.get_input_entity(uid)
-                                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                    asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
-                                    if not any(t["id"] == uid for t in cola_turnos):
-                                        cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
-                                    hubo_cambio_turnos = True
-                                    avisar_con_bot(f"⚠️ **{nombre}**, ya hay {MAX_ORADORES_SIMULTANEOS} personas hablando a la vez. Tu micrófono se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s y te hemos añadido a la lista de turnos para no interrumpir.")
-                                    print(f"Límite de oradores alcanzado. {nombre} silenciado temporalmente ({DURACION_BLOQUEO_MUTE_SEGUNDOS}s) y añadido a la cola.")
-                                except Exception as e:
-                                    print(f"Nota limitando oradores simultáneos para {nombre}:", e)
-                        else:
-                            # Micrófono abierto pero NO está hablando (olvido, ancianos, ruido de fondo)
-                            seg_inac = segundos_inactividad_mic.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
-                            segundos_inactividad_mic[uid] = seg_inac
-
-                            if seg_inac >= SEGUNDOS_INACTIVIDAD_MUTE:
-                                try:
-                                    input_peer = await client.get_input_entity(uid)
-                                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                    asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
-                                    oradores_activos.discard(uid)
-                                    segundos_inactividad_mic[uid] = 0
-                                    hubo_cambio_turnos = True
-                                    if uid not in avisados_auto_mute:
-                                        avisados_auto_mute.add(uid)
-                                        avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por inactividad. Se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s para que puedas volver a hablar cuando desees.")
-                                    print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de inactividad. Desbloqueo programado en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s.")
-                                except Exception as e:
-                                    print(f"Nota auto-muteando a {nombre}:", e)
+                                hubo_cambio_turnos = True
+                                print(f"Silenciado participante {nombre} ({uid}) durante la reproducción de meditación.")
+                            except Exception as e:
+                                print(f"Nota silenciando en meditación a {nombre}:", e)
                     else:
-                        # Micrófono cerrado
-                        segundos_inactividad_mic[uid] = 0
-                        if uid in oradores_activos:
-                            oradores_activos.discard(uid)
-                            hubo_cambio_turnos = True
+                        if not p_muted:
+                            # Micrófono abierto
+                            if hablo_ahora:
+                                segundos_inactividad_mic[uid] = 0
+                                avisados_auto_mute.discard(uid)
+                                if uid not in oradores_activos:
+                                    oradores_activos.add(uid)
+                                    hubo_cambio_turnos = True
+
+                                # Regla: Máximo MAX_ORADORES_SIMULTANEOS (2) personas a la vez
+                                if len(oradores_activos) > MAX_ORADORES_SIMULTANEOS and uid not in list(oradores_activos)[:MAX_ORADORES_SIMULTANEOS]:
+                                    oradores_activos.discard(uid)
+                                    try:
+                                        input_peer = await client.get_input_entity(uid)
+                                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                                        asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
+                                        if not any(t["id"] == uid for t in cola_turnos):
+                                            cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
+                                        hubo_cambio_turnos = True
+                                        avisar_con_bot(f"⚠️ **{nombre}**, ya hay {MAX_ORADORES_SIMULTANEOS} personas hablando a la vez. Tu micrófono se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s y te hemos añadido a la lista de turnos para no interrumpir.")
+                                        print(f"Límite de oradores alcanzado. {nombre} silenciado temporalmente ({DURACION_BLOQUEO_MUTE_SEGUNDOS}s) y añadido a la cola.")
+                                    except Exception as e:
+                                        print(f"Nota limitando oradores simultáneos para {nombre}:", e)
+                            else:
+                                # Micrófono abierto pero NO está hablando (olvido, ancianos, ruido de fondo)
+                                seg_inac = segundos_inactividad_mic.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
+                                segundos_inactividad_mic[uid] = seg_inac
+
+                                if seg_inac >= SEGUNDOS_INACTIVIDAD_MUTE:
+                                    try:
+                                        input_peer = await client.get_input_entity(uid)
+                                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                                        asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
+                                        oradores_activos.discard(uid)
+                                        segundos_inactividad_mic[uid] = 0
+                                        hubo_cambio_turnos = True
+                                        if uid not in avisados_auto_mute:
+                                            avisados_auto_mute.add(uid)
+                                            avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por inactividad. Se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s para que puedas volver a hablar cuando desees.")
+                                        print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de inactividad. Desbloqueo programado en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s.")
+                                    except Exception as e:
+                                        print(f"Nota auto-muteando a {nombre}:", e)
+                        else:
+                            # Micrófono cerrado
+                            segundos_inactividad_mic[uid] = 0
+                            if uid in oradores_activos:
+                                oradores_activos.discard(uid)
+                                hubo_cambio_turnos = True
 
                 if uid not in participantes:
                     participantes[uid] = {
@@ -1547,9 +1591,9 @@ async def main() -> None:
                 elif reproduccion_iniciada:
                     fase = "🎙️ Ronda de preguntas y compartir"
                 elif aviso_espera_enviado and not reproduccion_iniciada:
-                    fase = "⏳ Pausa de transición hacia la meditación (3 min)"
+                    fase = "⏳ Pausa de transición hacia la meditación (5 min)"
                 elif aviso_oracion_enviado and not aviso_espera_enviado:
-                    fase = "🕊️ Momento de Oración en Silencio (5 min)"
+                    fase = "🕊️ Momento de Oración en Silencio (3 min)"
                 else:
                     fase = "💬 Charla inicial y bienvenida"
 
