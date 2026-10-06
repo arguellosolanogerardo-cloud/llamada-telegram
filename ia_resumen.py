@@ -222,8 +222,8 @@ def generar_resumen_ia(
     lineas = [
         "📌 **RESUMEN EJECUTIVO:**",
         f"Reunión diaria comunitaria realizada el **{fecha}** con una duración de **{duracion_minutos} minutos** "
-        f"y un total de **{total_asistentes} participantes conectados**. "
-        "La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM "
+        + (f"y un total de **{total_asistentes} participantes conectados**. " if total_asistentes != 1 else "y **1 participante conectado**. ")
+        + "La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM "
         "y la ronda posterior de preguntas y compartir entre los miembros.",
         "",
         "🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**"

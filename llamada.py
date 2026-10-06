@@ -23,9 +23,10 @@ from telethon.tl.functions.phone import (
     DiscardGroupCallRequest,
     EditGroupCallParticipantRequest,
     GetGroupCallRequest,
+    GetGroupParticipantsRequest,
     ToggleGroupCallSettingsRequest,
 )
-from telethon.tl.types import Channel, ChannelParticipantsAdmins, Chat, PeerUser
+from telethon.tl.types import Channel, ChannelParticipantsAdmins, Chat, PeerUser, PeerChannel, PeerChat
 
 from ia_resumen import generar_resumen_ia, guardar_minuta, buscar_en_minutas, obtener_minuta
 from generador_acta import generar_acta_pdf
@@ -561,6 +562,50 @@ async def obtener_full_chat(client, entidad):
     return None
 
 
+def plural_personas(n: int) -> str:
+    return f"{n} persona" if n == 1 else f"{n} personas"
+
+
+async def obtener_todos_participantes_llamada(client, input_call) -> tuple[list, dict, dict]:
+    """
+    Obtiene TODOS los participantes conectados a la llamada de voz en Telegram
+    (tanto oradores como oyentes silenciosos) usando GetGroupParticipantsRequest con paginación.
+    Retorna (lista_participantes, dict_usuarios, dict_chats).
+    """
+    participantes_completos = []
+    users_dict = {}
+    chats_dict = {}
+    offset = ""
+    max_paginas = 15  # Hasta 1500 participantes
+
+    for _ in range(max_paginas):
+        try:
+            res = await client(GetGroupParticipantsRequest(
+                call=input_call,
+                ids=[],
+                sources=[],
+                offset=offset,
+                limit=100
+            ))
+            if not res or not getattr(res, "participants", None):
+                break
+            for p in res.participants:
+                participantes_completos.append(p)
+            for u in getattr(res, "users", []):
+                users_dict[u.id] = u
+            for c in getattr(res, "chats", []):
+                chats_dict[c.id] = c
+            next_off = getattr(res, "next_offset", "")
+            if not next_off or next_off == offset:
+                break
+            offset = next_off
+        except Exception as e:
+            print("Nota obteniendo participantes con GetGroupParticipantsRequest:", e)
+            break
+
+    return participantes_completos, users_dict, chats_dict
+
+
 async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | None, dict | None]:
     """
     Busca el audio de la tarea de hoy:
@@ -779,6 +824,9 @@ async def main() -> None:
 
         # Estado del sistema de moderación de voz y turnos
         participantes = {}
+        participantes_conectados = set()  # uids actualmente conectados a la sala
+        users_cache = {}  # uid -> User
+        chats_cache = {}  # cid -> Chat / Channel
         cola_turnos = []  # [{"id": uid, "nombre": nom, "username": usr}]
         oradores_activos = set()  # uids actualmente hablando
         segundos_inactividad_mic = {}  # uid -> segundos con mic abierto y sin voz
@@ -1000,11 +1048,11 @@ async def main() -> None:
         async def desbloquear_todos_los_participantes():
             """Retira el candado de silencio a todos los participantes no administradores."""
             try:
-                call_info_actual = await client(GetGroupCallRequest(call=input_call, limit=100))
-                for p in getattr(call_info_actual, "participants", []):
+                parts_completos, _, _ = await obtener_todos_participantes_llamada(client, input_call)
+                for p in parts_completos:
                     if getattr(p, "left", False):
                         continue
-                    p_uid = getattr(p.peer, "user_id", None) if isinstance(getattr(p, "peer", None), PeerUser) else None
+                    p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
                     if not p_uid or p_uid in admin_ids:
                         continue
                     try:
@@ -1643,21 +1691,113 @@ async def main() -> None:
                 except Exception as e:
                     print("Nota verificando chat:", e)
 
-            users_dict = {u.id: u for u in getattr(call_info, "users", [])}
+            # Actualizar diccionario de usuarios y chats devueltos en la llamada actual
+            for u in getattr(call_info, "users", []):
+                users_cache[u.id] = u
+            for c in getattr(call_info, "chats", []):
+                chats_cache[c.id] = c
+
+            p_count_servidor = getattr(getattr(call_info, "call", None), "participants_count", 0)
+            offset_disp = getattr(call_info, "participants_next_offset", "")
+
+            # Sondeo periódico de la lista completa de participantes (cada ~6s o si faltan según Telegram)
+            debe_refrescar_completo = (
+                segundos_totales <= INTERVALO_SONDEO_SEGUNDOS
+                or (segundos_totales // INTERVALO_SONDEO_SEGUNDOS) % 3 == 0
+                or bool(offset_disp)
+                or p_count_servidor > len(participantes_conectados)
+            )
+
+            if debe_refrescar_completo:
+                parts_completos, users_nuevos, chats_nuevos = await obtener_todos_participantes_llamada(client, input_call)
+                users_cache.update(users_nuevos)
+                chats_cache.update(chats_nuevos)
+                uids_en_servidor = set()
+                for p in parts_completos:
+                    if getattr(p, "left", False):
+                        continue
+                    p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
+                    if not p_uid:
+                        continue
+                    uids_en_servidor.add(p_uid)
+                    if p_uid not in participantes:
+                        u_obj = users_cache.get(p_uid)
+                        c_obj = chats_cache.get(p_uid)
+                        nombre_part = f"{u_obj.first_name or ''} {u_obj.last_name or ''}".strip() if u_obj else (getattr(c_obj, "title", "Usuario") if c_obj else "Usuario")
+                        username_part = getattr(u_obj, "username", "") or getattr(c_obj, "username", "") or ""
+                        f_ent = p.date.astimezone(tz_col) if getattr(p, "date", None) else ahora
+                        participantes[p_uid] = {
+                            "id": p_uid,
+                            "nombre": nombre_part,
+                            "username": username_part,
+                            "primera_entrada": f_ent,
+                            "ultima_salida": ahora,
+                            "segundos_acumulados": 0.0,
+                            "activo_ahora": True,
+                            "ultimo_check": ahora,
+                            "reconexiones": 0,
+                            "hablo": False,
+                            "orden_llegada": len(participantes) + 1,
+                            "meditacion_completada": reproduciendo_meditacion,
+                        }
+                        print(f"👥 Participante registrado en sala: {nombre_part} ({p_uid}) | Total registrados: {len(participantes)}")
+                    else:
+                        part = participantes[p_uid]
+                        if not part["activo_ahora"]:
+                            part["reconexiones"] += 1
+                            part["activo_ahora"] = True
+                            part["ultimo_check"] = ahora
+
+                # Marcar desconectados si ya no figuran en la llamada de Telegram
+                total_activos_previos = len(participantes_conectados)
+                desconectados_este_tick = 0
+                for p_uid in list(participantes_conectados):
+                    if p_uid not in uids_en_servidor:
+                        desconectados_este_tick += 1
+                        if p_uid in participantes and participantes[p_uid]["activo_ahora"]:
+                            participantes[p_uid]["activo_ahora"] = False
+                            participantes[p_uid]["ultima_salida"] = ahora
+
+                if total_activos_previos >= 4 and desconectados_este_tick >= max(3, int(total_activos_previos * 0.6)):
+                    hubo_caida_masiva_sala = True
+                    print("⚡ Detección de caída masiva o parpadeo general en la sala de Telegram.")
+
+                participantes_conectados = uids_en_servidor
+
             activos_en_tick = set()
             hubo_cambio_turnos = False
 
+            # Monitoreo de oradores activos y moderación en el tick actual (2s)
             for p in getattr(call_info, "participants", []):
                 if getattr(p, "left", False):
                     continue
-                uid = getattr(p.peer, "user_id", None) if isinstance(getattr(p, "peer", None), PeerUser) else None
+                uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
                 if not uid:
                     continue
 
                 activos_en_tick.add(uid)
-                u = users_dict.get(uid)
-                nombre = f"{u.first_name or ''} {u.last_name or ''}".strip() if u else "Usuario"
-                username = u.username or "" if u else ""
+                participantes_conectados.add(uid)
+                u = users_cache.get(uid)
+                c = chats_cache.get(uid)
+                nombre = f"{u.first_name or ''} {u.last_name or ''}".strip() if u else (getattr(c, "title", "Usuario") if c else "Usuario")
+                username = getattr(u, "username", "") or getattr(c, "username", "") or ""
+
+                if uid not in participantes:
+                    f_ent = p.date.astimezone(tz_col) if getattr(p, "date", None) else ahora
+                    participantes[uid] = {
+                        "id": uid,
+                        "nombre": nombre,
+                        "username": username,
+                        "primera_entrada": f_ent,
+                        "ultima_salida": ahora,
+                        "segundos_acumulados": 0.0,
+                        "activo_ahora": True,
+                        "ultimo_check": ahora,
+                        "reconexiones": 0,
+                        "hablo": False,
+                        "orden_llegada": len(participantes) + 1,
+                        "meditacion_completada": reproduciendo_meditacion,
+                    }
 
                 # Detección de micrófono y estado de silencio
                 hablo_ahora = False
@@ -1665,6 +1805,9 @@ async def main() -> None:
                     hablo_ahora = True
                 elif getattr(p, "muted", True) is False and getattr(p, "volume", 0) and getattr(p, "volume", 0) > 0:
                     hablo_ahora = True
+
+                if hablo_ahora:
+                    participantes[uid]["hablo"] = True
 
                 p_muted = getattr(p, "muted", True)
 
@@ -1748,32 +1891,10 @@ async def main() -> None:
                                 oradores_activos.discard(uid)
                                 hubo_cambio_turnos = True
 
-                if uid not in participantes:
-                    participantes[uid] = {
-                        "id": uid,
-                        "nombre": nombre,
-                        "username": username,
-                        "primera_entrada": ahora,
-                        "ultima_salida": ahora,
-                        "segundos_acumulados": 0.0,
-                        "activo_ahora": True,
-                        "ultimo_check": ahora,
-                        "reconexiones": 0,
-                        "hablo": hablo_ahora,
-                        "orden_llegada": len(participantes) + 1,
-                        "meditacion_completada": reproduciendo_meditacion,
-                    }
-                else:
+            # Acumular segundos para TODOS los participantes conectados (oyentes y oradores)
+            for uid in list(participantes_conectados):
+                if uid in participantes:
                     part = participantes[uid]
-                    if nombre != "Usuario" and part["nombre"] == "Usuario":
-                        part["nombre"] = nombre
-                    if username and not part["username"]:
-                        part["username"] = username
-                    if hablo_ahora:
-                        part["hablo"] = True
-                    if reproduciendo_meditacion:
-                        part["meditacion_completada"] = True
-
                     if not part["activo_ahora"]:
                         part["reconexiones"] += 1
                         part["activo_ahora"] = True
@@ -1783,25 +1904,14 @@ async def main() -> None:
                         part["segundos_acumulados"] += max(0.0, delta)
                         part["ultimo_check"] = ahora
                         part["ultima_salida"] = ahora
+                    if reproduciendo_meditacion:
+                        part["meditacion_completada"] = True
 
             if hubo_cambio_turnos:
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
 
-            # Marcar desconectados
-            total_activos_previos = sum(1 for p in participantes.values() if p["activo_ahora"])
-            desconectados_este_tick = 0
-            for uid, part in participantes.items():
-                if uid not in activos_en_tick and part["activo_ahora"]:
-                    part["activo_ahora"] = False
-                    part["ultima_salida"] = ahora
-                    desconectados_este_tick += 1
-
-            if total_activos_previos >= 4 and desconectados_este_tick >= max(3, int(total_activos_previos * 0.6)):
-                hubo_caida_masiva_sala = True
-                print("⚡ Detección de caída masiva o parpadeo general en la sala de Telegram.")
-
             # Reglas de Auto-Cierre inteligente:
-            num_activos = len(activos_en_tick)
+            num_activos = len(participantes_conectados)
             minutos_transcurridos = segundos_totales // 60
 
             # Actualización del mensaje fijado dinámico cada ~5 min
@@ -2098,10 +2208,16 @@ async def main() -> None:
         ranking_mes = sorted([u for u in usuarios_db.values() if int(u.get("id", 0)) not in admin_ids], key=lambda x: x.get("puntos_mes", 0), reverse=True)[:5]
         es_fin_de_mes = (inicio_llamada + timedelta(days=1)).month != inicio_llamada.month
 
+        total_asistentes_sala = len(participantes)
+        total_validos = len(asistentes_validos)
+        txt_asistentes_pub = plural_personas(total_asistentes_sala)
+        if total_validos < total_asistentes_sala:
+            txt_asistentes_pub += f" ({total_validos} con permanencia completa)"
+
         lineas_pub = [
             "📊 **REPORTE DE ASISTENCIA Y PUNTOS — LLAMADA DIARIA**",
             f"🗓️ Fecha: {inicio_llamada.strftime('%d/%m/%Y')}",
-            f"⏱️ Duración: {duracion_reunion_minutos} min | 👥 Asistentes: {len(asistentes_validos)} personas\n",
+            f"⏱️ Duración: {duracion_reunion_minutos} min | 👥 Asistentes: {txt_asistentes_pub}\n",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "🏆 **PODIO DE PUNTUALIDAD (TOP 9):**",
         ]
@@ -2301,7 +2417,7 @@ async def main() -> None:
             oradores=oradores_sesion,
             fecha=fecha_hoy,
             duracion_minutos=duracion_reunion_minutos,
-            total_asistentes=len(asistentes_validos),
+            total_asistentes=len(participantes),
             info_catalogo=info_catalogo_hoy,
         )
         if grabacion_cancelada:
@@ -2324,13 +2440,14 @@ async def main() -> None:
             asistentes=asistentes_validos,
             resumen_ia=resumen_ia,
             info_catalogo=info_catalogo_hoy,
+            total_participantes=len(participantes),
         )
 
         # Guardar en base histórica de minutas para búsquedas posteriores
         guardar_minuta(
             fecha=fecha_hoy,
             duracion_minutos=duracion_reunion_minutos,
-            asistentes_count=len(asistentes_validos),
+            asistentes_count=len(participantes),
             oradores=oradores_sesion,
             resumen_texto=resumen_ia,
             ruta_pdf=ruta_acta_pdf,
