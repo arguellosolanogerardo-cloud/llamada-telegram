@@ -20,6 +20,8 @@ data/meditaciones/*.wav
 data/meditaciones/*.png
 data/asistencias/*.png
 data/actas/*.pdf
+*demucs_cache/
+*.tmp.mp3
 
 # Local ffmpeg binaries / symlinks
 ffmpeg

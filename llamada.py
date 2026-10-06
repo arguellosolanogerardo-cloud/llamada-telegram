@@ -33,6 +33,23 @@ from generador_acta import generar_acta_pdf
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
 from publicar_tarea import extraer_fecha_de_texto
 from drive_manager import obtener_o_descargar_audio
+import re
+import unicodedata
+
+# Ecualizador automático de voz (opcional: si falta el archivo, el bot sigue igual)
+try:
+    from mejorar_audio import (
+        AjusteEQ,
+        analizar_audio_async,
+        demucs_disponible,
+        describir_ajuste,
+        mejorar_audio_async,
+        recortar_desde_async,
+    )
+    MEJORA_AUDIO = True
+except Exception as _e_eq:
+    print("Nota: mejorar_audio.py no disponible, el audio se reproduce sin procesar:", _e_eq)
+    MEJORA_AUDIO = False
 
 try:
     from pytgcalls import PyTgCalls
@@ -1094,6 +1111,89 @@ async def main() -> None:
         meditacion_activa_hoy = False
         oracion_activa_hoy = False
 
+        # ---------------- Ecualizador automático de voz (mejorar_audio.py) ----------------
+        eq_estado = {
+            "manual": None,      # AjusteEQ elegido por un admin con /eq (None = automático)
+            "auto": None,        # AjusteEQ calculado por el análisis del audio
+            "offset": 0.0,       # segundo del audio con el que arrancó el stream actual
+            "t_play": None,
+            "t_pausa": None,
+            "seg_pausa": 0.0,
+            "cambiando": False,  # True mientras se cambia de stream (evita falso "StreamEnded")
+        }
+        lock_eq = asyncio.Lock()
+        DURACION_GONG_SEG = 3.5  # la campana inicial que añade agregar_gongs_al_audio
+
+        def eq_efectivo():
+            if not MEJORA_AUDIO:
+                return None
+            return eq_estado["manual"] or eq_estado["auto"]
+
+        def iniciar_seguimiento_posicion(offset: float):
+            eq_estado.update(offset=offset, t_play=time.monotonic(), t_pausa=None, seg_pausa=0.0)
+
+        def marcar_pausa():
+            if eq_estado["t_play"] and eq_estado["t_pausa"] is None:
+                eq_estado["t_pausa"] = time.monotonic()
+
+        def marcar_reanudacion():
+            if eq_estado["t_pausa"] is not None:
+                eq_estado["seg_pausa"] += time.monotonic() - eq_estado["t_pausa"]
+                eq_estado["t_pausa"] = None
+
+        def posicion_actual() -> float:
+            if not eq_estado["t_play"]:
+                return 0.0
+            ref = eq_estado["t_pausa"] or time.monotonic()
+            return max(0.0, eq_estado["offset"] + ref - eq_estado["t_play"] - eq_estado["seg_pausa"])
+
+        async def preparar_audio_eq() -> str:
+            """Devuelve el audio ya mejorado (con caché) o el original si algo falla."""
+            if not MEJORA_AUDIO or not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                return ruta_meditacion
+            async with lock_eq:
+                try:
+                    if eq_estado["manual"] is None:
+                        eq_estado["auto"] = await analizar_audio_async(ruta_meditacion)
+                    return await mejorar_audio_async(ruta_meditacion, eq_efectivo())
+                except Exception as e:
+                    print("Nota preparando audio mejorado:", e)
+                    return ruta_meditacion
+
+        async def aplicar_eq_en_vivo() -> str:
+            """Re-procesa con los niveles actuales y cambia el stream desde el mismo segundo."""
+            if not (MEJORA_AUDIO and tgcalls and reproduciendo_meditacion and ruta_meditacion):
+                return "guardado"
+            async with lock_eq:
+                try:
+                    nuevo = await mejorar_audio_async(ruta_meditacion, eq_efectivo())
+                    if nuevo == ruta_meditacion:
+                        return "error"
+                    pos = posicion_actual()  # se calcula DESPUÉS del render para no perder continuidad
+                    en_pausa = eq_estado["t_pausa"] is not None
+                    destino_resto = os.path.join(CARPETA_MEDITACIONES, "meditacion_eq_resto.mp3")
+                    ruta_resto = await recortar_desde_async(nuevo, pos, destino_resto)
+                    if ruta_resto == nuevo and pos > 1:
+                        return "error"
+                    eq_estado["cambiando"] = True
+                    try:
+                        await tgcalls.play(destino, ruta_resto)
+                        iniciar_seguimiento_posicion(pos)
+                        if en_pausa:
+                            await tgcalls.pause(destino)
+                            marcar_pausa()
+                        await asyncio.sleep(3)
+                    finally:
+                        eq_estado["cambiando"] = False
+                    return "ok"
+                except Exception as e:
+                    print("Error aplicando ecualizador en vivo:", e)
+                    return "error"
+
+        if MEJORA_AUDIO and ruta_meditacion:
+            # Pre-procesa en segundo plano para que el audio esté listo a la hora de reproducir
+            asyncio.create_task(preparar_audio_eq())
+
         async def reproducir_meditacion():
             nonlocal reproduciendo_meditacion, meditacion_activa_hoy
             if not tgcalls or not ruta_meditacion or not os.path.exists(ruta_meditacion):
@@ -1114,7 +1214,8 @@ async def main() -> None:
                         pass
 
                 # Incorporar campanas tibetanas / gong zen al inicio y final
-                ruta_a_reproducir = agregar_gongs_al_audio(ruta_meditacion)
+                ruta_base_audio = await preparar_audio_eq()
+                ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
 
                 # PyTgCalls conmuta a reproducir el audio de meditación (omitiendo meditación de la grabación)
                 await tgcalls.play(destino, ruta_a_reproducir)
@@ -1122,6 +1223,7 @@ async def main() -> None:
                     await tgcalls.resume(destino)
                 except Exception:
                     pass
+                iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
                 if info_catalogo_hoy:
@@ -1178,7 +1280,7 @@ async def main() -> None:
                 async def manejar_fin_stream(client_call, update):
                     if isinstance(update, StreamEnded):
                         nonlocal reproduciendo_meditacion
-                        if reproduciendo_meditacion:
+                        if reproduciendo_meditacion and not eq_estado["cambiando"]:
                             reproduciendo_meditacion = False
                             print("Reproducción de meditación concluida automáticamente.")
                             await desbloquear_todos_los_participantes()
@@ -1333,6 +1435,7 @@ async def main() -> None:
                 if tgcalls:
                     try:
                         await tgcalls.pause(destino)
+                        marcar_pausa()
                         await responder_admin("⏸️ Meditación pausada.")
                     except Exception as e:
                         await responder_admin(f"Error al pausar: {e}")
@@ -1340,6 +1443,7 @@ async def main() -> None:
                 if tgcalls:
                     try:
                         await tgcalls.resume(destino)
+                        marcar_reanudacion()
                         await responder_admin("▶️ Meditación reanudada.")
                     except Exception as e:
                         await responder_admin(f"Error al reanudar: {e}")
@@ -1477,6 +1581,95 @@ async def main() -> None:
                 msg = estado_grabacion_str()
                 await event.reply(msg)
 
+        # Ecualizador de voz en vivo (solo administradores): /eq
+        @client.on(events.NewMessage(pattern=r"(?i)^/(eq|ecualizador)(@\w+)?(\s|$)"))
+        async def controlar_ecualizador(event):
+            sender = await event.get_sender()
+            uid = sender.id if sender else event.sender_id
+            if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
+                ids_mensajes_efimeros.add(event.message.id)
+
+            async def resp(texto_resp, **kwargs):
+                r = await event.reply(texto_resp, **kwargs)
+                if event.is_group and r and hasattr(r, "id"):
+                    ids_mensajes_efimeros.add(r.id)
+                return r
+
+            if uid not in admin_ids:
+                await resp("⛔ Solo los administradores pueden usar el ecualizador.")
+                return
+            if not MEJORA_AUDIO:
+                await resp("⚠️ El módulo mejorar_audio.py no está disponible en el servidor.")
+                return
+
+            nonlocal_ruta = ruta_meditacion
+            if eq_estado["auto"] is None and nonlocal_ruta and os.path.exists(nonlocal_ruta):
+                eq_estado["auto"] = await analizar_audio_async(nonlocal_ruta)
+            actual = eq_efectivo() or AjusteEQ()
+
+            partes_eq = event.raw_text.strip().split()[1:]
+            sin_acentos = "".join(
+                c for c in unicodedata.normalize("NFD", "".join(partes_eq).lower())
+                if unicodedata.category(c) != "Mn"
+            )
+
+            nuevo = None
+            if sin_acentos in ("auto", "automatico"):
+                eq_estado["manual"] = None
+                nuevo = "auto"
+            elif sin_acentos == "reset":
+                eq_estado["manual"] = AjusteEQ()
+                nuevo = "reset"
+            elif sin_acentos == "separar":
+                if not demucs_disponible():
+                    await resp("⚠️ La separación voz/música no está disponible (requiere AUDIO_DEMUCS=1 y `pip install demucs`).")
+                    return
+                eq_estado["manual"] = actual.con(separar=not actual.separar)
+                nuevo = "separar"
+            else:
+                m_eq = re.match(r"^(voz|musica|limpieza)([+\-]|[0-3])?$", sin_acentos)
+                if m_eq:
+                    campo, signo = m_eq.group(1), m_eq.group(2)
+                    valor = getattr(actual, campo)
+                    if signo is None or signo == "+":
+                        valor += 1
+                    elif signo == "-":
+                        valor -= 1
+                    else:
+                        valor = int(signo)
+                    eq_estado["manual"] = actual.con(**{campo: valor})
+                    nuevo = campo
+
+            if nuevo is None:
+                modo = "manual" if eq_estado["manual"] else "automático"
+                await resp(
+                    "🎚️ **ECUALIZADOR DE VOZ**\n"
+                    f"{describir_ajuste(actual)}\n"
+                    f"Modo: {modo}\n\n"
+                    "`/eq voz+` / `/eq voz-` — más / menos voz\n"
+                    "`/eq musica+` / `/eq musica-` — atenuar más / menos la música\n"
+                    "`/eq limpieza+` / `/eq limpieza-` — quitar más / menos ruido\n"
+                    "`/eq auto` — análisis automático · `/eq reset` — valores base"
+                )
+                return
+
+            actual = eq_efectivo() or AjusteEQ()
+            if not reproduciendo_meditacion:
+                await resp(f"✅ Guardado: {describir_ajuste(actual)}\nSe aplicará al iniciar la meditación.")
+                asyncio.create_task(preparar_audio_eq())  # deja el audio listo con los nuevos niveles
+                return
+
+            await resp(f"⏳ Aplicando: {describir_ajuste(actual)}\nPuede tardar 1-2 minutos; la meditación sigue sonando mientras tanto.")
+
+            async def _aplicar():
+                estado = await aplicar_eq_en_vivo()
+                if estado == "ok":
+                    await resp("✅ Ecualizador aplicado. Si ya estaba bien, no hace falta tocar nada más.")
+                else:
+                    await resp("⚠️ No se pudo aplicar el cambio; la meditación continúa con el audio anterior.")
+
+            asyncio.create_task(_aplicar())
+
         # Mantener la lista de turnos siempre visible al fondo si hay conversación activa en el chat
         @client.on(events.NewMessage(chats=entidad))
         async def mantener_turnos_al_fondo_por_chat(event):
@@ -1603,6 +1796,7 @@ async def main() -> None:
                 if tgcalls:
                     try:
                         await tgcalls.pause(destino)
+                        marcar_pausa()
                         await responder_nat("⏸️ Meditación pausada por indicación de administración.")
                     except Exception as e:
                         await responder_nat(f"Nota al pausar: {e}")
@@ -1611,6 +1805,7 @@ async def main() -> None:
                 if tgcalls:
                     try:
                         await tgcalls.resume(destino)
+                        marcar_reanudacion()
                         await responder_nat("▶️ Meditación reanudada por indicación de administración.")
                     except Exception as e:
                         await responder_nat(f"Nota al reanudar: {e}")
