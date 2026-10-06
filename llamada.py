@@ -1204,7 +1204,7 @@ async def main() -> None:
 
                 # Construir botones interactivos grandes para el anuncio
                 bot_user = obtener_username_bot()
-                link_sala = link_llamada or (f"https://t.me/{getattr(entidad, 'username', '')}" if getattr(entidad, "username", None) else "https://t.me")
+                link_sala = url_llamada or (f"https://t.me/{getattr(entidad, 'username', '')}" if getattr(entidad, "username", None) else "https://t.me")
                 keyboard_oracion = {
                     "inline_keyboard": [
                         [{"text": "🕊️ ENTRAR A LA SALA DE VOZ (ORACIÓN) 🎧", "url": link_sala}],
