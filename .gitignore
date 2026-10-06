@@ -15,7 +15,9 @@ google_credentials.json
 *.pfx
 
 # Temporary audio & images
-data/meditaciones/
+data/meditaciones/*.mp3
+data/meditaciones/*.wav
+data/meditaciones/*.png
 data/asistencias/*.png
 data/actas/*.pdf
 

@@ -149,7 +149,7 @@ def obtener_info_bot() -> str:
     return ""
 
 
-def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_user: str = "", username_grupo: str = None) -> dict:
+def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_user: str = "", username_grupo: str = None, numero_tarea: int | str = None, tipo_tarea: str = None) -> dict:
     if not bot_user:
         bot_user = obtener_info_bot()
 
@@ -175,7 +175,9 @@ def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_
         botones.append([{"text": "🎧 IR AL GRUPO 👆", "url": f"https://t.me/c/{clean_id}"}])
 
     if bot_user:
-        botones.append([{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_user}?start=audio"}])
+        clean_tipo = "mensaje" if tipo_tarea and "MENSAJE" in str(tipo_tarea).upper() else "meditacion"
+        param_audio = f"audio_{clean_tipo}_{numero_tarea}" if numero_tarea else "audio"
+        botones.append([{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_user}?start={param_audio}"}])
 
     return {"inline_keyboard": botones}
 
@@ -279,7 +281,7 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
 
     texto_anuncio = generar_anuncio_tarea(info, fecha_final)
     bot_username = obtener_info_bot()
-    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo) if CHAT_ID else None
+    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo')) if CHAT_ID else None
 
     # 1. Enviar al Grupo Principal con botón directo al audio
     if CHAT_ID:
@@ -308,7 +310,7 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                     f"👤 **Guía:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
                     f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                 )
-                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo)
+                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'))
                 if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):
                     enviados_priv += 1
             print(f"Notificación privada enviada a {enviados_priv} miembros con botón al audio.")

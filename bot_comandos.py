@@ -830,6 +830,15 @@ def copiar_mensaje(chat_id: int | str, from_chat_id: int | str, message_id: int 
 
 def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: int | str = None, user_id_privado: int | str = None) -> None:
     if not info_cat:
+        ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
+        if os.path.exists(ruta_meta):
+            try:
+                with open(ruta_meta, "r", encoding="utf-8") as fm:
+                    info_cat = json.load(fm)
+            except Exception:
+                pass
+
+    if not info_cat:
         enviar_mensaje(
             chat_id,
             "🧘 **Meditación Diaria:**\nAún no hay un audio de meditación disponible para hoy. Puedes consultar el catálogo escribiendo `/meditacion [número]` o `/mensaje [número]`.",
@@ -854,7 +863,9 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     performer = maestro
 
     bot_u = obtener_info_bot()
-    teclado_grupo = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start=audio"}]]} if (int(chat_id) < 0 and bot_u) else None
+    clean_tipo = "mensaje" if "MENSAJE" in tipo_nombre.upper() else "meditacion"
+    param_audio = f"audio_{clean_tipo}_{num}" if num else "audio"
+    teclado_grupo = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start={param_audio}"}]]} if (int(chat_id) < 0 and bot_u) else None
 
     def enviar_copia_privada(ref_audio):
         if user_id_privado and str(user_id_privado) != str(chat_id) and int(user_id_privado) > 0:
@@ -1191,7 +1202,7 @@ def escuchar_comandos() -> None:
 
                             # 2. Enviar anuncio con botones al chat actual
                             anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
-                            teclado_actual = armar_teclado_audio(chat_id, msg_id_audio_final)
+                            teclado_actual = armar_teclado_audio(chat_id, msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio)
                             enviar_mensaje(chat_id, anuncio, reply_markup=teclado_actual)
 
                             # 3. Si la orden se dio en privado Y CHAT_ID del grupo está configurado, publicar también en el grupo
@@ -1209,7 +1220,7 @@ def escuchar_comandos() -> None:
                                     if ok_g:
                                         msg_id_grupo = m_id_g
 
-                                teclado_grupo = armar_teclado_audio(CHAT_ID, msg_id_grupo or msg_id_audio_final)
+                                teclado_grupo = armar_teclado_audio(CHAT_ID, msg_id_grupo or msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio)
                                 enviar_mensaje(CHAT_ID, anuncio, reply_markup=teclado_grupo)
 
                             # 4. Enviar notificación privada a miembros registrados
@@ -1305,11 +1316,24 @@ def escuchar_comandos() -> None:
                     admins_set = obtener_admin_ids()
                     resp = generar_texto_ranking(db, admin_ids=admins_set)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
-                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and param == "audio"):
-                    param_texto = " ".join(partes[1:]).strip() if (len(partes) > 1 and param != "audio") else ""
+                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and (param == "audio" or param.startswith("audio_") or param.startswith("meditacion_") or param.startswith("mensaje_"))):
+                    param_texto = " ".join(partes[1:]).strip() if (len(partes) > 1 and not param.startswith("audio")) else ""
+                    if cmd == "/start" and param.startswith("audio_"):
+                        sub = param[6:]  # ej: "meditacion_6" o "6" o "mensaje_989"
+                        if "_" in sub:
+                            p_t, p_n = sub.split("_", 1)
+                            param_texto = f"{p_t} {p_n}"
+                        elif sub.isdigit():
+                            param_texto = f"meditacion {sub}"
+                        else:
+                            param_texto = sub
+                    elif cmd == "/start" and param.startswith(("meditacion_", "mensaje_")):
+                        p_t, p_n = param.split("_", 1)
+                        param_texto = f"{p_t} {p_n}"
+
                     info_cat = None
                     if param_texto:
-                        prefijo = "mensaje" if cmd == "/mensaje" else "meditacion"
+                        prefijo = "mensaje" if (cmd == "/mensaje" or "mensaje" in param_texto.lower()) else "meditacion"
                         busqueda = f"{prefijo} {param_texto}" if not any(w in param_texto.lower() for w in ["meditacion", "mensaje"]) else param_texto
                         info_cat = identificar_audio_catalogo(texto=busqueda)
                         if not info_cat:
@@ -1392,7 +1416,7 @@ def escuchar_comandos() -> None:
                                 pass
                             fecha_admin = extraer_fecha_de_texto(param_texto) or (extraer_fecha_de_texto(reply_m.get("text") or reply_m.get("caption") or "") if reply_m else None)
                             anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
-                            teclado = armar_teclado_audio(chat_id, msg_id_audio)
+                            teclado = armar_teclado_audio(chat_id, msg_id_audio, numero_tarea=info_cat.get('numero'), tipo_tarea=info_cat.get('tipo'))
                             enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
                             fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
                             db_pts = cargar_puntos()
