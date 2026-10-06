@@ -147,6 +147,7 @@ async def main() -> None:
         conteo_youtube_duplicados = 0
         conteo_saludos = 0
         conteo_stickers_gifs = 0
+        conteo_ventanas_bot = 0
         total_revisados = 0
 
         # Iterar en orden cronológico (reverse=True) para que el primer video visto sea el original
@@ -160,20 +161,36 @@ async def main() -> None:
 
             total_revisados += 1
 
-            # Proteger mensajes fijados (pinned), mensajes de servicio y mensajes de administradores
+            # Proteger mensajes fijados (pinned) y mensajes de servicio
             if getattr(msg, "pinned", False) or getattr(msg, "action", None):
                 continue
-            if getattr(msg, "out", False):
-                continue
-            if msg.sender_id and msg.sender_id in admin_ids:
-                continue
+
+            bot_id = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
+            es_ventana_bot = False
+            # Detectar ventanas del robot (mensajes con botones interactivos o enviados por el bot)
+            if getattr(msg, "reply_markup", None) is not None:
+                es_ventana_bot = True
+            elif bot_id and (msg.sender_id == bot_id or getattr(msg, "via_bot_id", None) == bot_id):
+                es_ventana_bot = True
+
+            if not es_ventana_bot:
+                if getattr(msg, "out", False):
+                    continue
+                if msg.sender_id and msg.sender_id in admin_ids:
+                    continue
 
             texto = msg.raw_text or ""
             debe_borrar = False
             motivo = ""
 
+            # Regla 0: Ventanas y notificaciones del bot
+            if es_ventana_bot:
+                debe_borrar = True
+                conteo_ventanas_bot += 1
+                motivo = "Ventana/Notificación del Bot"
+
             # Regla A: Stickers y GIFs
-            if msg.sticker or es_gif(msg):
+            elif msg.sticker or es_gif(msg):
                 debe_borrar = True
                 conteo_stickers_gifs += 1
                 motivo = "Sticker/GIF"
@@ -204,6 +221,7 @@ async def main() -> None:
 
         print(f"Mensajes totales analizados: {total_revisados}")
         print(f"Mensajes marcados para borrar: {len(ids_a_borrar)}")
+        print(f" - Ventanas/Notificaciones del Bot: {conteo_ventanas_bot}")
         print(f" - YouTube repetidos: {conteo_youtube_duplicados}")
         print(f" - Saludos: {conteo_saludos}")
         print(f" - Stickers / GIFs: {conteo_stickers_gifs}")
@@ -243,6 +261,7 @@ async def main() -> None:
         resumen = (
             f"🧹 **Reporte Privado de Limpieza (Solo para el Dueño):**\n"
             f"• Mensajes eliminados: {total_borrados}\n"
+            f"• Ventanas/Avisos del bot borrados: {conteo_ventanas_bot}\n"
             f"• Videos de YouTube repetidos borrados: {conteo_youtube_duplicados}\n"
             f"• Saludos acumulados borrados: {conteo_saludos}\n"
             f"• Stickers y GIFs eliminados: {conteo_stickers_gifs}\n"
