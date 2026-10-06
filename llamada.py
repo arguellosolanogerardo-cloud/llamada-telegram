@@ -127,15 +127,21 @@ def hora_california() -> str:
     return hoy.astimezone(california).strftime("%I:%M %p").lstrip("0").lower()
 
 
-def determinar_fecha_y_etiqueta_tarea(texto: str) -> tuple[str, str]:
+def determinar_fecha_y_etiqueta_tarea(texto: str, fecha_referencia: datetime = None) -> tuple[str, str]:
     """Determina si la tarea es para 'hoy' o 'mañana' o una fecha específica."""
     tz_col = ZoneInfo("America/Bogota")
-    ahora = datetime.now(tz_col)
+    if fecha_referencia:
+        if fecha_referencia.tzinfo is None:
+            ahora = fecha_referencia.replace(tzinfo=tz_col)
+        else:
+            ahora = fecha_referencia.astimezone(tz_col)
+    else:
+        ahora = datetime.now(tz_col)
     t_lower = (texto or "").lower()
 
     es_manana_explicito = "mañana" in t_lower or "manana" in t_lower
     ya_paso_hora_hoy = ahora.hour > 20 or (ahora.hour == 20 and ahora.minute >= 32)
-    fecha_extraida = extraer_fecha_de_texto(texto)
+    fecha_extraida = extraer_fecha_de_texto(texto, fecha_referencia=ahora)
 
     dias_semana = {
         0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves",
@@ -147,12 +153,13 @@ def determinar_fecha_y_etiqueta_tarea(texto: str) -> tuple[str, str]:
         9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
     }
 
+    hoy_real = datetime.now(tz_col).date()
     if fecha_extraida:
         try:
             d_obj = datetime.strptime(fecha_extraida, "%d/%m/%Y").replace(tzinfo=tz_col)
-            if d_obj.date() == ahora.date() and not ya_paso_hora_hoy:
+            if d_obj.date() == hoy_real and not (ya_paso_hora_hoy and fecha_referencia is None):
                 return "hoy a las 8:32 PM", "Tarea de hoy"
-            elif d_obj.date() == (ahora + timedelta(days=1)).date():
+            elif d_obj.date() == (hoy_real + timedelta(days=1)):
                 nom_dia = dias_semana.get(d_obj.weekday(), "")
                 nom_mes = meses_nom.get(d_obj.month, "")
                 txt_dia = f"mañana {nom_dia} {d_obj.day} de {nom_mes}"
@@ -701,36 +708,115 @@ async def obtener_todos_participantes_llamada(client, input_call) -> tuple[list,
     return participantes_completos, users_dict, chats_dict
 
 
-def guardar_cola_hoy(cola: list[dict]) -> None:
+def guardar_cola_hoy(cola: list[dict], fecha_destino: str = None) -> None:
     """Guarda la lista de reproducción del día en cola_hoy.json y meta_hoy.json."""
     try:
         os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+        tz_col = ZoneInfo("America/Bogota")
+        fecha = fecha_destino or datetime.now(tz_col).strftime("%d/%m/%Y")
+        payload = {
+            "fecha": fecha,
+            "cola": cola
+        }
         ruta_cola = os.path.join(CARPETA_MEDITACIONES, "cola_hoy.json")
         with open(ruta_cola, "w", encoding="utf-8") as f:
-            json.dump(cola, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
         if cola:
             ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+            info_meta = dict(cola[0].get("info") or {})
+            info_meta["fecha_tarea_admin"] = fecha
+            if len(cola) > 1:
+                info_meta["cola_audios"] = [c.get("info") for c in cola if c.get("info")]
             with open(ruta_meta, "w", encoding="utf-8") as fm:
-                json.dump(cola[0].get("info") or {}, fm, ensure_ascii=False, indent=2)
+                json.dump(info_meta, fm, ensure_ascii=False, indent=2)
     except Exception as e:
         print("Nota guardando cola_hoy.json:", e)
 
 
-def cargar_cola_hoy() -> list[dict]:
-    """Carga y valida los audios previamente guardados en cola_hoy.json."""
+def guardar_cola_manana(cola: list[dict], fecha_destino: str = None) -> None:
+    """Guarda la lista de reproducción programada para mañana en cola_manana.json y meta_manana.json."""
     try:
+        os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+        tz_col = ZoneInfo("America/Bogota")
+        fecha = fecha_destino or (datetime.now(tz_col) + timedelta(days=1)).strftime("%d/%m/%Y")
+        payload = {
+            "fecha": fecha,
+            "cola": cola
+        }
+        ruta_manana = os.path.join(CARPETA_MEDITACIONES, "cola_manana.json")
+        with open(ruta_manana, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        if cola:
+            ruta_meta_manana = os.path.join(CARPETA_MEDITACIONES, "meta_manana.json")
+            info_meta = dict(cola[0].get("info") or {})
+            info_meta["fecha_tarea_admin"] = fecha
+            if len(cola) > 1:
+                info_meta["cola_audios"] = [c.get("info") for c in cola if c.get("info")]
+            with open(ruta_meta_manana, "w", encoding="utf-8") as fm:
+                json.dump(info_meta, fm, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Nota guardando cola_manana.json:", e)
+
+
+def cargar_cola_hoy() -> list[dict]:
+    """Carga y valida los audios previamente guardados en cola_hoy.json o promociona cola_manana.json si corresponde a hoy."""
+    try:
+        tz_col = ZoneInfo("America/Bogota")
+        hoy_str = datetime.now(tz_col).strftime("%d/%m/%Y")
+
+        # 1. Si existe cola_manana.json y su fecha coincide con HOY, promocionarla a la lista de hoy
+        ruta_manana = os.path.join(CARPETA_MEDITACIONES, "cola_manana.json")
+        if os.path.exists(ruta_manana):
+            try:
+                with open(ruta_manana, "r", encoding="utf-8") as fm:
+                    d_manana = json.load(fm)
+                fecha_m = d_manana.get("fecha") if isinstance(d_manana, dict) else None
+                lista_m = d_manana.get("cola", []) if isinstance(d_manana, dict) else (d_manana if isinstance(d_manana, list) else [])
+                if fecha_m == hoy_str and lista_m:
+                    validos_m = [
+                        d for d in lista_m
+                        if isinstance(d, dict) and d.get("ruta")
+                        and os.path.exists(d["ruta"]) and os.path.getsize(d["ruta"]) > 5000
+                    ]
+                    if validos_m:
+                        print(f"Promocionando {len(validos_m)} audios de cola_manana.json a la lista oficial de hoy ({hoy_str}).")
+                        guardar_cola_hoy(validos_m, fecha_destino=hoy_str)
+                        try:
+                            os.remove(ruta_manana)
+                        except Exception:
+                            pass
+                        return validos_m
+            except Exception as em:
+                print("Nota procesando cola_manana.json:", em)
+
+        # 2. Revisar cola_hoy.json
         ruta_cola = os.path.join(CARPETA_MEDITACIONES, "cola_hoy.json")
         if os.path.exists(ruta_cola):
             with open(ruta_cola, "r", encoding="utf-8") as f:
                 datos = json.load(f)
-            if isinstance(datos, list):
-                validos = [
-                    d for d in datos
-                    if isinstance(d, dict) and d.get("ruta")
-                    and os.path.exists(d["ruta"]) and os.path.getsize(d["ruta"]) > 5000
-                ]
-                if validos:
-                    return validos
+            if isinstance(datos, dict):
+                fecha_guardada = datos.get("fecha")
+                if fecha_guardada == hoy_str:
+                    lista = datos.get("cola", [])
+                    validos = [
+                        d for d in lista
+                        if isinstance(d, dict) and d.get("ruta")
+                        and os.path.exists(d["ruta"]) and os.path.getsize(d["ruta"]) > 5000
+                    ]
+                    if validos:
+                        return validos
+            elif isinstance(datos, list):
+                # Compatibilidad hacia atrás: verificar si fue modificado en la fecha de hoy
+                mtime = os.path.getmtime(ruta_cola)
+                dt_mod = datetime.fromtimestamp(mtime, tz_col)
+                if dt_mod.strftime("%d/%m/%Y") == hoy_str:
+                    validos = [
+                        d for d in datos
+                        if isinstance(d, dict) and d.get("ruta")
+                        and os.path.exists(d["ruta"]) and os.path.getsize(d["ruta"]) > 5000
+                    ]
+                    if validos:
+                        return validos
     except Exception as e:
         print("Nota cargando cola_hoy.json:", e)
     return []
@@ -739,23 +825,26 @@ def cargar_cola_hoy() -> list[dict]:
 async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | None, dict | None, list[dict]]:
     """
     Busca uno o varios audios de la tarea de hoy:
-    1. En cola_hoy.json si ya fue programada.
-    2. En los últimos 60 mensajes del grupo (audios adjuntos subidos por administradores).
-    3. Si no hay archivo adjunto pero hay anuncio de tarea en texto, descarga los audios de Google Drive.
+    1. En cola_hoy.json si ya fue programada (o promociona cola_manana.json si fue para hoy).
+    2. En los últimos 60 mensajes del grupo (audios adjuntos subidos por administradores para hoy).
+    3. Si no hay archivo adjunto pero hay anuncio de tarea en texto, descarga los audios de Google Drive para hoy.
     Retorna (ruta_primera, info_primera, lista_cola_completa).
     """
     try:
         os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+        tz_col = ZoneInfo("America/Bogota")
+        hoy_str = datetime.now(tz_col).strftime("%d/%m/%Y")
+        manana_str = (datetime.now(tz_col) + timedelta(days=1)).strftime("%d/%m/%Y")
 
-        # 1. Revisar si ya existe cola_hoy.json guardada previamente
+        # 1. Revisar si ya existe cola_hoy.json guardada previamente para hoy
         cola_guardada = cargar_cola_hoy()
         if cola_guardada:
             primera = cola_guardada[0]
             return primera["ruta"], primera.get("info"), cola_guardada
 
         # 2. Escanear los últimos 60 mensajes del chat
-        mensajes_audio = []
-        textos_anuncio = []
+        mensajes_audio_hoy = []
+        textos_anuncio_hoy = []
 
         async for msg in client.iter_messages(entidad, limit=60):
             texto = (msg.raw_text or "").upper()
@@ -765,6 +854,15 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
 
             if not (es_de_admin or es_anuncio_tarea):
                 continue
+
+            # Evaluar la fecha para la cual fue anunciado este mensaje
+            fecha_msg_tar = extraer_fecha_de_texto(msg.raw_text or "", fecha_referencia=msg.date)
+            if not fecha_msg_tar and msg.date:
+                dt_msg = msg.date.astimezone(tz_col) if msg.date.tzinfo else msg.date.replace(tzinfo=tz_col)
+                if dt_msg.hour > 20 or (dt_msg.hour == 20 and dt_msg.minute >= 32):
+                    fecha_msg_tar = (dt_msg + timedelta(days=1)).strftime("%d/%m/%Y")
+                else:
+                    fecha_msg_tar = dt_msg.strftime("%d/%m/%Y")
 
             target_msg = msg
             es_audio = False
@@ -794,19 +892,21 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
                             if getattr(a, "file_name", ""):
                                 nombre_archivo = getattr(a, "file_name", "")
 
-            if es_audio:
-                mensajes_audio.append((target_msg, nombre_archivo, msg.raw_text or ""))
-            elif any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
-                textos_anuncio.append(msg.raw_text or "")
+            # Clasificar si el mensaje coincide con la fecha de HOY
+            if fecha_msg_tar == hoy_str:
+                if es_audio:
+                    mensajes_audio_hoy.append((target_msg, nombre_archivo, msg.raw_text or ""))
+                elif any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
+                    textos_anuncio_hoy.append(msg.raw_text or "")
 
-        # Caso A: Se encontraron archivos de audio físicos en Telegram
-        if mensajes_audio:
+        # Caso A: Se encontraron archivos de audio físicos en Telegram para HOY
+        if mensajes_audio_hoy:
             cola_descargada = []
-            mensajes_audio.reverse()  # Orden cronológico
-            for idx, (m_audio, f_name, txt_m) in enumerate(mensajes_audio):
-                nombre_base = "meditacion_hoy.mp3" if len(mensajes_audio) == 1 else f"meditacion_hoy_{idx+1}.mp3"
+            mensajes_audio_hoy.reverse()  # Orden cronológico
+            for idx, (m_audio, f_name, txt_m) in enumerate(mensajes_audio_hoy):
+                nombre_base = "meditacion_hoy.mp3" if len(mensajes_audio_hoy) == 1 else f"meditacion_hoy_{idx+1}.mp3"
                 ruta = os.path.join(CARPETA_MEDITACIONES, nombre_base)
-                print(f"Descargando audio {idx+1}/{len(mensajes_audio)} desde mensaje ID {m_audio.id}...")
+                print(f"Descargando audio {idx+1}/{len(mensajes_audio_hoy)} desde mensaje ID {m_audio.id}...")
                 await client.download_media(m_audio, file=ruta)
                 info_cat = identificar_audio_catalogo(txt_m, f_name)
                 cola_descargada.append({
@@ -816,12 +916,12 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
                 })
 
             if cola_descargada:
-                guardar_cola_hoy(cola_descargada)
+                guardar_cola_hoy(cola_descargada, fecha_destino=hoy_str)
                 primera = cola_descargada[0]
                 return primera["ruta"], primera.get("info"), cola_descargada
 
-        # Caso B: No hay archivos adjuntos en Telegram pero hay anuncios en texto -> Buscar en Drive
-        for txt_anuncio in textos_anuncio:
+        # Caso B: Anuncio en texto correspondiente a HOY -> Buscar en Google Drive
+        for txt_anuncio in textos_anuncio_hoy:
             items_detectados = identificar_todos_los_audios(txt_anuncio)
             if items_detectados:
                 cola_drive = []
@@ -832,7 +932,7 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
                     except (ValueError, TypeError):
                         n = None
                     if n:
-                        print(f"Buscando audio de {t} #{n} en Google Drive...")
+                        print(f"Buscando audio de {t} #{n} en Google Drive (para hoy {hoy_str})...")
                         r_drive = obtener_o_descargar_audio(t, n)
                         if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
                             cola_drive.append({
@@ -841,24 +941,26 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
                                 "titulo": it.get("titulo", f"{t} #{n}")
                             })
                 if cola_drive:
-                    guardar_cola_hoy(cola_drive)
+                    guardar_cola_hoy(cola_drive, fecha_destino=hoy_str)
                     primera = cola_drive[0]
                     return primera["ruta"], primera.get("info"), cola_drive
 
-        # Caso C: Respaldo de meta_hoy.json si existía
+        # Caso C: Respaldo de meta_hoy.json si existía y coincide con la fecha
         ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
         if os.path.exists(ruta_meta):
             try:
                 with open(ruta_meta, "r", encoding="utf-8") as fm:
                     meta = json.load(fm)
-                if meta.get("numero") and meta.get("tipo"):
-                    t = meta["tipo"]
-                    n = int(meta["numero"])
-                    r_drive = obtener_o_descargar_audio(t, n)
-                    if r_drive and os.path.exists(r_drive):
-                        item_c = {"ruta": r_drive, "info": meta, "titulo": meta.get("titulo", f"{t} #{n}")}
-                        guardar_cola_hoy([item_c])
-                        return r_drive, meta, [item_c]
+                f_meta = meta.get("fecha_tarea_admin")
+                if not f_meta or f_meta == hoy_str:
+                    if meta.get("numero") and meta.get("tipo"):
+                        t = meta["tipo"]
+                        n = int(meta["numero"])
+                        r_drive = obtener_o_descargar_audio(t, n)
+                        if r_drive and os.path.exists(r_drive):
+                            item_c = {"ruta": r_drive, "info": meta, "titulo": meta.get("titulo", f"{t} #{n}")}
+                            guardar_cola_hoy([item_c], fecha_destino=hoy_str)
+                            return r_drive, meta, [item_c]
             except Exception:
                 pass
 
@@ -1918,41 +2020,61 @@ async def main() -> None:
 
                 if es_audio:
                     os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
-                    idx_nuevo = len(cola_reproduccion) + 1
-                    nombre_f = "meditacion_hoy.mp3" if idx_nuevo == 1 else f"meditacion_hoy_{idx_nuevo}.mp3"
-                    ruta = os.path.join(CARPETA_MEDITACIONES, nombre_f)
-                    await client.download_media(target_msg, file=ruta)
                     info_cat = identificar_audio_catalogo(event.raw_text or "", nombre_archivo)
                     txt_horario, lbl_tarea = determinar_fecha_y_etiqueta_tarea(event.raw_text or "")
+                    es_para_hoy = "hoy" in txt_horario.lower()
 
-                    item_cola = {
-                        "ruta": ruta,
-                        "info": info_cat,
-                        "titulo": (info_cat or {}).get("titulo") or nombre_archivo or f"Audio #{idx_nuevo}"
-                    }
-                    cola_reproduccion.append(item_cola)
+                    if es_para_hoy:
+                        idx_nuevo = len(cola_reproduccion) + 1
+                        nombre_f = "meditacion_hoy.mp3" if idx_nuevo == 1 else f"meditacion_hoy_{idx_nuevo}.mp3"
+                        ruta = os.path.join(CARPETA_MEDITACIONES, nombre_f)
+                        await client.download_media(target_msg, file=ruta)
 
-                    if not reproduccion_iniciada and len(cola_reproduccion) == 1:
-                        ruta_meditacion = ruta
-                        info_catalogo_hoy = info_cat
+                        item_cola = {
+                            "ruta": ruta,
+                            "info": info_cat,
+                            "titulo": (info_cat or {}).get("titulo") or nombre_archivo or f"Audio #{idx_nuevo}"
+                        }
+                        cola_reproduccion.append(item_cola)
 
-                    if MEJORA_AUDIO:
-                        asyncio.create_task(preparar_audio_eq(ruta))
+                        if not reproduccion_iniciada and len(cola_reproduccion) == 1:
+                            ruta_meditacion = ruta
+                            info_catalogo_hoy = info_cat
 
-                    guardar_cola_hoy(cola_reproduccion)
-                    print(f"Nueva meditación recibida y guardada ({lbl_tarea}):", ruta)
+                        if MEJORA_AUDIO:
+                            asyncio.create_task(preparar_audio_eq(ruta))
 
-                    if info_cat:
-                        txt_card = formatear_info_audio(info_cat)
-                        await event.reply(f"✅ **Audio #{len(cola_reproduccion)} añadido a la lista de reproducción:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz (Total en cola: {len(cola_reproduccion)}).")
-                        avisar_con_bot(f"📢 **{lbl_tarea} registrada (Pista #{len(cola_reproduccion)}):**\n\n{txt_card}")
+                        guardar_cola_hoy(cola_reproduccion)
+                        print(f"Nueva meditación recibida y guardada para hoy ({lbl_tarea}):", ruta)
+
+                        if info_cat:
+                            txt_card = formatear_info_audio(info_cat)
+                            await event.reply(f"✅ **Audio #{len(cola_reproduccion)} añadido a la lista de reproducción de hoy:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz (Total en cola: {len(cola_reproduccion)}).")
+                            avisar_con_bot(f"📢 **{lbl_tarea} registrada (Pista #{len(cola_reproduccion)}):**\n\n{txt_card}")
+                        else:
+                            await event.reply(f"✅ Meditación recibida para hoy (Pista #{len(cola_reproduccion)}). Programada para reproducirse {txt_horario} en la sala de voz.")
                     else:
-                        await event.reply(f"✅ Meditación recibida (Pista #{len(cola_reproduccion)}). Programada para reproducirse {txt_horario} en la sala de voz.")
+                        ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_manana.mp3")
+                        await client.download_media(target_msg, file=ruta)
+                        item_manana = {
+                            "ruta": ruta,
+                            "info": info_cat,
+                            "titulo": (info_cat or {}).get("titulo") or nombre_archivo or "Audio para mañana"
+                        }
+                        guardar_cola_manana([item_manana])
+                        print(f"Nueva meditación recibida y guardada para mañana ({lbl_tarea}):", ruta)
+                        if info_cat:
+                            txt_card = formatear_info_audio(info_cat)
+                            await event.reply(f"✅ **Audio recibido y programado para mañana ({lbl_tarea}):**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz.\n*(La lista de reproducción de la sala de hoy se mantiene intacta).*")
+                            avisar_con_bot(f"📢 **{lbl_tarea} registrada:**\n\n{txt_card}")
+                        else:
+                            await event.reply(f"✅ Meditación recibida y programada para mañana ({lbl_tarea}). Reproducción: {txt_horario}.")
                 else:
                     items_cat = identificar_todos_los_audios(event.raw_text or "")
                     if items_cat:
                         txt_horario, lbl_tarea = determinar_fecha_y_etiqueta_tarea(event.raw_text or "")
-                        anadidos = []
+                        es_para_hoy = "hoy" in txt_horario.lower()
+                        descargados = []
                         for it in items_cat:
                             tipo = it.get("tipo", "MEDITACION")
                             try:
@@ -1963,25 +2085,32 @@ async def main() -> None:
                                 print(f"Detectado anuncio de {tipo} #{numero} en texto ({lbl_tarea}). Buscando en Google Drive...")
                                 r_drive = obtener_o_descargar_audio(tipo, numero)
                                 if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
-                                    item_cola = {
+                                    item_c = {
                                         "ruta": r_drive,
                                         "info": it,
                                         "titulo": it.get("titulo", f"{tipo} #{numero}")
                                     }
-                                    cola_reproduccion.append(item_cola)
-                                    anadidos.append(it)
+                                    descargados.append(item_c)
                                     if MEJORA_AUDIO:
                                         asyncio.create_task(preparar_audio_eq(r_drive))
 
-                        if anadidos:
-                            if not reproduccion_iniciada and len(cola_reproduccion) > 0:
-                                ruta_meditacion = cola_reproduccion[0]["ruta"]
-                                info_catalogo_hoy = cola_reproduccion[0].get("info")
+                        if descargados:
+                            if es_para_hoy:
+                                for it_c in descargados:
+                                    cola_reproduccion.append(it_c)
+                                if not reproduccion_iniciada and len(cola_reproduccion) > 0:
+                                    ruta_meditacion = cola_reproduccion[0]["ruta"]
+                                    info_catalogo_hoy = cola_reproduccion[0].get("info")
 
-                            guardar_cola_hoy(cola_reproduccion)
-                            txt_cola = formatear_cola_audios(cola_reproduccion)
-                            await event.reply(f"✅ **Audios obtenidos automáticamente desde Google Drive:**\n\n{txt_cola}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.")
-                            avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola}")
+                                guardar_cola_hoy(cola_reproduccion)
+                                txt_cola = formatear_cola_audios(cola_reproduccion)
+                                await event.reply(f"✅ **Audios obtenidos automáticamente desde Google Drive (Hoy):**\n\n{txt_cola}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.")
+                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola}")
+                            else:
+                                guardar_cola_manana(descargados)
+                                txt_cola_manana = formatear_cola_audios(descargados)
+                                await event.reply(f"✅ **Audios obtenidos desde Google Drive y programados para mañana ({lbl_tarea}):**\n\n{txt_cola_manana}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.\n*(La lista de reproducción de la sala de hoy se mantiene intacta).*")
+                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola_manana}")
 
         # Escuchar comandos por lenguaje natural de administradores en el grupo
         @client.on(events.NewMessage(chats=entidad))

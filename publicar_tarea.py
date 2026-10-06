@@ -5,7 +5,7 @@ import json
 import urllib.request
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, cargar_catalogo
+from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, cargar_catalogo, identificar_todos_los_audios
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
@@ -16,12 +16,18 @@ TG_API_HASH = os.environ.get("TG_API_HASH")
 TG_SESSION = os.environ.get("TG_SESSION")
 
 
-def extraer_fecha_de_texto(texto: str) -> str | None:
+def extraer_fecha_de_texto(texto: str, fecha_referencia: datetime = None) -> str | None:
     if not texto:
         return None
 
     tz_col = ZoneInfo("America/Bogota")
-    ahora = datetime.now(tz_col)
+    if fecha_referencia:
+        if fecha_referencia.tzinfo is None:
+            ahora = fecha_referencia.replace(tzinfo=tz_col)
+        else:
+            ahora = fecha_referencia.astimezone(tz_col)
+    else:
+        ahora = datetime.now(tz_col)
     t_lower = texto.lower()
 
     # 1. "mañana" / "manana"
@@ -86,7 +92,7 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_markup: dict = None) ->
         return False
 
 
-def generar_anuncio_tarea(info: dict, fecha_str: str = None) -> str:
+def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     tz_col = ZoneInfo("America/Bogota")
     ahora = datetime.now(tz_col)
     if not fecha_str:
@@ -101,16 +107,48 @@ def generar_anuncio_tarea(info: dict, fecha_str: str = None) -> str:
         except Exception:
             fecha_obj = ahora
 
+    es_hoy = fecha_obj.date() == ahora.date()
+    tiempo_palabra = "hoy" if es_hoy else "mañana" if fecha_obj.date() == (ahora + timedelta(days=1)).date() else f"el {fecha_str}"
+    cronograma_palabra = f"esta noche ({fecha_str})" if es_hoy else f"la noche del {fecha_str}"
+
+    if isinstance(info, list) and len(info) > 1:
+        bloques_items = []
+        for idx, it in enumerate(info, 1):
+            tipo_raw = str(it.get("tipo", "")).upper()
+            tipo = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
+            num = it.get("numero", "")
+            titulo = it.get("titulo", "")
+            maestro = it.get("maestro", "Alaniso")
+            fecha_orig = it.get("fecha_original") or it.get("fecha", "")
+            icono = "🧘" if tipo == "Meditación" else "📜"
+            bloques_items.append(
+                f"{idx}️⃣ {icono} **{tipo} #{num}:** «{titulo}»\n"
+                f"    👤 **Guía:** {maestro} | 📅 **Grabación original:** {fecha_orig}"
+            )
+        txt_items = "\n\n".join(bloques_items)
+        return (
+            f"🕊️ **TAREA DEL DÍA {fecha_str}** 🕊️\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Comunidad, {tiempo_palabra} ({fecha_str}) trabajaremos con las siguientes prácticas en secuencia:\n\n"
+            f"{txt_items}\n\n"
+            f"⏰ **Cronograma para {cronograma_palabra}:**\n"
+            f"• **7:56 PM:** Apertura de la sala de voz en Telegram.\n"
+            f"• **8:28 PM:** Oración y recogimiento en silencio (3 min).\n"
+            f"• **8:32 PM:** Reproducción en vivo secuencial de las pistas.\n\n"
+            f"🎧 *Los audios están disponibles en el grupo para su estudio previo.*"
+        )
+
+    if isinstance(info, list) and len(info) == 1:
+        info = info[0]
+    elif isinstance(info, list) and not info:
+        info = {}
+
     tipo_raw = str(info.get("tipo", "")).upper()
     tipo = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
     num = info.get("numero", "")
     titulo = info.get("titulo", "")
     maestro = info.get("maestro", "Guía Espiritual")
-    fecha_orig = info.get("fecha", "")
-
-    es_hoy = fecha_obj.date() == ahora.date()
-    tiempo_palabra = "hoy" if es_hoy else "mañana" if fecha_obj.date() == (ahora + timedelta(days=1)).date() else f"el {fecha_str}"
-    cronograma_palabra = f"esta noche ({fecha_str})" if es_hoy else f"la noche del {fecha_str}"
+    fecha_orig = info.get("fecha_original") or info.get("fecha", "")
 
     return (
         f"🕊️ **TAREA DEL DÍA {fecha_str}** 🕊️\n"
@@ -149,7 +187,7 @@ def obtener_info_bot() -> str:
     return ""
 
 
-def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_user: str = "", username_grupo: str = None, numero_tarea: int | str = None, tipo_tarea: str = None) -> dict:
+def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_user: str = "", username_grupo: str = None, numero_tarea: int | str = None, tipo_tarea: str = None, audios_lista: list = None) -> dict:
     if not bot_user:
         bot_user = obtener_info_bot()
 
@@ -175,9 +213,19 @@ def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_
         botones.append([{"text": "🎧 IR AL GRUPO 👆", "url": f"https://t.me/c/{clean_id}"}])
 
     if bot_user:
-        clean_tipo = "mensaje" if tipo_tarea and "MENSAJE" in str(tipo_tarea).upper() else "meditacion"
-        param_audio = f"audio_{clean_tipo}_{numero_tarea}" if numero_tarea else "audio"
-        botones.append([{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_user}?start={param_audio}"}])
+        if audios_lista and len(audios_lista) > 1:
+            for it in audios_lista:
+                t_str = "mensaje" if "MENSAJE" in str(it.get("tipo", "")).upper() else "meditacion"
+                n_str = it.get("numero", "")
+                t_nom = "MENSAJE" if t_str == "mensaje" else "MEDITACIÓN"
+                botones.append([{
+                    "text": f"📥 RECIBIR {t_nom} #{n_str} EN PRIVADO 🎧",
+                    "url": f"https://t.me/{bot_user}?start=audio_{t_str}_{n_str}"
+                }])
+        else:
+            clean_tipo = "mensaje" if tipo_tarea and "MENSAJE" in str(tipo_tarea).upper() else "meditacion"
+            param_audio = f"audio_{clean_tipo}_{numero_tarea}" if numero_tarea else "audio"
+            botones.append([{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_user}?start={param_audio}"}])
 
     return {"inline_keyboard": botones}
 
@@ -229,12 +277,18 @@ def buscar_id_audio_en_grupo(chat_id: int | str, numero: int | str = "") -> tupl
         return None, None
 
 
-def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: int | str = None) -> dict | None:
-    """Identifica el audio por número o texto y envía el anuncio oficial al grupo y privados."""
-    info = identificar_audio_catalogo(texto=parametro)
-    if not info:
+def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: int | str = None) -> dict | list | None:
+    """Identifica uno o varios audios por número o texto y envía el anuncio oficial al grupo y privados."""
+    items = identificar_todos_los_audios(texto=parametro)
+    if not items:
+        info_sing = identificar_audio_catalogo(texto=parametro)
+        if info_sing:
+            items = [info_sing]
+    if not items:
         print(f"No se encontró información en el catálogo para: {parametro}")
         return None
+
+    info = items[0]
 
     # Determinar la fecha provista por el administrador
     fecha_final = None
@@ -259,6 +313,8 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
     try:
         info_guardar = dict(info)
         info_guardar["fecha_tarea_admin"] = fecha_final
+        if len(items) > 1:
+            info_guardar["cola_audios"] = items
         if msg_id_audio:
             info_guardar["msg_id_audio"] = msg_id_audio
         with open(ruta_meta, "w", encoding="utf-8") as f:
@@ -279,15 +335,15 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
     except Exception as e_sync:
         pass
 
-    texto_anuncio = generar_anuncio_tarea(info, fecha_final)
+    texto_anuncio = generar_anuncio_tarea(items if len(items) > 1 else info, fecha_final)
     bot_username = obtener_info_bot()
-    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo')) if CHAT_ID else None
+    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items) if CHAT_ID else None
 
     # 1. Enviar al Grupo Principal con botón directo al audio
     if CHAT_ID:
         ok_grupo = enviar_mensaje(CHAT_ID, texto_anuncio, reply_markup=teclado)
         if ok_grupo:
-            print(f"Anuncio de la tarea #{info['numero']} ({fecha_final}) publicado en el grupo {CHAT_ID} con enlace directo al mensaje.")
+            print(f"Anuncio de la tarea ({fecha_final}) publicado en el grupo {CHAT_ID} con enlace directo al mensaje.")
         else:
             print(f"No se pudo publicar en el grupo {CHAT_ID}.")
     else:
@@ -303,21 +359,30 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
             for uid, datos in usuarios.items():
                 if str(uid) == str(CHAT_ID):
                     continue
-                texto_priv = (
-                    f"🕊️ **TAREA DEL DÍA {fecha_final}** 🕊️\n"
-                    f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
-                    f"🧘 **{info.get('tipo', 'MEDITACION').title()} #{info['numero']}:** «{info['titulo']}»\n"
-                    f"👤 **Guía:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
-                    f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
-                )
-                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'))
+                if len(items) > 1:
+                    txt_detalles = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)
+                    texto_priv = (
+                        f"🕊️ **TAREA DEL DÍA {fecha_final}** 🕊️\n"
+                        f"Hola **{datos.get('nombre', 'Compañero')}**, trabajaremos con:\n\n"
+                        f"{txt_detalles}\n\n"
+                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                    )
+                else:
+                    texto_priv = (
+                        f"🕊️ **TAREA DEL DÍA {fecha_final}** 🕊️\n"
+                        f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
+                        f"🧘 **{info.get('tipo', 'MEDITACION').title()} #{info['numero']}:** «{info['titulo']}»\n"
+                        f"👤 **Guía:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
+                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                    )
+                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items)
                 if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):
                     enviados_priv += 1
             print(f"Notificación privada enviada a {enviados_priv} miembros con botón al audio.")
         except Exception as e:
             print("Nota enviando a privados:", e)
 
-    return info
+    return items if len(items) > 1 else info
 
 
 if __name__ == "__main__":

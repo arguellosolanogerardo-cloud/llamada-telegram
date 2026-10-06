@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
-from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
+from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, identificar_todos_los_audios, formatear_cola_audios
 from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
@@ -1120,7 +1120,8 @@ def escuchar_comandos() -> None:
                     titulo_audio = audio_obj.get("title", "") if isinstance(audio_obj, dict) else ""
                     performer_audio = audio_obj.get("performer", "") if isinstance(audio_obj, dict) else ""
                     texto_busq = f"{texto} {nombre_archivo} {titulo_audio} {performer_audio}".strip()
-                    info_cat = identificar_audio_catalogo(texto=texto_busq, nombre_archivo=nombre_archivo)
+                    items_encontrados = identificar_todos_los_audios(texto=texto_busq, nombre_archivo=nombre_archivo)
+                    info_cat = items_encontrados[0] if items_encontrados else identificar_audio_catalogo(texto=texto_busq, nombre_archivo=nombre_archivo)
                     if info_cat:
                         f_id = audio_obj.get("file_id") if isinstance(audio_obj, dict) else None
                         num = info_cat["numero"]
@@ -1169,58 +1170,59 @@ def escuchar_comandos() -> None:
 
                             fecha_admin = extraer_fecha_de_texto(texto)
                             msg_id_audio_final = msg_id if audio_obj else None
+                            audios_procesados = []
 
-                            # Si no vino con audio físico, buscar y descargar automáticamente de Google Drive
-                            if not f_id:
-                                enviar_mensaje(chat_id, f"🔍 Buscando audio para {tipo_audio.title()} #{num}...", reply_to_message_id=msg_id)
-                                log_debug(f"Buscando audio para {tipo_audio} #{num}...")
-                                ruta_audio_desc = obtener_o_descargar_audio(tipo_audio, int(num))
-                                if ruta_audio_desc:
-                                    cap_audio = f"🧘 **{tipo_audio.title()} #{num}:** «{info_cat['titulo']}»\n👤 **Guía:** {info_cat['maestro']}\n🗓️ **Grabación:** {info_cat['fecha']}"
-                                    # 1. Enviar el archivo descargado directamente al chat que dio la orden
-                                    ok_a, m_id_a, f_id_a = enviar_audio(
-                                        chat_id,
-                                        ruta_audio_desc,
-                                        caption=cap_audio,
-                                        title=f"{tipo_audio.title()} #{num} - {info_cat['titulo']}",
-                                        performer=info_cat['maestro']
-                                    )
-                                    if ok_a:
-                                        msg_id_audio_final = m_id_a
-                                        f_id = f_id_a
+                            lista_a_procesar = items_encontrados if items_encontrados else [info_cat]
+                            for it_proc in lista_a_procesar:
+                                t_proc = it_proc.get("tipo", "MEDITACION")
+                                n_proc = it_proc.get("numero")
+                                fid_proc = f_id if (len(lista_a_procesar) == 1 and f_id) else it_proc.get("file_id")
 
-                            info_cat["file_id"] = f_id
-                            info_cat["msg_id_audio"] = msg_id_audio_final
-                            guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id_audio_final)
+                                # Si no vino con audio físico, buscar y descargar automáticamente de Google Drive
+                                if not fid_proc and n_proc:
+                                    enviar_mensaje(chat_id, f"🔍 Buscando audio para {t_proc.title()} #{n_proc}...", reply_to_message_id=msg_id)
+                                    log_debug(f"Buscando audio para {t_proc} #{n_proc}...")
+                                    ruta_audio_desc = obtener_o_descargar_audio(t_proc, int(n_proc))
+                                    if ruta_audio_desc:
+                                        cap_audio = f"🧘 **{t_proc.title()} #{n_proc}:** «{it_proc.get('titulo', '')}»\n👤 **Guía:** {it_proc.get('maestro', 'Alaniso')}\n🗓️ **Grabación:** {it_proc.get('fecha', '')}"
+                                        ok_a, m_id_a, f_id_a = enviar_audio(
+                                            chat_id,
+                                            ruta_audio_desc,
+                                            caption=cap_audio,
+                                            title=f"{t_proc.title()} #{n_proc} - {it_proc.get('titulo', '')}",
+                                            performer=it_proc.get('maestro', 'Alaniso')
+                                        )
+                                        if ok_a:
+                                            fid_proc = f_id_a
+                                            it_proc["file_id"] = f_id_a
+                                            it_proc["msg_id_audio"] = m_id_a
+                                            if not msg_id_audio_final:
+                                                msg_id_audio_final = m_id_a
+
+                                it_proc["file_id"] = fid_proc
+                                guardar_audio_registrado(it_proc, file_id=fid_proc, msg_id=it_proc.get("msg_id_audio"))
+                                audios_procesados.append(it_proc)
 
                             try:
                                 os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+                                info_guardar = dict(info_cat)
+                                info_guardar["fecha_tarea_admin"] = fecha_admin
+                                if len(audios_procesados) > 1:
+                                    info_guardar["cola_audios"] = audios_procesados
                                 with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
-                                    json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+                                    json.dump(info_guardar, fm, ensure_ascii=False, indent=2)
                             except Exception:
                                 pass
 
                             # 2. Enviar anuncio con botones al chat actual
-                            anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
-                            teclado_actual = armar_teclado_audio(chat_id, msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio)
+                            anuncio = generar_anuncio_tarea(audios_procesados if len(audios_procesados) > 1 else info_cat, fecha_admin)
+                            teclado_actual = armar_teclado_audio(chat_id, msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio, audios_lista=audios_procesados)
                             enviar_mensaje(chat_id, anuncio, reply_markup=teclado_actual)
 
                             # 3. Si la orden se dio en privado Y CHAT_ID del grupo está configurado, publicar también en el grupo
                             if chat_id > 0 and CHAT_ID and str(chat_id) != str(CHAT_ID):
                                 log_debug(f"Publicando copia de la tarea en el grupo {CHAT_ID}...")
-                                msg_id_grupo = None
-                                if f_id:
-                                    ok_g, m_id_g, _ = enviar_audio(
-                                        CHAT_ID,
-                                        f_id,
-                                        caption=f"🧘 **{tipo_audio.title()} #{num}:** «{info_cat['titulo']}»\n👤 **Guía:** {info_cat['maestro']}",
-                                        title=f"{tipo_audio.title()} #{num} - {info_cat['titulo']}",
-                                        performer=info_cat['maestro']
-                                    )
-                                    if ok_g:
-                                        msg_id_grupo = m_id_g
-
-                                teclado_grupo = armar_teclado_audio(CHAT_ID, msg_id_grupo or msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio)
+                                teclado_grupo = armar_teclado_audio(CHAT_ID, msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio, audios_lista=audios_procesados)
                                 enviar_mensaje(CHAT_ID, anuncio, reply_markup=teclado_grupo)
 
                             # 4. Enviar notificación privada a miembros registrados
@@ -1239,13 +1241,22 @@ def escuchar_comandos() -> None:
                             for u_id, datos in usuarios.items():
                                 if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
                                     continue
-                                txt_priv = (
-                                    f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                    f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
-                                    f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                    f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
-                                    f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
-                                )
+                                if len(audios_procesados) > 1:
+                                    txt_items_p = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in audios_procesados)
+                                    txt_priv = (
+                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                        f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
+                                        f"{txt_items_p}\n\n"
+                                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                    )
+                                else:
+                                    txt_priv = (
+                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                        f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
+                                        f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                        f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
+                                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                    )
                                 enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
 
                 # Petición de audio en lenguaje natural (ej: "¿Tienes el mensaje 989?", "meditación 21")

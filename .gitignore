@@ -19,6 +19,8 @@ data/meditaciones/*.mp3
 data/meditaciones/*.wav
 data/meditaciones/*.png
 data/meditaciones/cola_hoy.json
+data/meditaciones/cola_manana.json
+data/meditaciones/meta_manana.json
 data/asistencias/*.png
 data/actas/*.pdf
 *demucs_cache/
