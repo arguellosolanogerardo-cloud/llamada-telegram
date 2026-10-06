@@ -149,7 +149,51 @@ def cargar_puntos() -> dict:
     return {"version": 2, "usuarios": {}}
 
 
-def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "") -> str:
+_ADMIN_IDS_CACHE = set()
+_ADMIN_IDS_TIMESTAMP = 0
+
+
+def obtener_admin_ids() -> set:
+    global _ADMIN_IDS_CACHE, _ADMIN_IDS_TIMESTAMP
+    ahora = time.time()
+    if _ADMIN_IDS_CACHE and (ahora - _ADMIN_IDS_TIMESTAMP < 300):
+        return _ADMIN_IDS_CACHE
+
+    admins = set()
+    env_admins = os.environ.get("ADMIN_IDS", "") or os.environ.get("ADMIN_ID", "")
+    for aid_str in env_admins.replace(",", " ").split():
+        if aid_str.strip().isdigit():
+            admins.add(int(aid_str.strip()))
+
+    if BOT_TOKEN and CHAT_ID:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={CHAT_ID}"
+            req = urllib.request.Request(url, headers={"User-Agent": "BotComandos"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read().decode())
+                if data.get("ok"):
+                    for item in data.get("result", []):
+                        u = item.get("user", {})
+                        if u.get("id"):
+                            admins.add(int(u["id"]))
+        except Exception as e:
+            print("Nota obteniendo getChatAdministrators:", e)
+
+    _ADMIN_IDS_CACHE = admins
+    _ADMIN_IDS_TIMESTAMP = ahora
+    return admins
+
+
+def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "", es_admin: bool = False) -> str:
+    if es_admin:
+        nombre = user_nombre or "Administrador"
+        return (
+            f"👑 **PERFIL DE MODERACIÓN: {nombre}**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🛡️ **Rol:** Administrador / Moderador de la Sala\n\n"
+            "ℹ️ *Los administradores y moderadores están exentos del sistema de puntos y no participan en los rankings ni podios de puntualidad, garantizando una competencia justa y transparente para toda la comunidad.*"
+        )
+
     usuarios = db_puntos.get("usuarios", {})
     u = usuarios.get(str(user_id))
     if not u:
@@ -181,12 +225,22 @@ def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "")
     )
 
 
-def generar_texto_ranking(db_puntos: dict) -> str:
+def generar_texto_ranking(db_puntos: dict, admin_ids: set = None) -> str:
     usuarios = db_puntos.get("usuarios", {})
     if not usuarios:
         return "🏆 **Ranking Mensual:** Aún no hay registros de asistencia este mes."
 
-    top = sorted(usuarios.values(), key=lambda x: x.get("puntos_mes", x.get("puntos_totales", 0)), reverse=True)[:10]
+    if admin_ids is None:
+        admin_ids = obtener_admin_ids()
+
+    usuarios_filtrados = [
+        u for u in usuarios.values()
+        if int(u.get("id", 0)) not in admin_ids
+    ]
+    if not usuarios_filtrados:
+        return "🏆 **Ranking Mensual:** Aún no hay registros de participantes de la comunidad este mes."
+
+    top = sorted(usuarios_filtrados, key=lambda x: x.get("puntos_mes", x.get("puntos_totales", 0)), reverse=True)[:10]
     lineas = [
         "🏆 **TOP 10 DE ASISTENCIA Y PUNTOS (ESTE MES)** 🏆",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -220,10 +274,12 @@ def generar_texto_reglas() -> str:
         "🔥 **RACHAS:**\n"
         "• Asistir días seguidos: **+5 pts extra por día consecutivo**\n\n"
         "🏅 **MEDALLAS ESPECIALES:**\n"
-        "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 3 primeros).\n"
+        "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 9 de puntualidad).\n"
         "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
         "• 🧘 *Mente Serena:* Completar 10 meditaciones en el mes.\n"
         "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
+        "👑 **ADMINISTRADORES Y MODERADORES:**\n"
+        "• Los administradores y moderadores están exentos del sistema de puntos y no entran en el ranking ni en el podio de puntualidad, garantizando una competencia justa para todos los miembros de la comunidad.\n\n"
         "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
         "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
         "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
@@ -761,10 +817,12 @@ def escuchar_comandos() -> None:
                 db = cargar_puntos()
 
                 if cmd in ("/puntos", "/miperfil"):
-                    resp = generar_texto_miperfil(user_id, db, nombre)
+                    admins_set = obtener_admin_ids()
+                    resp = generar_texto_miperfil(user_id, db, nombre, es_admin=(user_id in admins_set))
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/ranking", "/top") or (cmd == "/start" and param == "ranking"):
-                    resp = generar_texto_ranking(db)
+                    admins_set = obtener_admin_ids()
+                    resp = generar_texto_ranking(db, admin_ids=admins_set)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and param == "audio"):
                     param_texto = " ".join(partes[1:]).strip() if (len(partes) > 1 and param != "audio") else ""

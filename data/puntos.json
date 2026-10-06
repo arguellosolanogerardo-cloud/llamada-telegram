@@ -1,27 +1,7 @@
 {
   "version": 1,
   "actualizado": "2026-10-05",
-  "usuarios": {
-    "8204833441": {
-      "id": 8204833441,
-      "nombre": "Gerardo ARGUELLO",
-      "username": "gerardoarguello",
-      "puntos_mes": 95,
-      "puntos_totales": 95,
-      "racha_actual": 1,
-      "mejor_racha": 1,
-      "racha_podio": 1,
-      "racha_voz": 1,
-      "asistencias_mes": 1,
-      "asistencias_totales": 1,
-      "minutos_mes": 50,
-      "minutos_totales": 50,
-      "meditaciones_mes": 0,
-      "meditaciones_totales": 0,
-      "medallas": [],
-      "ultima_fecha": "2026-10-05"
-    }
-  },
+  "usuarios": {},
   "mes_actual": "2026-10",
   "total_llamadas_mes": 2
 }
