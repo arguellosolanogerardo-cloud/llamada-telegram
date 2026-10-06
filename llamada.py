@@ -1768,6 +1768,7 @@ async def main() -> None:
                             "primera_entrada": f_ent,
                             "ultima_salida": ahora,
                             "segundos_acumulados": 0.0,
+                            "segundos_hablando": 0.0,
                             "activo_ahora": True,
                             "ultimo_check": ahora,
                             "reconexiones": 0,
@@ -1826,6 +1827,7 @@ async def main() -> None:
                         "primera_entrada": f_ent,
                         "ultima_salida": ahora,
                         "segundos_acumulados": 0.0,
+                        "segundos_hablando": 0.0,
                         "activo_ahora": True,
                         "ultimo_check": ahora,
                         "reconexiones": 0,
@@ -1843,6 +1845,7 @@ async def main() -> None:
 
                 if hablo_ahora:
                     participantes[uid]["hablo"] = True
+                    participantes[uid]["segundos_hablando"] = participantes[uid].get("segundos_hablando", 0.0) + INTERVALO_SONDEO_SEGUNDOS
 
                 p_muted = getattr(p, "muted", True)
 
@@ -2211,17 +2214,19 @@ async def main() -> None:
             writer = csv.writer(f)
             writer.writerow([
                 "ID", "Nombre", "Usuario", "Entrada", "Salida", "Minutos",
-                "% Reunion", "Hablo", "Meditacion", "Reconexiones", "Puntos Hoy",
+                "% Reunion", "Hablo", "Minutos Voz", "Meditacion", "Reconexiones", "Puntos Hoy",
                 "Puntos Mes", "Puntos Totales", "Rango", "Medallas"
             ])
             for part in asistentes_validos:
                 u_info = usuarios_db.get(str(part["id"]), {})
+                mins_voz = round(part.get("segundos_hablando", 0.0) / 60.0, 1)
                 writer.writerow([
                     part["id"], part["nombre"], f"@{part['username']}" if part["username"] else "",
                     part["primera_entrada"].strftime("%I:%M:%S %p"),
                     part["ultima_salida"].strftime("%I:%M:%S %p"),
                     part["minutos"], f"{part['porcentaje']}%",
                     "Si" if part["hablo"] else "No",
+                    mins_voz,
                     "Si" if part.get("meditacion_completada") else "No",
                     part["reconexiones"],
                     part.get("pts_hoy", 0), part.get("pts_mes", 0),
@@ -2229,12 +2234,15 @@ async def main() -> None:
                     " / ".join(u_info.get("medallas", []))
                 ])
             for part in visitas_fugaces:
+                mins_voz = round(part.get("segundos_hablando", 0.0) / 60.0, 1)
                 writer.writerow([
                     part["id"], part["nombre"], f"@{part['username']}" if part["username"] else "",
                     part["primera_entrada"].strftime("%I:%M:%S %p"),
                     part["ultima_salida"].strftime("%I:%M:%S %p"),
                     part["minutos"], f"{part['porcentaje']}%",
-                    "Si" if part["hablo"] else "No", "No", part["reconexiones"],
+                    "Si" if part["hablo"] else "No",
+                    mins_voz,
+                    "No", part["reconexiones"],
                     0, 0, usuarios_db.get(str(part["id"]), {}).get("puntos_totales", 0), "Visita Fugaz", ""
                 ])
 
@@ -2317,7 +2325,7 @@ async def main() -> None:
         avisar_con_bot(reporte_publico)
 
         # Enviar notificación privada personalizada a cada asistente de la comunidad (excluye administradores)
-        if BOT_TOKEN and asistentes_validos:
+        if BOT_TOKEN:
             print("Enviando resúmenes individuales privados a asistentes...")
             for p in asistentes_validos:
                 if p["id"] in admin_ids:
@@ -2326,8 +2334,15 @@ async def main() -> None:
                     meds_p = p.get("nuevas_medallas", [])
                     txt_nuevas_meds = f"\n🎖️ **¡Nueva medalla desbloqueada!** {', '.join(meds_p)}" if meds_p else ""
                     reconex = p.get("reconexiones", 0)
-                    txt_diagnostico_red = ""
-                    if reconex >= 2:
+
+                    if reconex == 0:
+                        txt_calidad_senal = "🟢 **Excelente (100% estable, 0 caídas)**"
+                        txt_diagnostico_red = ""
+                    elif reconex == 1:
+                        txt_calidad_senal = "🟡 **Buena (1 micro-desconexión breve)**"
+                        txt_diagnostico_red = ""
+                    else:
+                        txt_calidad_senal = f"⚠️ **Inestable ({reconex} micro-desconexiones)**"
                         if hubo_caida_masiva_sala:
                             txt_diagnostico_red = (
                                 f"\n\n📡 **Estabilidad de llamada:** Detectamos **{reconex} reconexiones** en tu sesión. "
@@ -2336,16 +2351,31 @@ async def main() -> None:
                         else:
                             txt_diagnostico_red = (
                                 f"\n\n⚠️ **ESTABILIDAD DE TU CONEXIÓN:**\n"
-                                f"Registraste **{reconex} micro-desconexiones** (mientras el resto de la sala se mantuvo 100% estable).\n\n"
-                                f"💡 **¿Telegram te saca de la llamada frecuentemente? Prueba esto:**\n"
-                                f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (así tu celular no cerrará la llamada al apagar la pantalla).\n"
+                                f"Registraste **{reconex} salidas de la sala** (mientras el resto de la comunidad se mantuvo estable).\n\n"
+                                f"💡 **¿Telegram te saca frecuentemente de la llamada? Sigue estos pasos:**\n"
+                                f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (evita que el celular cierre la llamada al apagar la pantalla).\n"
                                 f"2. 📶 **Señal:** Procura no alternar entre WiFi y datos móviles durante la reunión.\n"
                                 f"3. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_."
                             )
+
+                    seg_hablo = p.get("segundos_hablando", 0.0)
+                    if p.get("hablo") or seg_hablo > 0:
+                        if seg_hablo >= 60:
+                            txt_uso_mic = f"🎙️ Participaste al micrófono: **{round(seg_hablo / 60.0, 1)} min**"
+                        else:
+                            txt_uso_mic = f"🎙️ Participaste al micrófono: **{max(1, round(seg_hablo))} seg**"
+                    else:
+                        txt_uso_mic = "🎧 Oyente en silencio (escucha activa y respetuosa)"
+
+                    txt_meditacion_ind = "• Meditación diaria: **🧘 Completada con éxito**\n" if p.get("meditacion_completada") else ""
+
                     txt_privado_usuario = (
                         f"👋 ¡Hola **{p['nombre']}**!\n\n"
                         f"🎉 **Resumen de tu llamada de hoy:**\n"
                         f"• Tiempo conectado: **{p['minutos']} min** ({p['porcentaje']}% de la sesión)\n"
+                        f"• Calidad de tu conexión: {txt_calidad_senal}\n"
+                        f"• Participación de voz: {txt_uso_mic}\n"
+                        f"{txt_meditacion_ind}"
                         f"• Puntos sumados hoy: **+{p['pts_hoy']} pts**\n"
                         f"  _{p['desglose']}_\n"
                         f"• Puntos del mes: **{p['pts_mes']} pts** (Histórico: {p['pts_totales']})\n"
@@ -2367,6 +2397,40 @@ async def main() -> None:
                 except Exception:
                     pass
 
+            # Enviar reporte de conexión a usuarios de visitas fugaces (<10 min) que sufrieron caídas
+            for p in visitas_fugaces:
+                if p["id"] in admin_ids:
+                    continue
+                reconex = p.get("reconexiones", 0)
+                if reconex >= 1 or p["minutos"] >= 1:
+                    try:
+                        seg_hablo = p.get("segundos_hablando", 0.0)
+                        txt_mic_fugaz = f"• Micrófono: **{round(seg_hablo)} seg**\n" if seg_hablo > 0 else ""
+                        txt_visita_red = (
+                            f"👋 ¡Hola **{p['nombre']}**!\n\n"
+                            f"📡 **Reporte de conexión de la llamada de hoy:**\n"
+                            f"• Tiempo en sala: **{p['minutos']} min** ({p['porcentaje']}% de la reunión)\n"
+                            f"• Desconexiones registradas: **{reconex} salidas de la sala**\n"
+                            f"{txt_mic_fugaz}"
+                            f"⚠️ Notamos que tu llamada se interrumpió y no lograste alcanzar los 10 minutos mínimos para sumar puntos hoy.\n\n"
+                            f"💡 **¿Telegram te saca frecuentemente de la llamada? Sigue estos 3 pasos:**\n"
+                            f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (evita que el celular cierre la llamada al apagar la pantalla).\n"
+                            f"2. 📶 **Señal:** Procura no alternar entre WiFi y datos móviles durante la llamada.\n"
+                            f"3. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_.\n\n"
+                            f"✨ ¡Te esperamos mañana a las 7:56 PM para compartir juntos!"
+                        )
+                        url_usr = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                        datos_usr = json.dumps({
+                            "chat_id": p["id"],
+                            "text": txt_visita_red,
+                            "parse_mode": "Markdown",
+                        }).encode()
+                        req_usr = urllib.request.Request(url_usr, data=datos_usr, headers={"Content-Type": "application/json"})
+                        with urllib.request.urlopen(req_usr, timeout=5) as r:
+                            pass
+                    except Exception:
+                        pass
+
         # Reporte Privado para el Dueño
         med_detalle = 'Sí' if meditacion_activa_hoy else 'No'
         if meditacion_activa_hoy and info_catalogo_hoy:
@@ -2383,13 +2447,23 @@ async def main() -> None:
         ]
         for i, p in enumerate(asistentes_validos, start=1):
             tag = f"@{p['username']}" if p['username'] else "Sin alias"
-            mic = "🎙️ Habló activamente" if p["hablo"] else "🎧 Solo oyente"
+            seg_hablo = p.get("segundos_hablando", 0.0)
+            if seg_hablo >= 60:
+                mic = f"🎙️ Habló {round(seg_hablo / 60.0, 1)} min"
+            elif seg_hablo > 0:
+                mic = f"🎙️ Habló {max(1, round(seg_hablo))}s"
+            else:
+                mic = "🎧 Solo oyente"
             med_txt = " | 🧘 Asistió a meditación" if p.get("meditacion_completada") else ""
             u_info = usuarios_db.get(str(p["id"]), {})
             meds_txt = ", ".join(u_info.get("medallas", [])) or "Ninguna"
             caidas_tag = ""
             if p.get("reconexiones", 0) >= 2:
                 caidas_tag = " [⚠️ Celular/Red del usuario]" if not hubo_caida_masiva_sala else " [⚡ Telegram global]"
+            elif p.get("reconexiones", 0) == 1:
+                caidas_tag = " [Estable]"
+            else:
+                caidas_tag = " [100% fluido]"
             lineas_priv.append(
                 f"{i}. **{p['nombre']}** (ID: `{p['id']}` | {tag})\n"
                 f"   • Conexión: {p['primera_entrada'].strftime('%I:%M:%S %p')} ➔ {p['ultima_salida'].strftime('%I:%M:%S %p')}\n"
@@ -2403,7 +2477,10 @@ async def main() -> None:
             lineas_priv.append(f"⚠️ **VISITAS FUGACES (<{MIN_MINUTOS_ASISTENCIA} min):**")
             for p in visitas_fugaces:
                 tag = f"@{p['username']}" if p['username'] else "Sin alias"
-                lineas_priv.append(f"• {p['nombre']} (ID: `{p['id']}` | {tag}) — {p['minutos']} min (Salió {p['ultima_salida'].strftime('%I:%M:%S %p')})")
+                caidas_f = f" | Caídas: {p['reconexiones']}" if p.get("reconexiones", 0) else ""
+                seg_hablo = p.get("segundos_hablando", 0.0)
+                voz_f = f" | 🎙️ {round(seg_hablo)}s" if seg_hablo > 0 else ""
+                lineas_priv.append(f"• {p['nombre']} (ID: `{p['id']}` | {tag}) — {p['minutos']} min{caidas_f}{voz_f} (Salió {p['ultima_salida'].strftime('%I:%M:%S %p')})")
 
         lineas_priv.append(f"\n📎 Se generó el archivo de auditoría: `{ruta_csv}`")
         reporte_privado = "\n".join(lineas_priv)
