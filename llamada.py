@@ -8,6 +8,7 @@ import os
 import random
 import struct
 import subprocess
+import shutil
 import urllib.request
 import wave
 from zoneinfo import ZoneInfo
@@ -30,6 +31,7 @@ from ia_resumen import generar_resumen_ia, guardar_minuta, buscar_en_minutas, ob
 from generador_acta import generar_acta_pdf
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio
 from publicar_tarea import extraer_fecha_de_texto
+from drive_manager import obtener_o_descargar_audio
 
 try:
     from pytgcalls import PyTgCalls
@@ -560,59 +562,126 @@ async def obtener_full_chat(client, entidad):
 
 
 async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | None, dict | None]:
-    """Busca en los últimos 60 mensajes del grupo un audio de tarea publicado por administradores."""
+    """
+    Busca el audio de la tarea de hoy:
+    1. En los últimos 60 mensajes del grupo (audio adjunto subido por administradores).
+    2. Si no hay archivo adjunto en Telegram pero hay un anuncio de tarea (o meta_hoy.json),
+       lo descarga automáticamente desde Google Drive sin requerir intervención manual.
+    """
     try:
+        os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+        ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+        info_cat_anuncio = None
+
+        # Revisar si ya existe meta_hoy.json guardado previamente
+        if os.path.exists(ruta_meta):
+            try:
+                with open(ruta_meta, "r", encoding="utf-8") as fm:
+                    meta_guardada = json.load(fm)
+                if meta_guardada.get("numero") and meta_guardada.get("tipo"):
+                    info_cat_anuncio = meta_guardada
+            except Exception:
+                pass
+
+        audio_msg = None
+        nombre_archivo_tg = ""
+
+        # Escanear los últimos 60 mensajes del chat
         async for msg in client.iter_messages(entidad, limit=60):
+            texto = (msg.raw_text or "").upper()
             sender_id = msg.sender_id
-            if sender_id not in admin_ids:
+            es_de_admin = sender_id in admin_ids
+            es_anuncio_tarea = any(k in texto for k in ["TAREA DEL DÍA", "TAREA DEL DIA", "MEDITACION #", "MEDITACIÓN #", "MENSAJE #"])
+
+            if not (es_de_admin or es_anuncio_tarea):
                 continue
 
-            texto = (msg.raw_text or "").upper()
-            if any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
-                target_msg = msg
-                es_audio = False
-                nombre_archivo = ""
-                if target_msg.audio or target_msg.voice:
-                    es_audio = True
-                    nombre_archivo = getattr(target_msg.audio, "file_name", "") or getattr(target_msg.voice, "file_name", "") or ""
-                elif target_msg.document and (
-                    (target_msg.document.mime_type and "audio" in target_msg.document.mime_type)
-                    or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(target_msg.document, "attributes", []))
-                ):
-                    es_audio = True
-                    for a in getattr(target_msg.document, "attributes", []):
-                        if getattr(a, "file_name", ""):
-                            nombre_archivo = getattr(a, "file_name", "")
-                elif target_msg.is_reply:
-                    reply = await target_msg.get_reply_message()
-                    if reply and (reply.audio or reply.voice or (reply.document and (
-                        (reply.document.mime_type and "audio" in reply.document.mime_type)
-                        or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(reply.document, "attributes", []))
-                    ))):
-                        target_msg = reply
-                        es_audio = True
-                        if target_msg.document:
-                            for a in getattr(target_msg.document, "attributes", []):
-                                if getattr(a, "file_name", ""):
-                                    nombre_archivo = getattr(a, "file_name", "")
+            target_msg = msg
+            es_audio = False
+            nombre_archivo = ""
 
-                if es_audio:
-                    os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
-                    ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
-                    print(f"Descargando audio de meditación del mensaje ID {target_msg.id}...")
-                    await client.download_media(target_msg, file=ruta)
-                    print("Audio de meditación descargado exitosamente en:", ruta)
-                    info_cat = identificar_audio_catalogo(msg.raw_text or "", nombre_archivo)
-                    if info_cat:
-                        try:
-                            ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
-                            with open(ruta_meta, "w", encoding="utf-8") as fm:
-                                json.dump(info_cat, fm, ensure_ascii=False, indent=2)
-                        except Exception:
-                            pass
-                    return ruta, info_cat
+            if target_msg.audio or target_msg.voice:
+                es_audio = True
+                nombre_archivo = getattr(target_msg.audio, "file_name", "") or getattr(target_msg.voice, "file_name", "") or ""
+            elif target_msg.document and (
+                (target_msg.document.mime_type and "audio" in target_msg.document.mime_type)
+                or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(target_msg.document, "attributes", []))
+            ):
+                es_audio = True
+                for a in getattr(target_msg.document, "attributes", []):
+                    if getattr(a, "file_name", ""):
+                        nombre_archivo = getattr(a, "file_name", "")
+            elif target_msg.is_reply:
+                reply = await target_msg.get_reply_message()
+                if reply and (reply.audio or reply.voice or (reply.document and (
+                    (reply.document.mime_type and "audio" in reply.document.mime_type)
+                    or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(reply.document, "attributes", []))
+                ))):
+                    target_msg = reply
+                    es_audio = True
+                    if target_msg.document:
+                        for a in getattr(target_msg.document, "attributes", []):
+                            if getattr(a, "file_name", ""):
+                                nombre_archivo = getattr(a, "file_name", "")
+
+            # Si encontramos un archivo de audio físico en Telegram
+            if es_audio and not audio_msg:
+                audio_msg = target_msg
+                nombre_archivo_tg = nombre_archivo
+                info_audio = identificar_audio_catalogo(msg.raw_text or "", nombre_archivo)
+                if info_audio:
+                    info_cat_anuncio = info_audio
+
+            # Si encontramos el anuncio de la tarea en texto pero aún no tenemos info
+            if not info_cat_anuncio and any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
+                info_cat_texto = identificar_audio_catalogo(msg.raw_text or "")
+                if info_cat_texto:
+                    info_cat_anuncio = info_cat_texto
+
+            # Si ya encontramos audio físico e info del catálogo, no necesitamos seguir buscando
+            if audio_msg and info_cat_anuncio:
+                break
+
+        # Caso 1: Se encontró archivo de audio físico adjunto en Telegram
+        if audio_msg:
+            ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
+            print(f"Descargando audio de meditación desde mensaje de Telegram ID {audio_msg.id}...")
+            await client.download_media(audio_msg, file=ruta)
+            print("Audio de meditación descargado exitosamente de Telegram en:", ruta)
+            if not info_cat_anuncio:
+                info_cat_anuncio = identificar_audio_catalogo(audio_msg.raw_text or "", nombre_archivo_tg)
+            if info_cat_anuncio:
+                try:
+                    with open(ruta_meta, "w", encoding="utf-8") as fm:
+                        json.dump(info_cat_anuncio, fm, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+            return ruta, info_cat_anuncio
+
+        # Caso 2: No se subió archivo a Telegram, pero tenemos la tarea anunciada -> Descargar de Google Drive
+        if info_cat_anuncio and info_cat_anuncio.get("numero") and info_cat_anuncio.get("tipo"):
+            tipo = info_cat_anuncio["tipo"]
+            numero = int(info_cat_anuncio["numero"])
+            print(f"Buscando audio de {tipo} #{numero} en Google Drive...")
+            ruta_drive = obtener_o_descargar_audio(tipo, numero)
+            if ruta_drive and os.path.exists(ruta_drive) and os.path.getsize(ruta_drive) > 5000:
+                ruta_final = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
+                if os.path.abspath(ruta_drive) != os.path.abspath(ruta_final):
+                    shutil.copyfile(ruta_drive, ruta_final)
+                else:
+                    ruta_final = ruta_drive
+
+                print(f"✅ Audio de {tipo} #{numero} descargado automáticamente desde Google Drive: {ruta_final}")
+                try:
+                    with open(ruta_meta, "w", encoding="utf-8") as fm:
+                        json.dump(info_cat_anuncio, fm, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+                return ruta_final, info_cat_anuncio
+
     except Exception as e:
         print("Nota buscando audio de meditación:", e)
+
     return None, None
 
 
@@ -1291,6 +1360,38 @@ async def main() -> None:
                         avisar_con_bot(f"📢 **{lbl_tarea} registrada:**\n\n{txt_card}")
                     else:
                         await event.reply(f"✅ Meditación recibida. Programada para reproducirse {txt_horario} en la sala de voz.")
+                else:
+                    info_cat = identificar_audio_catalogo(event.raw_text or "", "")
+                    if info_cat and info_cat.get("numero") and info_cat.get("tipo"):
+                        tipo = info_cat["tipo"]
+                        try:
+                            numero = int(info_cat["numero"])
+                        except (ValueError, TypeError):
+                            numero = None
+                        if numero:
+                            txt_horario, lbl_tarea = determinar_fecha_y_etiqueta_tarea(event.raw_text or "")
+                            print(f"Detectado anuncio de tarea en texto ({lbl_tarea}). Buscando en Google Drive...")
+                            r_drive = obtener_o_descargar_audio(tipo, numero)
+                            if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
+                                os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+                                ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
+                                if os.path.abspath(r_drive) != os.path.abspath(ruta):
+                                    shutil.copyfile(r_drive, ruta)
+                                else:
+                                    ruta = r_drive
+                                if not reproduccion_iniciada and "hoy" in txt_horario:
+                                    ruta_meditacion = ruta
+                                    info_catalogo_hoy = info_cat
+                                print(f"Audio descargado de Google Drive para ({lbl_tarea}):", ruta)
+                                try:
+                                    ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+                                    with open(ruta_meta, "w", encoding="utf-8") as fm:
+                                        json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+                                except Exception:
+                                    pass
+                                txt_card = formatear_info_audio(info_cat)
+                                await event.reply(f"✅ **Audio obtenido automáticamente desde Google Drive:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz.")
+                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_card}")
 
         # Escuchar comandos por lenguaje natural de administradores en el grupo
         @client.on(events.NewMessage(chats=entidad))
@@ -1375,6 +1476,11 @@ async def main() -> None:
             # Alerta preventiva a las 8:15 PM si aún no se ha subido el audio
             if hora_col == 20 and min_col == 15 and not alerta_falta_audio_enviada:
                 alerta_falta_audio_enviada = True
+                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                    try:
+                        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
+                    except Exception as e:
+                        print("Nota re-buscando audio a las 8:15 PM:", e)
                 if not ruta_meditacion or not os.path.exists(ruta_meditacion):
                     try:
                         await client.send_message(
@@ -1467,6 +1573,12 @@ async def main() -> None:
                 else:
                     prefijo = ""
 
+                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                    try:
+                        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
+                    except Exception as e:
+                        print("Nota re-buscando audio a las 8:31 PM:", e)
+
                 if ruta_meditacion and os.path.exists(ruta_meditacion):
                     if info_catalogo_hoy:
                         txt_alerta_med = (
@@ -1486,9 +1598,15 @@ async def main() -> None:
                     avisar_con_bot(f"{prefijo}Los micrófonos han sido habilitados para la comunidad.")
 
             # 8:32 PM: Reproducción automática de la meditación
-            if hora_col == 20 and min_col >= 32 and not reproduccion_iniciada and ruta_meditacion and os.path.exists(ruta_meditacion):
-                reproduccion_iniciada = True
-                await reproducir_meditacion()
+            if hora_col == 20 and min_col >= 32 and not reproduccion_iniciada:
+                if not ruta_meditacion or not os.path.exists(ruta_meditacion):
+                    try:
+                        ruta_meditacion, info_catalogo_hoy = await buscar_audio_meditacion(client, entidad, admin_ids)
+                    except Exception as e:
+                        print("Nota re-buscando audio a las 8:32 PM:", e)
+                if ruta_meditacion and os.path.exists(ruta_meditacion):
+                    reproduccion_iniciada = True
+                    await reproducir_meditacion()
 
             try:
                 call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
