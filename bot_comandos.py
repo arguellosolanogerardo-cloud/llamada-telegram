@@ -112,9 +112,11 @@ def eliminar_mensaje(chat_id: int | str, message_id: int | str) -> bool:
 
 def limpiar_sala_notificaciones(chat_id: int | str) -> int:
     """Borra notificaciones y ventanas creadas por el robot en la sala."""
+    log_debug(f"Iniciando limpiar_sala_notificaciones para chat {chat_id}")
     borrados = 0
     # 1. Borrar mensajes registrados del bot
     msgs = cargar_msgs_bot()
+    log_debug(f"Mensajes registrados en json: {len(msgs)}")
     if msgs:
         for mid in list(msgs):
             if eliminar_mensaje(chat_id, mid):
@@ -127,6 +129,7 @@ def limpiar_sala_notificaciones(chat_id: int | str) -> int:
             pass
 
     # 2. Si cuenta con credenciales Telethon (TG_SESSION), realizar escaneo profundo
+    log_debug(f"Verificando Telethon: TG_SESSION={bool(TG_SESSION)}, TG_API_ID={bool(TG_API_ID)}, TG_API_HASH={bool(TG_API_HASH)}")
     if TG_SESSION and TG_API_ID and TG_API_HASH:
         try:
             from telethon import TelegramClient
@@ -140,17 +143,26 @@ def limpiar_sala_notificaciones(chat_id: int | str) -> int:
                     except ValueError:
                         dest = chat_id
                     entidad = await client.get_entity(dest)
+                    me = await client.get_me()
+                    my_id = me.id if me else None
+                    bot_id = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
                     ids_del = []
-                    async for m in client.iter_messages(entidad, limit=120):
+                    async for m in client.iter_messages(entidad, limit=150):
                         es_bot = False
-                        if getattr(m, "out", False):
+                        if getattr(m, "out", False) or (my_id and m.sender_id == my_id):
+                            es_bot = True
+                        elif bot_id and (m.sender_id == bot_id or getattr(m, "via_bot_id", None) == bot_id):
+                            es_bot = True
+                        elif getattr(m, "reply_markup", None) is not None:
+                            # Solo bots pueden tener inline keyboards en un grupo
                             es_bot = True
                         elif getattr(m, "sender", None) and getattr(m.sender, "bot", False):
                             es_bot = True
-                        elif getattr(m, "via_bot_id", None):
-                            es_bot = True
+
                         if es_bot:
                             ids_del.append(m.id)
+
+                    log_debug(f"Telethon encontro {len(ids_del)} mensajes de bot/ventanas para borrar.")
                     if ids_del:
                         for k in range(0, len(ids_del), 100):
                             await client.delete_messages(entidad, ids_del[k:k+100])
@@ -183,6 +195,7 @@ def limpiar_sala_notificaciones(chat_id: int | str) -> int:
         except Exception as e:
             log_debug(f"Nota disparando GitHub Actions: {e}")
 
+    log_debug(f"Total mensajes borrados por limpiar_sala_notificaciones: {borrados}")
     return borrados
 
 
@@ -192,7 +205,18 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write("\n".join(COLA_LOGS[-60:]).encode("utf-8"))
+            diag_txt = (
+                f"=== ESTADO BOT ===\n"
+                f"TG_SESSION_CONFIGURADO: {bool(TG_SESSION)}\n"
+                f"TG_API_ID_CONFIGURADO: {bool(TG_API_ID)}\n"
+                f"TG_API_HASH_CONFIGURADO: {bool(TG_API_HASH)}\n"
+                f"GITHUB_TOKEN_CONFIGURADO: {bool(GITHUB_TOKEN)}\n"
+                f"CHAT_ID: {CHAT_ID}\n"
+                f"MSGS_BOT_REGISTRADOS: {len(cargar_msgs_bot())}\n"
+                f"=== ULTIMOS LOGS ({len(COLA_LOGS)}) ===\n" +
+                "\n".join(COLA_LOGS[-60:])
+            )
+            self.wfile.write(diag_txt.encode("utf-8"))
             return
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
