@@ -377,8 +377,9 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
     campana = generar_sonido_campana_gong()
     ruta_con_gong = os.path.join(CARPETA_MEDITACIONES, "meditacion_con_gong.mp3")
     try:
+        fbin = shutil.which("ffmpeg") or "ffmpeg"
         cmd = [
-            "ffmpeg", "-y",
+            fbin, "-y",
             "-i", campana,
             "-i", ruta_audio,
             "-i", campana,
@@ -386,7 +387,7 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
             "-map", "[out]",
             ruta_con_gong
         ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
         if res.returncode == 0 and os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 0:
             return ruta_con_gong
     except Exception as e:
@@ -712,8 +713,8 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
         async for msg in client.iter_messages(entidad, limit=60):
             texto = (msg.raw_text or "").upper()
             sender_id = msg.sender_id
-            es_de_admin = sender_id in admin_ids
-            es_anuncio_tarea = any(k in texto for k in ["TAREA DEL DÍA", "TAREA DEL DIA", "MEDITACION #", "MEDITACIÓN #", "MENSAJE #"])
+            es_de_admin = (sender_id in admin_ids) or bool(getattr(msg, "post", False))
+            es_anuncio_tarea = any(k in texto for k in ["TAREA DEL DÍA", "TAREA DEL DIA", "MEDITACION #", "MEDITACIÓN #", "MENSAJE #", "MEDITACION DE TAREA", "MEDITACIÓN DE TAREA", "TAREA PARA HOY", "TAREA PARA"])
 
             if not (es_de_admin or es_anuncio_tarea):
                 continue
@@ -851,6 +852,16 @@ async def main() -> None:
             admin_ids.add(me.id)
         if hasattr(entidad, "id"):
             admin_ids.add(entidad.id)
+            try:
+                from telethon.utils import get_peer_id
+                admin_ids.add(get_peer_id(entidad))
+            except Exception:
+                pass
+            try:
+                admin_ids.add(int(f"-100{entidad.id}"))
+                admin_ids.add(-int(entidad.id))
+            except Exception:
+                pass
         admin_ids.add(1087968824)  # @GroupAnonymousBot (modo anónimo)
 
         env_admins = os.environ.get("ADMIN_IDS", "") or os.environ.get("ADMIN_ID", "")
@@ -1107,6 +1118,10 @@ async def main() -> None:
 
                 # PyTgCalls conmuta a reproducir el audio de meditación (omitiendo meditación de la grabación)
                 await tgcalls.play(destino, ruta_a_reproducir)
+                try:
+                    await tgcalls.resume(destino)
+                except Exception:
+                    pass
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
                 if info_catalogo_hoy:
