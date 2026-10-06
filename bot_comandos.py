@@ -227,7 +227,7 @@ def generar_texto_reglas() -> str:
         "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
         "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
         "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
-        "• Si dejas el micrófono abierto sin hablar por 15 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
+        "• Si dejas el micrófono abierto sin hablar por 5 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
         "📝 **MINUTAS Y ACTAS CON IA:**\n"
         "• Escribe `/resumen` para leer la minuta oficial de la última sesión.\n"
         "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
@@ -843,7 +843,7 @@ def escuchar_comandos() -> None:
                         "✋ **Para pedir la palabra:** Escribe `/turno` en el grupo o levanta la mano ✋ en la sala de voz.\n"
                         "🤝 **Para ceder la palabra:** Escribe `/ceder` en el grupo.\n"
                         "📋 **Para ver la cola:** Escribe `/turnos` en el grupo.\n"
-                        "🔇 **Protección anti-ruido:** Si tu micrófono queda abierto sin hablar por 15 segundos, el sistema lo silenciará automáticamente para proteger la sala."
+                        "🔇 **Protección anti-ruido:** Si tu micrófono queda abierto sin hablar por 5 segundos, el sistema lo silenciará automáticamente para proteger la sala."
                     )
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/buscar",):

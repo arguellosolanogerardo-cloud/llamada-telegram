@@ -50,11 +50,11 @@ AVISO = os.environ.get(
 
 # Parámetros de monitoreo, asistencia y moderación de voz
 DURACION_MAXIMA_MINUTOS = int(os.environ.get("DURACION_MAXIMA_MINUTOS", "360"))  # Hasta 6 horas
-INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "5"))  # Sondeo rápido a 5s
+INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "2"))  # Sondeo rápido a 2s
 MIN_MINUTOS_ASISTENCIA = int(os.environ.get("MIN_MINUTOS_ASISTENCIA", "10"))
 AUTO_CIERRE_MIN_USUARIOS = int(os.environ.get("AUTO_CIERRE_MIN_USUARIOS", "2"))
 AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "45"))
-SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "15"))  # 15s de silencio cierra mic
+SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "5"))  # 5s de silencio cierra mic
 MAX_ORADORES_SIMULTANEOS = int(os.environ.get("MAX_ORADORES_SIMULTANEOS", "2"))   # Máx 2 personas hablando
 
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
@@ -431,7 +431,7 @@ def generar_texto_reglas() -> str:
         "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
         "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
         "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
-        "• Si dejas el micrófono abierto sin hablar por 15 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
+        "• Si dejas el micrófono abierto sin hablar por 5 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
         "📝 **MINUTAS Y ACTAS CON IA:**\n"
         "• Escribe `/resumen` para leer la minuta oficial de la última sesión.\n"
         "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
@@ -607,19 +607,43 @@ async def main() -> None:
         segundos_inactividad_mic = {}  # uid -> segundos con mic abierto y sin voz
         avisados_auto_mute = set()  # uids notificados cordialmente
         msg_turnos = None  # Mensaje en vivo con la cola de turnos
+        lock_turnos = asyncio.Lock()
+        mensajes_chat_recientes = 0
+        ultimo_envio_turnos = 0
 
-        async def actualizar_mensaje_turnos():
-            nonlocal msg_turnos
-            nombres_oradores = [
-                participantes[u]["nombre"] if u in participantes else f"ID {u}"
-                for u in oradores_activos
-            ]
-            txt = generar_texto_turnos(cola_turnos, nombres_oradores)
-            if msg_turnos:
-                try:
-                    await client.edit_message(entidad, msg_turnos, txt)
-                except Exception:
-                    pass
+        async def actualizar_mensaje_turnos(forzar_al_fondo: bool = False):
+            nonlocal msg_turnos, mensajes_chat_recientes, ultimo_envio_turnos
+            async with lock_turnos:
+                nombres_oradores = [
+                    participantes[u]["nombre"] if u in participantes else f"ID {u}"
+                    for u in oradores_activos
+                ]
+                txt = generar_texto_turnos(cola_turnos, nombres_oradores)
+                ahora = time.time()
+
+                # Si se solicita explícitamente al fondo, o si aún no hay mensaje, o si pasaron >= 5 mensajes en el chat
+                if forzar_al_fondo or not msg_turnos or mensajes_chat_recientes >= 5:
+                    if msg_turnos:
+                        try:
+                            await client.delete_messages(entidad, msg_turnos)
+                        except Exception:
+                            pass
+                    try:
+                        msg_turnos = await client.send_message(entidad, txt)
+                        ultimo_envio_turnos = ahora
+                        mensajes_chat_recientes = 0
+                    except Exception as e:
+                        print("Nota publicando mensaje de turnos al fondo:", e)
+                else:
+                    try:
+                        await client.edit_message(entidad, msg_turnos, txt)
+                    except Exception:
+                        try:
+                            msg_turnos = await client.send_message(entidad, txt)
+                            ultimo_envio_turnos = ahora
+                            mensajes_chat_recientes = 0
+                        except Exception:
+                            pass
 
         # Mensaje fijado dinámico en el grupo
         msg_fijado = None
@@ -832,6 +856,7 @@ async def main() -> None:
                 for idx, t in enumerate(cola_turnos, 1):
                     if t["id"] == uid:
                         await event.reply(f"ℹ️ Ya estás en la lista de turnos (Posición #{idx}). Te avisaremos cuando sea tu momento.")
+                        await actualizar_mensaje_turnos(forzar_al_fondo=True)
                         return
                 if uid in oradores_activos:
                     await event.reply("🎙️ ¡Ya tienes el micrófono habilitado para hablar!")
@@ -839,7 +864,7 @@ async def main() -> None:
                 cola_turnos.append({"id": uid, "nombre": nom, "username": usr})
                 pos = len(cola_turnos)
                 await event.reply(f"✋ **{nom}**, has sido añadido a la lista de turnos (Posición #{pos}). Te avisaremos cuando sea tu momento.")
-                await actualizar_mensaje_turnos()
+                await actualizar_mensaje_turnos(forzar_al_fondo=True)
             elif texto_cmd in ("/ceder",):
                 en_cola = any(t["id"] == uid for t in cola_turnos)
                 era_orador = uid in oradores_activos
@@ -852,15 +877,11 @@ async def main() -> None:
                     except Exception:
                         pass
                     await event.reply(f"🤝 **{nom}**, has cedido tu turno de palabra. ¡Muchas gracias por compartir!")
-                    await actualizar_mensaje_turnos()
+                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 else:
                     await event.reply("ℹ️ No estás en la lista de turnos ni tienes el micrófono activo.")
             elif texto_cmd in ("/turnos",):
-                nombres_oradores = [
-                    participantes[u]["nombre"] if u in participantes else f"ID {u}"
-                    for u in oradores_activos
-                ]
-                await event.reply(generar_texto_turnos(cola_turnos, nombres_oradores))
+                await actualizar_mensaje_turnos(forzar_al_fondo=True)
             elif texto_cmd in ("/buscar",):
                 query = " ".join(partes[1:]) if len(partes) > 1 else ""
                 resp = buscar_en_minutas(query)
@@ -972,12 +993,12 @@ async def main() -> None:
                     await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
                 except Exception as e:
                     print(f"Nota desmuteando a {s_nom}:", e)
-                await actualizar_mensaje_turnos()
+                await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 await event.reply(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
                 avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.")
             elif cmd in ("/limpiarturnos",):
                 cola_turnos.clear()
-                await actualizar_mensaje_turnos()
+                await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 await event.reply("🧹 **Lista de turnos vaciada exitosamente.**")
             elif cmd in ("/hablar", "/desmutear"):
                 target_user = None
@@ -1003,7 +1024,7 @@ async def main() -> None:
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
                     except Exception as e:
                         print(f"Nota habilitando micrófono a {t_nom}:", e)
-                    await actualizar_mensaje_turnos()
+                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
                     await event.reply(f"🎙️ Micrófono habilitado para **{t_nom}**.")
                 else:
                     await event.reply("ℹ️ Uso: `/hablar @usuario` o responde al mensaje del usuario en el grupo.")
@@ -1028,7 +1049,7 @@ async def main() -> None:
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
                     except Exception as e:
                         print(f"Nota silenciando a {t_nom}:", e)
-                    await actualizar_mensaje_turnos()
+                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
                     await event.reply(f"🔇 Micrófono silenciado para **{t_nom}**.")
                 else:
                     await event.reply("ℹ️ Uso: `/mutear @usuario` o responde al mensaje del usuario en el grupo.")
@@ -1047,6 +1068,16 @@ async def main() -> None:
             elif cmd in ("/estadograbacion", "/estado_rec"):
                 msg = estado_grabacion_str()
                 await event.reply(msg)
+
+        # Mantener la lista de turnos siempre visible al fondo si hay conversación activa en el chat
+        @client.on(events.NewMessage(chats=entidad))
+        async def mantener_turnos_al_fondo_por_chat(event):
+            nonlocal mensajes_chat_recientes
+            if msg_turnos and event.message.id == getattr(msg_turnos, "id", None):
+                return
+            mensajes_chat_recientes += 1
+            if mensajes_chat_recientes >= 6 and (cola_turnos or oradores_activos):
+                await actualizar_mensaje_turnos(forzar_al_fondo=True)
 
         # Escuchar si un admin sube la meditación de tarea en vivo
         @client.on(events.NewMessage(chats=entidad))
@@ -1167,7 +1198,7 @@ async def main() -> None:
                         except Exception:
                             pass
                     oradores_activos.clear()
-                    await actualizar_mensaje_turnos()
+                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 except Exception as e:
                     print("Nota silenciando micrófonos para oración:", e)
 
@@ -1335,7 +1366,7 @@ async def main() -> None:
                                     hubo_cambio_turnos = True
                                     if uid not in avisados_auto_mute:
                                         avisados_auto_mute.add(uid)
-                                        avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por 15s de inactividad (evita ruidos de fondo involuntarios). Puedes volver a pedir turno con `/turno` o levantando la mano ✋.")
+                                        avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por 5s de inactividad (evita ruidos de fondo involuntarios). Puedes volver a pedir turno con `/turno` o levantando la mano ✋.")
                                     print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de micrófono inactivo.")
                                 except Exception as e:
                                     print(f"Nota auto-muteando a {nombre}:", e)
@@ -1383,7 +1414,7 @@ async def main() -> None:
                         part["ultima_salida"] = ahora
 
             if hubo_cambio_turnos:
-                await actualizar_mensaje_turnos()
+                await actualizar_mensaje_turnos(forzar_al_fondo=True)
 
             # Marcar desconectados
             total_activos_previos = sum(1 for p in participantes.values() if p["activo_ahora"])
