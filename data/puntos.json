@@ -1,5 +1,7 @@
 {
   "version": 1,
-  "actualizado": "2026-10-04",
-  "usuarios": {}
+  "actualizado": "2026-10-05",
+  "usuarios": {},
+  "mes_actual": "2026-10",
+  "total_llamadas_mes": 1
 }
