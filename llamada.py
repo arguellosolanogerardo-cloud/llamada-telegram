@@ -225,15 +225,19 @@ def dividir_mensaje(texto: str, limite: int = 3500) -> list:
     return bloques or [""]
 
 
-def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None) -> None:
+ids_mensajes_efimeros = set()
+
+
+def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None, es_efimero: bool = False) -> list[int]:
     if not BOT_TOKEN:
-        return
+        return []
     texto = texto.replace("{CA}", hora_california())
     # El bot envía texto plano: quitar marcas Markdown para que no se vean asteriscos
     texto = texto.replace("**", "").replace("`", "")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     bloques = dividir_mensaje(texto)
+    ids_enviados = []
     for idx, bloque in enumerate(bloques):
         payload = {"chat_id": CHAT_ID, "text": bloque}
 
@@ -258,6 +262,10 @@ def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None)
         )
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
+                res_data = json.loads(r.read().decode("utf-8"))
+                mid = res_data.get("result", {}).get("message_id")
+                if mid:
+                    ids_enviados.append(mid)
                 print(f"Aviso del bot enviado ({idx + 1}/{len(bloques)}):", r.status)
         except urllib.error.HTTPError as e:
             detalle = ""
@@ -268,6 +276,40 @@ def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None)
             print("Error al enviar mensaje con el bot:", e, detalle)
         except Exception as e:
             print("Error al enviar mensaje con el bot:", e)
+
+    if es_efimero and ids_enviados:
+        ids_mensajes_efimeros.update(ids_enviados)
+
+    return ids_enviados
+
+
+async def limpiar_mensajes_temporales(client, entidad, ids_a_borrar: set) -> None:
+    if not ids_a_borrar:
+        return
+    lista_ids = [int(i) for i in ids_a_borrar if i]
+    print(f"Iniciando eliminación de {len(lista_ids)} mensajes y ventanas temporales de la sala...")
+    # 1. Intentar borrar en lotes mediante Telethon (con permisos de administración del grupo)
+    try:
+        for k in range(0, len(lista_ids), 100):
+            lote = lista_ids[k:k+100]
+            await client.delete_messages(entidad, lote)
+        print("Ventanas y avisos temporales eliminados exitosamente con Telethon.")
+        return
+    except Exception as e:
+        print("Nota borrando mensajes con Telethon, aplicando respaldo con Bot API:", e)
+
+    # 2. Respaldo directo vía Bot API deleteMessage
+    if BOT_TOKEN:
+        for mid in lista_ids:
+            try:
+                url_del = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
+                datos = json.dumps({"chat_id": CHAT_ID, "message_id": mid}).encode()
+                req = urllib.request.Request(url_del, data=datos, headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    pass
+            except Exception:
+                pass
+        print("Ventanas y avisos temporales eliminados con Bot API.")
 
 
 def enviar_foto_con_bot(ruta_foto: str, caption: str = "") -> None:
@@ -848,7 +890,7 @@ async def main() -> None:
         # Enviar aviso inicial con panel interactivo
         url_llamada = await obtener_url_llamada(client, entidad, full_chat)
         print("Enlace de llamada obtenido para el botón:", url_llamada)
-        avisar_con_bot(AVISO, boton_url=url_llamada)
+        avisar_con_bot(AVISO, boton_url=url_llamada, es_efimero=True)
 
         if not full_chat or not full_chat.call:
             print("No hay llamada disponible para monitorear.")
@@ -886,10 +928,13 @@ async def main() -> None:
                     if msg_turnos:
                         try:
                             await client.delete_messages(entidad, msg_turnos)
+                            ids_mensajes_efimeros.discard(getattr(msg_turnos, "id", None))
                         except Exception:
                             pass
                     try:
                         msg_turnos = await client.send_message(entidad, txt)
+                        if msg_turnos and hasattr(msg_turnos, "id"):
+                            ids_mensajes_efimeros.add(msg_turnos.id)
                         ultimo_envio_turnos = ahora
                         mensajes_chat_recientes = 0
                     except Exception as e:
@@ -900,6 +945,8 @@ async def main() -> None:
                     except Exception:
                         try:
                             msg_turnos = await client.send_message(entidad, txt)
+                            if msg_turnos and hasattr(msg_turnos, "id"):
+                                ids_mensajes_efimeros.add(msg_turnos.id)
                             ultimo_envio_turnos = ahora
                             mensajes_chat_recientes = 0
                         except Exception:
@@ -918,6 +965,8 @@ async def main() -> None:
         )
         try:
             msg_fijado = await client.send_message(entidad, texto_fijado_base)
+            if msg_fijado and hasattr(msg_fijado, "id"):
+                ids_mensajes_efimeros.add(msg_fijado.id)
             await client.pin_message(entidad, msg_fijado, notify=False)
             print("Mensaje de estado fijado dinámicamente en el grupo.")
         except Exception as e:
@@ -926,6 +975,8 @@ async def main() -> None:
         # Publicar mensaje de lista de turnos en vivo en el grupo
         try:
             msg_turnos = await client.send_message(entidad, generar_texto_turnos(cola_turnos, []))
+            if msg_turnos and hasattr(msg_turnos, "id"):
+                ids_mensajes_efimeros.add(msg_turnos.id)
             print("Mensaje de turnos en vivo publicado en el grupo.")
         except Exception as e:
             print("Nota publicando mensaje de turnos:", e)
@@ -1058,9 +1109,9 @@ async def main() -> None:
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
                 if info_catalogo_hoy:
-                    avisar_con_bot(f"▶️ **Iniciando reproducción oficial:**\n{formatear_info_audio(info_catalogo_hoy)}\n🧘 Por favor disfruten de su sesión en silencio.")
+                    avisar_con_bot(f"▶️ **Iniciando reproducción oficial:**\n{formatear_info_audio(info_catalogo_hoy)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
                 else:
-                    avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.")
+                    avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
                 return True
             except Exception as e:
                 print("Error reproduciendo meditación:", e)
@@ -1115,7 +1166,7 @@ async def main() -> None:
                             reproduciendo_meditacion = False
                             print("Reproducción de meditación concluida automáticamente.")
                             await desbloquear_todos_los_participantes()
-                            avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!")
+                            avisar_con_bot("🧘✨ **La meditación ha concluido.**\nLos micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
                             # Reanudar grabación para el segmento post-meditación si no fue cancelada
                             if not grabacion_cancelada and not grabacion_pausada:
                                 segmentos_grabados.append(ruta_grabacion_post)
@@ -1139,33 +1190,44 @@ async def main() -> None:
             nom = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".strip() or "Participante"
             usr = getattr(sender, "username", "") or ""
 
+            # Si el comando es de turnos / moderación interactiva en el grupo, marcar para limpieza temporal
+            es_cmd_efimero = texto_cmd in ("/turno", "/pedirturno", "/mano", "/ceder", "/turnos", "/oracion")
+            if event.is_group and es_cmd_efimero and getattr(event, "message", None) and hasattr(event.message, "id"):
+                ids_mensajes_efimeros.add(event.message.id)
+
+            async def responder(texto_resp, **kwargs):
+                r = await event.reply(texto_resp, **kwargs)
+                if event.is_group and es_cmd_efimero and r and hasattr(r, "id"):
+                    ids_mensajes_efimeros.add(r.id)
+                return r
+
             if texto_cmd in ("/puntos", "/miperfil"):
                 resp = generar_texto_miperfil(uid, db, nom, usr, es_admin=(uid in admin_ids))
-                await event.reply(resp)
+                await responder(resp)
             elif texto_cmd in ("/ranking", "/top") or (texto_cmd == "/start" and param == "ranking"):
                 resp = generar_texto_ranking(db, admin_ids=admin_ids)
-                await event.reply(resp)
+                await responder(resp)
             elif texto_cmd in ("/meditacion", "/audio"):
                 ruta_med = os.path.join(CARPETA_MEDITACIONES, "meditacion_hoy.mp3")
                 if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
-                    await event.reply("🧘 **Meditación del día:** Aquí tienes el audio para tu práctica diaria.", file=ruta_med)
+                    await responder("🧘 **Meditación del día:** Aquí tienes el audio para tu práctica diaria.", file=ruta_med)
                 else:
-                    await event.reply("🧘 Aún no hay un archivo de meditación disponible para hoy. Consulta más tarde.")
+                    await responder("🧘 Aún no hay un archivo de meditación disponible para hoy. Consulta más tarde.")
             elif texto_cmd in ("/turno", "/pedirturno", "/mano"):
                 if uid in admin_ids:
-                    await event.reply("👑 Como administrador puedes hablar libremente cuando gustes.")
+                    await responder("👑 Como administrador puedes hablar libremente cuando gustes.")
                     return
                 for idx, t in enumerate(cola_turnos, 1):
                     if t["id"] == uid:
-                        await event.reply(f"ℹ️ Ya estás en la lista de turnos (Posición #{idx}). Te avisaremos cuando sea tu momento.")
+                        await responder(f"ℹ️ Ya estás en la lista de turnos (Posición #{idx}). Te avisaremos cuando sea tu momento.")
                         await actualizar_mensaje_turnos(forzar_al_fondo=True)
                         return
                 if uid in oradores_activos:
-                    await event.reply("🎙️ ¡Ya tienes el micrófono habilitado para hablar!")
+                    await responder("🎙️ ¡Ya tienes el micrófono habilitado para hablar!")
                     return
                 cola_turnos.append({"id": uid, "nombre": nom, "username": usr})
                 pos = len(cola_turnos)
-                await event.reply(f"✋ **{nom}**, has sido añadido a la lista de turnos (Posición #{pos}). Te avisaremos cuando sea tu momento.")
+                await responder(f"✋ **{nom}**, has sido añadido a la lista de turnos (Posición #{pos}). Te avisaremos cuando sea tu momento.")
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
             elif texto_cmd in ("/ceder",):
                 en_cola = any(t["id"] == uid for t in cola_turnos)
@@ -1179,31 +1241,31 @@ async def main() -> None:
                         asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                     except Exception:
                         pass
-                    await event.reply(f"🤝 **{nom}**, has cedido tu turno de palabra. ¡Muchas gracias por compartir!")
+                    await responder(f"🤝 **{nom}**, has cedido tu turno de palabra. ¡Muchas gracias por compartir!")
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 else:
-                    await event.reply("ℹ️ No estás en la lista de turnos ni tienes el micrófono activo.")
+                    await responder("ℹ️ No estás en la lista de turnos ni tienes el micrófono activo.")
             elif texto_cmd in ("/turnos",):
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
             elif texto_cmd in ("/buscar",):
                 query = " ".join(partes[1:]) if len(partes) > 1 else ""
                 resp = buscar_en_minutas(query)
-                await event.reply(resp)
+                await responder(resp)
             elif texto_cmd in ("/resumen",):
                 fecha_req = partes[1].strip() if len(partes) > 1 else None
                 minuta = obtener_minuta(fecha_req)
                 if minuta:
                     resp = f"📝 **MINUTA DE LA REUNIÓN ({minuta['fecha']})**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{minuta['resumen']}"
-                    await event.reply(resp)
+                    await responder(resp)
                 else:
-                    await event.reply(f"ℹ️ No se encontró ninguna minuta registrada para {fecha_req or 'la última fecha'}.")
+                    await responder(f"ℹ️ No se encontró ninguna minuta registrada para {fecha_req or 'la última fecha'}.")
             elif texto_cmd in ("/acta",):
                 fecha_req = partes[1].strip() if len(partes) > 1 else None
                 minuta = obtener_minuta(fecha_req)
                 if minuta and minuta.get("ruta_pdf") and os.path.exists(minuta["ruta_pdf"]):
-                    await event.reply(f"📄 **Acta Oficial de la Reunión ({minuta['fecha']}):**", file=minuta["ruta_pdf"])
+                    await responder(f"📄 **Acta Oficial de la Reunión ({minuta['fecha']}):**", file=minuta["ruta_pdf"])
                 else:
-                    await event.reply("ℹ️ No hay un documento PDF de acta disponible para esa fecha.")
+                    await responder("ℹ️ No hay un documento PDF de acta disponible para esa fecha.")
             elif texto_cmd in ("/oracion",) or (texto_cmd == "/start" and param == "oracion"):
                 resp = (
                     "🕊️ **ORACIÓN Y RECOGIMIENTO COMUNITARIO**\n"
@@ -1214,18 +1276,27 @@ async def main() -> None:
                     "Guardamos silencio y respiramos en calma, presentes en el aquí y el ahora.\"\n\n"
                     "🙏 *Mantengamos silencio en la sala para cultivar la paz interior de todos.*"
                 )
-                await event.reply(resp)
+                await responder(resp)
             else:
                 resp = generar_texto_reglas()
-                await event.reply(resp)
+                await responder(resp)
 
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
         @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|limpiarturnos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             uid = sender.id if sender else event.sender_id
+            if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
+                ids_mensajes_efimeros.add(event.message.id)
+
+            async def responder_admin(texto_resp, **kwargs):
+                r = await event.reply(texto_resp, **kwargs)
+                if event.is_group and r and hasattr(r, "id"):
+                    ids_mensajes_efimeros.add(r.id)
+                return r
+
             if uid not in admin_ids:
-                await event.reply("⛔ Solo los administradores pueden utilizar este comando.")
+                await responder_admin("⛔ Solo los administradores pueden utilizar este comando.")
                 return
 
             partes_cmd = event.raw_text.strip().split()
@@ -1237,54 +1308,54 @@ async def main() -> None:
                 if tgcalls and ruta_meditacion and os.path.exists(ruta_meditacion):
                     ok = await reproducir_meditacion()
                     if ok:
-                        await event.reply("▶️ Reproduciendo meditación en la sala de voz...")
+                        await responder_admin("▶️ Reproduciendo meditación en la sala de voz...")
                     else:
-                        await event.reply("❌ Error iniciando la reproducción de la meditación.")
+                        await responder_admin("❌ Error iniciando la reproducción de la meditación.")
                 else:
-                    await event.reply("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
+                    await responder_admin("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
             elif cmd in ("/pausar", "/pause"):
                 if tgcalls:
                     try:
                         await tgcalls.pause(destino)
-                        await event.reply("⏸️ Meditación pausada.")
+                        await responder_admin("⏸️ Meditación pausada.")
                     except Exception as e:
-                        await event.reply(f"Error al pausar: {e}")
+                        await responder_admin(f"Error al pausar: {e}")
             elif cmd in ("/continuar", "/resume"):
                 if tgcalls:
                     try:
                         await tgcalls.resume(destino)
-                        await event.reply("▶️ Meditación reanudada.")
+                        await responder_admin("▶️ Meditación reanudada.")
                     except Exception as e:
-                        await event.reply(f"Error al reanudar: {e}")
+                        await responder_admin(f"Error al reanudar: {e}")
             elif cmd in ("/volumen", "/vol"):
                 if len(partes_cmd) > 1 and partes_cmd[1].isdigit():
                     nuevo_vol = max(1, min(200, int(partes_cmd[1])))
                     if tgcalls:
                         try:
                             await tgcalls.change_volume_call(destino, nuevo_vol)
-                            await event.reply(f"🔊 Volumen ajustado a **{nuevo_vol}%**.")
+                            await responder_admin(f"🔊 Volumen ajustado a **{nuevo_vol}%**.")
                         except Exception as e:
-                            await event.reply(f"Error al ajustar volumen: {e}")
+                            await responder_admin(f"Error al ajustar volumen: {e}")
                     else:
-                        await event.reply("⚠️ El reproductor no está activo.")
+                        await responder_admin("⚠️ El reproductor no está activo.")
                 else:
-                    await event.reply("ℹ️ Uso: `/volumen 1-200` (Ejemplo: `/volumen 80`).")
+                    await responder_admin("ℹ️ Uso: `/volumen 1-200` (Ejemplo: `/volumen 80`).")
             elif cmd in ("/detener", "/stop"):
                 if tgcalls:
                     try:
                         await tgcalls.leave_call(destino)
                         reproduciendo_meditacion = False
                         await desbloquear_todos_los_participantes()
-                        await event.reply("⏹️ Reproducción finalizada. Micrófonos restablecidos y desbloqueados.")
+                        await responder_admin("⏹️ Reproducción finalizada. Micrófonos restablecidos y desbloqueados.")
                     except Exception as e:
-                        await event.reply(f"Error al detener: {e}")
+                        await responder_admin(f"Error al detener: {e}")
             elif cmd in ("/desmuteartodos", "/abrir", "/desbloquear"):
                 await desbloquear_todos_los_participantes()
-                await event.reply("🔓 **Todos los micrófonos han sido desbloqueados.**\nLos participantes ahora pueden activar su micrófono libremente cuando deseen hablar.")
-                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes. Pueden activar su micrófono para compartir.")
+                await responder_admin("🔓 **Todos los micrófonos han sido desbloqueados.**\nLos participantes ahora pueden activar su micrófono libremente cuando deseen hablar.")
+                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes. Pueden activar su micrófono para compartir.", es_efimero=True)
             elif cmd in ("/siguiente", "/next"):
                 if not cola_turnos:
-                    await event.reply("ℹ️ No hay participantes esperando en la lista de turnos.")
+                    await responder_admin("ℹ️ No hay participantes esperando en la lista de turnos.")
                     return
                 siguiente_u = cola_turnos.pop(0)
                 s_uid = siguiente_u["id"]
@@ -1298,12 +1369,12 @@ async def main() -> None:
                 except Exception as e:
                     print(f"Nota desmuteando a {s_nom}:", e)
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                await event.reply(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
-                avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.")
+                await responder_admin(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
+                avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
             elif cmd in ("/limpiarturnos",):
                 cola_turnos.clear()
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                await event.reply("🧹 **Lista de turnos vaciada exitosamente.**")
+                await responder_admin("🧹 **Lista de turnos vaciada exitosamente.**")
             elif cmd in ("/hablar", "/desmutear"):
                 target_user = None
                 if event.is_reply:
@@ -1329,9 +1400,9 @@ async def main() -> None:
                     except Exception as e:
                         print(f"Nota habilitando micrófono a {t_nom}:", e)
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                    await event.reply(f"🎙️ Micrófono habilitado para **{t_nom}**.")
+                    await responder_admin(f"🎙️ Micrófono habilitado para **{t_nom}**.")
                 else:
-                    await event.reply("ℹ️ Uso: `/hablar @usuario` o responde al mensaje del usuario en el grupo.")
+                    await responder_admin("ℹ️ Uso: `/hablar @usuario` o responde al mensaje del usuario en el grupo.")
             elif cmd in ("/mutear",):
                 target_user = None
                 if event.is_reply:
@@ -1355,21 +1426,21 @@ async def main() -> None:
                     except Exception as e:
                         print(f"Nota silenciando a {t_nom}:", e)
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                    await event.reply(f"🔇 Micrófono silenciado para **{t_nom}** (se desbloqueará automáticamente en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s).")
+                    await responder_admin(f"🔇 Micrófono silenciado para **{t_nom}** (se desbloqueará automáticamente en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s).")
                 else:
-                    await event.reply("ℹ️ Uso: `/mutear @usuario` o responde al mensaje del usuario en el grupo.")
+                    await responder_admin("ℹ️ Uso: `/mutear @usuario` o responde al mensaje del usuario en el grupo.")
             elif cmd in ("/pausargrabacion", "/pausar_rec"):
                 ok, msg = await pausar_grabacion()
-                await event.reply(msg)
-                avisar_con_bot(msg)
+                await responder_admin(msg)
+                avisar_con_bot(msg, es_efimero=True)
             elif cmd in ("/reanudargrabacion", "/reanudar_rec"):
                 ok, msg = await reanudar_grabacion()
-                await event.reply(msg)
-                avisar_con_bot(msg)
+                await responder_admin(msg)
+                avisar_con_bot(msg, es_efimero=True)
             elif cmd in ("/detenergrabacion", "/cancelar_rec"):
                 ok, msg = await cancelar_grabacion()
-                await event.reply(msg)
-                avisar_con_bot(msg)
+                await responder_admin(msg)
+                avisar_con_bot(msg, es_efimero=True)
             elif cmd in ("/estadograbacion", "/estado_rec"):
                 msg = estado_grabacion_str()
                 await event.reply(msg)
@@ -1486,22 +1557,31 @@ async def main() -> None:
             if not texto_raw or texto_raw.startswith("/"):
                 return
 
+            if getattr(event, "message", None) and hasattr(event.message, "id"):
+                ids_mensajes_efimeros.add(event.message.id)
+
+            async def responder_nat(txt_resp, **kwargs):
+                r = await event.reply(txt_resp, **kwargs)
+                if r and hasattr(r, "id"):
+                    ids_mensajes_efimeros.add(r.id)
+                return r
+
             # Pausar meditación
             if any(p in texto_raw for p in ["pausar meditacion", "pausa la meditacion", "pausar meditación", "pausa la meditación", "pausar audio", "pausa el audio"]):
                 if tgcalls:
                     try:
                         await tgcalls.pause(destino)
-                        await event.reply("⏸️ Meditación pausada por indicación de administración.")
+                        await responder_nat("⏸️ Meditación pausada por indicación de administración.")
                     except Exception as e:
-                        await event.reply(f"Nota al pausar: {e}")
+                        await responder_nat(f"Nota al pausar: {e}")
             # Reanudar meditación
             elif any(p in texto_raw for p in ["reanudar meditacion", "continua la meditacion", "reanudar meditación", "continuar meditación", "seguir meditación", "reanudar audio", "seguir con el audio"]):
                 if tgcalls:
                     try:
                         await tgcalls.resume(destino)
-                        await event.reply("▶️ Meditación reanudada por indicación de administración.")
+                        await responder_nat("▶️ Meditación reanudada por indicación de administración.")
                     except Exception as e:
-                        await event.reply(f"Nota al reanudar: {e}")
+                        await responder_nat(f"Nota al reanudar: {e}")
             # Detener meditación
             elif any(p in texto_raw for p in ["detener meditacion", "parar meditacion", "detener meditación", "parar meditación", "parar audio", "detener audio"]):
                 if tgcalls:
@@ -1510,18 +1590,18 @@ async def main() -> None:
                         await tgcalls.leave_call(destino)
                         reproduciendo_meditacion = False
                         await desbloquear_todos_los_participantes()
-                        await event.reply("⏹️ Meditación detenida. Micrófonos restablecidos y desbloqueados.")
+                        await responder_nat("⏹️ Meditación detenida. Micrófonos restablecidos y desbloqueados.")
                     except Exception as e:
-                        await event.reply(f"Nota al detener: {e}")
+                        await responder_nat(f"Nota al detener: {e}")
             # Desbloquear micrófonos / Abrir sala
             elif any(p in texto_raw for p in ["abrir microfonos", "abrir micrófonos", "desmutear a todos", "desbloquear microfonos", "desbloquear micrófonos", "abrir la sala", "liberar microfonos", "liberar micrófonos"]):
                 await desbloquear_todos_los_participantes()
-                await event.reply("🔓 Micrófonos desbloqueados para todos los participantes.")
-                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes.")
+                await responder_nat("🔓 Micrófonos desbloqueados para todos los participantes.")
+                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes.", es_efimero=True)
             # Siguiente orador
             elif any(p in texto_raw for p in ["siguiente turno", "siguiente orador", "siguiente persona", "pasar al siguiente"]):
                 if not cola_turnos:
-                    await event.reply("ℹ️ No hay participantes en espera en la lista de turnos.")
+                    await responder_nat("ℹ️ No hay participantes en espera en la lista de turnos.")
                 else:
                     siguiente_u = cola_turnos.pop(0)
                     s_uid = siguiente_u["id"]
@@ -1535,8 +1615,8 @@ async def main() -> None:
                     except Exception as e:
                         print(f"Nota desmuteando a {s_nom}:", e)
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                    await event.reply(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
-                    avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.")
+                    await responder_nat(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
+                    avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
 
         segundos_totales = 0
         tiempo_limite_segundos = DURACION_MAXIMA_MINUTOS * 60
@@ -1574,7 +1654,7 @@ async def main() -> None:
                         )
                     except Exception:
                         pass
-                    avisar_con_bot("⚠️ **Aviso Administradores:** Aún no se ha publicado la `MEDITACION DE TAREA` de hoy. Recuerden subir el archivo .mp3 antes de las 8:30 PM.")
+                    avisar_con_bot("⚠️ **Aviso Administradores:** Aún no se ha publicado la `MEDITACION DE TAREA` de hoy. Recuerden subir el archivo .mp3 antes de las 8:30 PM.", es_efimero=True)
 
             # 8:28 PM: Inicio de los 3 Minutos de Oración en Silencio Comunitario
             if hora_col == 20 and min_col == 28 and not aviso_oracion_enviado:
@@ -1643,7 +1723,7 @@ async def main() -> None:
                     "• **8:28 PM – 8:31 PM:** Oración y recogimiento en silencio (3 min).\n"
                     f"• **8:32 PM:** Inicio de la Meditación diaria{extra_med_txt}."
                 )
-                avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion)
+                avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion, es_efimero=True)
 
             # 8:31 PM: Conclusión de los 3 minutos de oración y alerta 1 minuto antes de la meditación
             if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado:
@@ -1676,9 +1756,9 @@ async def main() -> None:
                             f"{prefijo}🧘 **En 1 minuto (8:32 PM) dará inicio la meditación diaria.**\n"
                             "Los micrófonos han sido habilitados. Por favor tomen una postura cómoda y permanezcan en silencio."
                         )
-                    avisar_con_bot(txt_alerta_med)
+                    avisar_con_bot(txt_alerta_med, es_efimero=True)
                 elif prefijo:
-                    avisar_con_bot(f"{prefijo}Los micrófonos han sido habilitados para la comunidad.")
+                    avisar_con_bot(f"{prefijo}Los micrófonos han sido habilitados para la comunidad.", es_efimero=True)
 
             # 8:32 PM: Reproducción automática de la meditación
             if hora_col == 20 and min_col >= 32 and not reproduccion_iniciada:
@@ -1899,7 +1979,7 @@ async def main() -> None:
                                         if not any(t["id"] == uid for t in cola_turnos):
                                             cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
                                         hubo_cambio_turnos = True
-                                        avisar_con_bot(f"⚠️ **{nombre}**, ya hay {MAX_ORADORES_SIMULTANEOS} personas hablando a la vez. Tu micrófono se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s y te hemos añadido a la lista de turnos para no interrumpir.")
+                                        avisar_con_bot(f"⚠️ **{nombre}**, ya hay {MAX_ORADORES_SIMULTANEOS} personas hablando a la vez. Tu micrófono se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s y te hemos añadido a la lista de turnos para no interrumpir.", es_efimero=True)
                                         print(f"Límite de oradores alcanzado. {nombre} silenciado temporalmente ({DURACION_BLOQUEO_MUTE_SEGUNDOS}s) y añadido a la cola.")
                                     except Exception as e:
                                         print(f"Nota limitando oradores simultáneos para {nombre}:", e)
@@ -1918,7 +1998,7 @@ async def main() -> None:
                                         hubo_cambio_turnos = True
                                         if uid not in avisados_auto_mute:
                                             avisados_auto_mute.add(uid)
-                                            avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por inactividad. Se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s para que puedas volver a hablar cuando desees.")
+                                            avisar_con_bot(f"🔇 **Micrófono silenciado:** {nombre} por inactividad. Se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s para que puedas volver a hablar cuando desees.", es_efimero=True)
                                         print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de inactividad. Desbloqueo programado en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s.")
                                     except Exception as e:
                                         print(f"Nota auto-muteando a {nombre}:", e)
@@ -2008,15 +2088,31 @@ async def main() -> None:
                 else:
                     consecutivos_menos_de_dos = 0
 
-        # Desfijar mensaje dinámico y limpiar mensaje de turnos al terminar la llamada
+        # Desfijar mensaje dinámico y actualizar ventanas informativas al terminar la llamada
         if msg_fijado:
             try:
                 await client.unpin_message(entidad, msg_fijado)
             except Exception:
                 pass
+            try:
+                texto_concluido = (
+                    "🎙️ **SALA DE VOZ CONCLUIDA**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📅 Fecha: {fecha_hoy} | ⏰ Fin: {datetime.now(tz_col).strftime('%I:%M %p')}\n"
+                    "✨ Gracias a todos por acompañarnos en esta sesión diaria.\n"
+                    "📊 Los reportes y actas oficiales se publican a continuación."
+                )
+                await client.edit_message(entidad, msg_fijado, texto_concluido)
+            except Exception:
+                pass
+
         if msg_turnos:
             try:
-                await client.delete_messages(entidad, msg_turnos)
+                await client.edit_message(
+                    entidad,
+                    msg_turnos,
+                    "🎙️ **LISTA DE TURNOS CERRADA**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nLa sala de voz ha concluido por el día de hoy."
+                )
             except Exception:
                 pass
 
@@ -2644,6 +2740,16 @@ async def main() -> None:
                     os.remove(f_tmp)
             except Exception:
                 pass
+
+        # Esperar 1 hora (o MINUTOS_ESPERA_LIMPIEZA) para limpiar ventanas y avisos temporales de la sala
+        minutos_espera_limpieza = int(os.environ.get("MINUTOS_ESPERA_LIMPIEZA", "60"))
+        segundos_espera_limpieza = max(0, minutos_espera_limpieza * 60)
+        if segundos_espera_limpieza > 0:
+            print(f"⏳ Sala concluida y reportes entregados. Esperando {minutos_espera_limpieza} min ({segundos_espera_limpieza}s) para limpiar ventanas y avisos temporales de la sala...")
+            await asyncio.sleep(segundos_espera_limpieza)
+        print(f"🧹 Iniciando limpieza de ventanas y notificaciones temporales ({len(ids_mensajes_efimeros)} mensajes)...")
+        await limpiar_mensajes_temporales(client, entidad, ids_mensajes_efimeros)
+        print("✨ Limpieza completada: la sala quedó limpia de mensajes y ventanas operativas.")
 
 
 if __name__ == "__main__":
