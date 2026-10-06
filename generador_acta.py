@@ -24,7 +24,8 @@ def generar_acta_pdf(
     asistentes: list,
     resumen_ia: str,
     ruta_salida: str = None,
-    info_catalogo: dict = None
+    info_catalogo: dict = None,
+    total_participantes: int = None
 ) -> str:
     """Genera un documento PDF formal con el acta de la reunión, resumen y lista de asistentes."""
     if not ruta_salida:
@@ -144,7 +145,7 @@ def generar_acta_pdf(
     # Métricas y Datos Generales
     num_meditacion = sum(1 for a in asistentes if a.get("meditacion_completada"))
     num_hablaron = sum(1 for a in asistentes if a.get("hablo"))
-    total_asistentes = len(asistentes)
+    total_asistentes = total_participantes if total_participantes is not None else len(asistentes)
 
     datos_meta = [
         [
