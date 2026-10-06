@@ -218,12 +218,26 @@ class HealthHandler(BaseHTTPRequestHandler):
             )
             self.wfile.write(diag_txt.encode("utf-8"))
             return
+        if self.path in ("/aviso", "/aviso_previo", "/recordatorio"):
+            m_id = enviar_aviso_preparacion_sala(forzar=True)
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "message_id": m_id}).encode())
+            return
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot Comandos OK")
 
     def do_POST(self):
+        if self.path in ("/aviso", "/aviso_previo", "/recordatorio"):
+            m_id = enviar_aviso_preparacion_sala(forzar=True)
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "message_id": m_id}).encode())
+            return
         if self.path in ("/tarea", "/set_tarea"):
             try:
                 length = int(self.headers.get("Content-Length", 0))
@@ -506,6 +520,192 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
     except Exception as e:
         print(f"Error enviando mensaje a {chat_id}:", e)
     return None
+
+
+def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_markup: dict = None) -> int | None:
+    if not BOT_TOKEN or not ruta_foto or not os.path.exists(ruta_foto):
+        return None
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    data = {
+        "chat_id": str(chat_id),
+        "caption": caption,
+        "parse_mode": "Markdown",
+    }
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    try:
+        with open(ruta_foto, "rb") as f:
+            files = {"photo": (os.path.basename(ruta_foto), f, "image/png")}
+            r = requests.post(url, data=data, files=files, timeout=35)
+            res = r.json()
+            if res.get("ok"):
+                m_id = res.get("result", {}).get("message_id")
+                if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                    registrar_msg_bot(m_id)
+                log_debug(f"Foto enviada exitosamente a {chat_id}: msg_id={m_id}")
+                return m_id
+            log_debug(f"Telegram rechazó foto ({chat_id}): {res}")
+    except Exception as e:
+        log_debug(f"Error enviando foto a {chat_id}: {e}")
+    return None
+
+
+def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> str | None:
+    """Genera una tarjeta gráfica de alta resolución en color vívido para el aviso de preparación."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        width, height = 1080, 680
+        img = Image.new("RGB", (width, height), color=(15, 23, 42))
+        draw = ImageDraw.Draw(img)
+
+        # 1. Fondo degradado de alta gama (Azul cósmico profundo)
+        for y in range(height):
+            r = int(14 + (28 - 14) * (y / height))
+            g = int(20 + (16 - 20) * (y / height))
+            b = int(48 + (72 - 48) * (y / height))
+            draw.line([(0, y), (width, y)], fill=(r, g, b))
+
+        # 2. Borde exterior neón brillante con doble marco
+        draw.rounded_rectangle([(16, 16), (width - 16, height - 16)], radius=24, outline=(99, 102, 241), width=3)
+        draw.rounded_rectangle([(22, 22), (width - 22, height - 22)], radius=20, outline=(56, 189, 248), width=2)
+
+        # 3. Fuentes compatibles
+        font_badge = font_title = font_body = font_bold = font_tarea = None
+        for fn in ["segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"]:
+            try:
+                font_badge = ImageFont.truetype(fn, 34)
+                font_title = ImageFont.truetype(fn, 24)
+                font_bold = ImageFont.truetype(fn, 21)
+                font_tarea = ImageFont.truetype(fn, 19)
+                font_body = ImageFont.truetype("segoeui.ttf" if "segoe" in fn else fn, 20)
+                break
+            except Exception:
+                continue
+        if not font_badge:
+            font_badge = font_title = font_bold = font_body = font_tarea = ImageFont.load_default()
+
+        # 4. Header Badge llamativo (Violeta vibrante con resplandor)
+        draw.rounded_rectangle([(45, 38), (width - 45, 128)], radius=18, fill=(67, 24, 255), outline=(147, 197, 253), width=2)
+        draw.text((75, 58), "AVISO: SALA DE VOZ EN 30 MINUTOS (7:56 PM)", fill=(255, 255, 255), font=font_badge)
+
+        # 5. Caja de Tarea del Día (Dorado / Ámbar brillante)
+        y_caja_start = 148
+        if info_tarea:
+            draw.rounded_rectangle([(45, y_caja_start), (width - 45, y_caja_start + 65)], radius=14, fill=(120, 53, 15), outline=(245, 158, 11), width=2)
+            tipo = info_tarea.get('tipo', 'Meditación').capitalize()
+            num = info_tarea.get('numero', '')
+            tit = info_tarea.get('titulo', '')
+            maestro = info_tarea.get('maestro', '')
+            txt_med = f"Sesión de Hoy: {tipo} #{num} - «{tit}» ({maestro})"
+            if len(txt_med) > 85:
+                txt_med = txt_med[:82] + "..."
+            draw.text((70, y_caja_start + 20), txt_med, fill=(254, 243, 199), font=font_tarea)
+            y_caja_start += 80
+
+        # 6. Cuadro interior de preparación (Fondo oscuro con borde Cian neón)
+        caja_h = 345 if info_tarea else 420
+        draw.rounded_rectangle([(45, y_caja_start), (width - 45, y_caja_start + caja_h)], radius=18, fill=(30, 41, 59), outline=(56, 189, 248), width=2)
+
+        draw.text((75, y_caja_start + 22), "CONSEJOS IMPORTANTES ANTES DE ENTRAR A LA SALA:", fill=(56, 189, 248), font=font_title)
+
+        tips = [
+            ("1", "Batería:", "Carga tu celular al menos al 50% o déjalo conectado."),
+            ("2", "Conexión:", "Usa Wi-Fi o datos estables y evita cambiar de red."),
+            ("3", "Android:", "Pon Telegram en 'Sin restricciones' de batería y candado."),
+            ("4", "Audio:", "Ten listos tus audífonos para disfrutar la meditación.")
+        ]
+
+        y_pos = y_caja_start + 72
+        sep = 62 if info_tarea else 78
+        for num, tit, desc in tips:
+            draw.rounded_rectangle([(75, y_pos), (115, y_pos + 38)], radius=10, fill=(37, 99, 235))
+            draw.text((88, y_pos + 7), num, fill=(255, 255, 255), font=font_bold)
+            draw.text((130, y_pos + 7), tit, fill=(251, 191, 36), font=font_bold)
+            try:
+                ancho_tit = draw.textlength(tit, font=font_bold)
+            except Exception:
+                ancho_tit = len(tit) * 12
+            x_desc = 140 + int(ancho_tit)
+            draw.text((x_desc, y_pos + 8), desc, fill=(241, 245, 249), font=font_body)
+            y_pos += sep
+
+        # 7. Footer
+        draw.text((75, height - 52), "Comunidad La Verdad Os Hará Libres  •  Apertura en directo a las 7:56 PM", fill=(148, 163, 184), font=font_body)
+
+        os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
+        img.save(ruta_salida, "PNG")
+        return ruta_salida
+    except Exception as e:
+        log_debug(f"Nota generando banner con Pillow: {e}")
+        return None
+
+
+def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | None:
+    cid = target_chat_id or CHAT_ID
+    if not cid:
+        return None
+
+    # Obtener tarea del día si está disponible
+    info_tarea = None
+    ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
+    if os.path.exists(ruta_meta):
+        try:
+            with open(ruta_meta, "r", encoding="utf-8") as fm:
+                info_tarea = json.load(fm)
+        except Exception:
+            pass
+
+    txt_med_bloque = ""
+    if info_tarea and info_tarea.get("numero"):
+        tipo = info_tarea.get("tipo", "Meditación").capitalize()
+        num = info_tarea.get("numero")
+        tit = info_tarea.get("titulo", "")
+        maestro = info_tarea.get("maestro", "")
+        txt_med_bloque = f"🧘 **Sesión de Hoy:** {tipo} #{num} — «{tit}» ({maestro})\n"
+
+    # Texto con cuadro de cita / blockquote de Telegram
+    caption = (
+        "🔔 **RECORDATORIO: SALA DE VOZ EN 30 MINUTOS** ⏰\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🕗 **Apertura de sala:** 7:56 PM Colombia\n"
+        f"{txt_med_bloque}"
+        "> 📋 **CONSEJOS IMPORTANTES ANTES DE ENTRAR:**\n"
+        "> \n"
+        "> 🔋 **Batería:** Carga tu dispositivo al menos al 50% o conéctalo.\n"
+        "> 📶 **Conexión:** Usa Wi-Fi o datos estables (evita cambiar de red durante la llamada).\n"
+        "> ⚙️ **Android:** Ajusta Telegram en *\"Sin restricciones\"* en Batería y fíjalo con candado en apps recientes.\n"
+        "> 🔁 **Estabilidad:** Si se cae seguido: *Ajustes > Privacidad > Llamadas > Peer-to-peer > \"Nunca\"*.\n"
+        "> 🎧 **Espacio y Audio:** Prepara tus audífonos y busca un lugar tranquilo para la sesión.\n\n"
+        "✨ *¡Nos encontramos puntuales a las 7:56 PM para compartir juntos!*"
+    )
+
+    bot_u = obtener_info_bot()
+    inline_kb = []
+    if bot_u:
+        inline_kb.append([
+            {"text": "🧘 Ver Tarea del Día", "url": f"https://t.me/{bot_u}?start=meditacion"},
+            {"text": "🏆 Ranking Mensual", "url": f"https://t.me/{bot_u}?start=ranking"}
+        ])
+        inline_kb.append([
+            {"text": "📜 Reglas de Asistencia y Puntos", "url": f"https://t.me/{bot_u}?start=reglas"}
+        ])
+    reply_markup = {"inline_keyboard": inline_kb} if inline_kb else None
+
+    # Intentar generar la tarjeta gráfica en color vívido
+    ruta_banner = os.path.join("data", "meditaciones", "banner_aviso_previo.png")
+    ruta_gen = generar_banner_aviso_previo(ruta_banner, info_tarea=info_tarea)
+
+    m_id = None
+    if ruta_gen and os.path.exists(ruta_gen):
+        m_id = enviar_foto(cid, ruta_gen, caption=caption, reply_markup=reply_markup)
+
+    # Si falló la foto, enviar mensaje de texto formateado con el cuadro
+    if not m_id:
+        m_id = enviar_mensaje(cid, caption, reply_markup=reply_markup)
+
+    if m_id:
+        log_debug(f"Aviso de preparación enviado con éxito a {cid}: msg_id={m_id}")
+    return m_id
 
 
 def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
@@ -844,6 +1044,24 @@ def escuchar_comandos() -> None:
     # Iniciar servidor HTTP para health check (Koyeb / Render)
     threading.Thread(target=iniciar_servidor_health, daemon=True).start()
 
+    # Iniciar reloj para aviso previo de preparación automático (7:26 PM Colombia - 30 min antes)
+    def hilo_recordatorio_726():
+        tz_col = ZoneInfo("America/Bogota")
+        ultimo_dia_aviso = None
+        while True:
+            try:
+                ahora = datetime.now(tz_col)
+                fecha_hoy = ahora.strftime("%Y-%m-%d")
+                if ahora.hour == 19 and ahora.minute == 26 and ultimo_dia_aviso != fecha_hoy:
+                    ultimo_dia_aviso = fecha_hoy
+                    log_debug("⏰ Disparando aviso previo automático de preparación (7:26 PM)...")
+                    enviar_aviso_preparacion_sala()
+            except Exception as e:
+                log_debug(f"Error en hilo_recordatorio_726: {e}")
+            time.sleep(20)
+
+    threading.Thread(target=hilo_recordatorio_726, daemon=True).start()
+
     print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion, /buscar, /resumen, /acta, /tarea...")
     offset = 0
 
@@ -1116,6 +1334,14 @@ def escuchar_comandos() -> None:
                                 info_cat = list(db_a.values())[-1]
 
                     entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
+                elif cmd in ("/aviso", "/recordatorio", "/preparacion", "/aviso30min"):
+                    if not es_mensaje_de_admin(msg, chat_id):
+                        enviar_mensaje(chat_id, "⛔ Solo los administradores pueden enviar el aviso de preparación.", reply_to_message_id=msg_id)
+                        continue
+                    enviar_aviso_preparacion_sala(target_chat_id=chat_id, forzar=True)
+                    if chat_id > 0:
+                        enviar_mensaje(chat_id, "✅ Aviso de preparación enviado exitosamente.", reply_to_message_id=msg_id)
+                    continue
                 elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea", "/guardaraudio", "/setaudio"):
                     if not es_mensaje_de_admin(msg, chat_id):
                         if cmd == "/tarea" and len(partes) == 1:
