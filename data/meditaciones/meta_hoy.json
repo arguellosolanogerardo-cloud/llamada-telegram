@@ -1,8 +1,9 @@
 {
-  "numero": 6,
+  "numero": 21,
   "tipo": "MEDITACION",
-  "titulo": "Tomados de la mano de sus Ángeles",
-  "fecha": "23/04/04",
+  "titulo": "Un diálogo con el Padre, mi creador",
+  "fecha": "30/07/04",
   "maestro": "Alaniso",
-  "detectado_como": "MEDITACION"
+  "detectado_como": "MEDITACION",
+  "fecha_tarea_admin": "06/10/2026"
 }
