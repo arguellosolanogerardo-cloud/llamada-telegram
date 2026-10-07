@@ -1308,24 +1308,10 @@ async def main() -> None:
                     resolved_id = await tgcalls.resolve_chat_id(destino)
                     if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
                         tgcalls._app._bind_client._cache.set_cache(resolved_id, input_call)
+                        tgcalls._app._bind_client._cache.set_cache(destino, input_call)
                         print(f"input_call registrado en caché de PyTgCalls para {resolved_id}.")
                 except Exception as e_c:
                     print("Nota registrando input_call en PyTgCalls:", e_c)
-
-                # Iniciar grabación del segmento previo a la meditación usando AudioFileWriter nativo (.raw)
-                try:
-                    ruta_grab_raw = ruta_grabacion_pre.rsplit(".", 1)[0] + ".raw"
-                    stream_rec = Stream(
-                        speaker=AudioStream(
-                            media_source=MediaSource.FILE,
-                            path=os.path.abspath(ruta_grab_raw),
-                            parameters=AudioParameters(48000, 2)
-                        )
-                    )
-                    await tgcalls.record(destino, stream_rec)
-                    print("Grabación de bienvenida y charla inicial iniciada.")
-                except Exception as e:
-                    print("Nota iniciando grabación inicial PyTgCalls:", e)
             except Exception as e:
                 print("Nota iniciando PyTgCalls:", e)
 
@@ -1506,23 +1492,35 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # 3. Si PyTgCalls estaba conectado en modo escucha/grabación, liberar para conectar en modo emisión
-                try:
-                    await tgcalls.leave_call(destino)
-                    await asyncio.sleep(0.5)
-                    print("Sesión de escucha previa liberada para reiniciar en modo emisión oficial.")
-                except Exception:
-                    pass
-
-                # Asegurar registro de input_call en PyTgCalls
+                # 3. Inyectar input_call en la caché de PyTgCalls ANTES de cualquier operación
                 try:
                     resolved_id = await tgcalls.resolve_chat_id(destino)
                     if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
                         tgcalls._app._bind_client._cache.set_cache(resolved_id, input_call)
+                        tgcalls._app._bind_client._cache.set_cache(destino, input_call)
+                except Exception as e_c:
+                    print("Nota registrando input_call:", e_c)
+
+                # 4. Si la llamada ya estaba conectada en PyTgCalls, liberarla
+                try:
+                    calls_activas = await tgcalls._binding.calls()
+                    if destino in calls_activas or (isinstance(destino, int) and abs(destino) in calls_activas):
+                        await tgcalls.leave_call(destino)
+                        await asyncio.sleep(0.5)
+                        print("Llamada previa liberada en PyTgCalls para reiniciar en modo emisión.")
+                except Exception as e_lv:
+                    print("Nota liberando llamada previa en PyTgCalls:", e_lv)
+
+                # Re-inyectar input_call en PyTgCalls para play
+                try:
+                    resolved_id = await tgcalls.resolve_chat_id(destino)
+                    if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
+                        tgcalls._app._bind_client._cache.set_cache(resolved_id, input_call)
+                        tgcalls._app._bind_client._cache.set_cache(destino, input_call)
                 except Exception:
                     pass
 
-                # 4. Conectar reproducción de audio con canal de micrófono activo
+                # 5. Iniciar emisión de audio con PyTgCalls
                 from pytgcalls.types import MediaStream, AudioQuality
                 try:
                     stream_play = MediaStream(
@@ -2746,6 +2744,15 @@ async def main() -> None:
                     print("⚡ Detección de caída masiva o parpadeo general en la sala de Telegram.")
 
                 participantes_conectados = uids_en_servidor
+
+            # Mantener input_call permanentemente fresco en la caché de PyTgCalls
+            if tgcalls and hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
+                try:
+                    tgcalls._app._bind_client._cache.set_cache(destino, input_call)
+                    if isinstance(destino, int):
+                        tgcalls._app._bind_client._cache.set_cache(abs(destino), input_call)
+                except Exception:
+                    pass
 
             activos_en_tick = set()
             hubo_cambio_turnos = False
