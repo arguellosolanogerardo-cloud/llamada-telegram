@@ -18,6 +18,8 @@ google_credentials.json
 data/meditaciones/*.mp3
 data/meditaciones/*.wav
 data/meditaciones/*.png
+data/meditaciones/*.raw
+*.raw
 data/meditaciones/cola_hoy.json
 data/meditaciones/cola_manana.json
 data/meditaciones/meta_manana.json

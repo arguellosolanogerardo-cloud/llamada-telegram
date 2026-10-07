@@ -53,61 +53,11 @@ except Exception as _e_eq:
 
 try:
     from pytgcalls import PyTgCalls
+    from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
+    from ntgcalls import MediaSource
     PYTGCALLS_AVAILABLE = True
 except ImportError:
     PYTGCALLS_AVAILABLE = False
-
-# Asegurar enlaces locales y absolutos de ffmpeg y ffprobe para Boost.Process v2 / NTgCalls en Linux
-for _tool in ("ffmpeg", "ffprobe"):
-    _tool_path = shutil.which(_tool)
-    if _tool_path:
-        try:
-            if os.path.exists(_tool) and not os.path.islink(_tool):
-                try:
-                    os.remove(_tool)
-                except Exception:
-                    pass
-            if not os.path.exists(_tool):
-                if hasattr(os, "symlink"):
-                    os.symlink(_tool_path, _tool)
-                    print(f"Enlace simbólico local creado: {_tool_path} -> ./{_tool}")
-                else:
-                    shutil.copy2(_tool_path, _tool)
-                    print(f"Copia local de {_tool} creada en el directorio de trabajo.")
-        except Exception:
-            pass
-
-if PYTGCALLS_AVAILABLE:
-    try:
-        from pytgcalls.types.stream.record_stream import RecordStream
-        import pytgcalls.types.stream.media_stream as _ms
-        from ntgcalls import MediaSource
-
-        # 1. Parchear build_command en MediaStream para que la REPRODUCCIÓN use ruta absoluta de ffmpeg/ffprobe
-        _orig_build_command = _ms.build_command
-
-        def _patched_build_command(name, *args, **kwargs):
-            real_bin = shutil.which(name) or name
-            return _orig_build_command(real_bin, *args, **kwargs)
-
-        _ms.build_command = _patched_build_command
-        print("MediaStream de PyTgCalls parcheado con ruta absoluta de ffmpeg.")
-
-        # 2. Parchear RecordStream para que la GRABACIÓN use ruta absoluta de ffmpeg
-        _orig_get_audio_stream = RecordStream._get_audio_stream
-
-        def _patched_get_audio_stream(audio, raw_audio_parameters):
-            stream = _orig_get_audio_stream(audio, raw_audio_parameters)
-            if stream and getattr(stream, "media_source", None) == MediaSource.SHELL and hasattr(stream, "path"):
-                fbin = shutil.which("ffmpeg") or "ffmpeg"
-                if stream.path.startswith("ffmpeg "):
-                    stream.path = fbin + " " + stream.path[7:]
-            return stream
-
-        RecordStream._get_audio_stream = staticmethod(_patched_get_audio_stream)
-        print("RecordStream de PyTgCalls parcheado con ruta absoluta de ffmpeg.")
-    except Exception as e:
-        print("Nota parcheando streams de PyTgCalls:", e)
 
 # Credenciales obligatorias
 API_ID = int(os.environ.get("TG_API_ID", "0"))
@@ -435,6 +385,61 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
     except Exception as e:
         print("Nota combinando gong con audio:", e)
     return ruta_audio
+
+
+def convertir_audio_a_pcm(ruta_audio: str) -> str:
+    """Convierte cualquier archivo de audio (MP3, WAV, M4A) a PCM s16le 48kHz estéreo para PyTgCalls FileReader nativo."""
+    if not os.path.exists(ruta_audio):
+        return ruta_audio
+    ruta_raw = ruta_audio.rsplit(".", 1)[0] + ".raw"
+    try:
+        if os.path.exists(ruta_raw) and os.path.getsize(ruta_raw) > 5000 and os.path.getmtime(ruta_raw) >= os.path.getmtime(ruta_audio):
+            return ruta_raw
+    except Exception:
+        pass
+
+    fbin = shutil.which("ffmpeg") or "ffmpeg"
+    cmd = [
+        fbin, "-y",
+        "-i", ruta_audio,
+        "-f", "s16le",
+        "-ac", "2",
+        "-ar", "48000",
+        ruta_raw
+    ]
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        if res.returncode == 0 and os.path.exists(ruta_raw) and os.path.getsize(ruta_raw) > 5000:
+            print(f"Audio convertido exitosamente a PCM nativo: {ruta_raw} ({os.path.getsize(ruta_raw)} bytes)")
+            return ruta_raw
+    except Exception as e:
+        print("Nota convirtiendo audio a PCM:", e)
+    return ruta_audio
+
+
+def asegurar_mp3_desde_raw(ruta_mp3: str) -> str:
+    """Si existe un archivo .raw generado por AudioFileWriter, lo convierte a .mp3 para almacenamiento y Gemini."""
+    ruta_raw = ruta_mp3.rsplit(".", 1)[0] + ".raw"
+    if os.path.exists(ruta_raw) and os.path.getsize(ruta_raw) > 5000:
+        fbin = shutil.which("ffmpeg") or "ffmpeg"
+        cmd = [
+            fbin, "-y",
+            "-f", "s16le",
+            "-ar", "48000",
+            "-ac", "2",
+            "-i", ruta_raw,
+            "-codec:a", "libmp3lame",
+            "-b:a", "128k",
+            ruta_mp3
+        ]
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+            if res.returncode == 0 and os.path.exists(ruta_mp3) and os.path.getsize(ruta_mp3) > 1000:
+                print(f"Grabación convertida exitosamente de RAW a MP3: {ruta_mp3}")
+                return ruta_mp3
+        except Exception as e:
+            print("Nota convirtiendo RAW a MP3:", e)
+    return ruta_mp3
 
 
 def generar_imagen_podio(fecha_str: str, duracion_min: int, total_personas: int, hubo_meditacion: bool, top_puntuales: list, ruta_salida: str = os.path.join(CARPETA_ASISTENCIAS, "podio_hoy.png")) -> str | None:
@@ -1233,7 +1238,15 @@ async def main() -> None:
             segmentos_grabados.append(nueva_ruta)
             if tgcalls:
                 try:
-                    await tgcalls.record(destino, nueva_ruta)
+                    nueva_ruta_raw = nueva_ruta.rsplit(".", 1)[0] + ".raw"
+                    stream_rec = Stream(
+                        speaker=AudioStream(
+                            media_source=MediaSource.FILE,
+                            path=os.path.abspath(nueva_ruta_raw),
+                            parameters=AudioParameters(48000, 2)
+                        )
+                    )
+                    await tgcalls.record(destino, stream_rec)
                 except Exception as e:
                     print("Nota reanudando grabación:", e)
             print("Grabación reanudada manualmente por un administrador.")
@@ -1248,12 +1261,18 @@ async def main() -> None:
                 try:
                     if os.path.exists(s):
                         os.remove(s)
+                    s_raw = s.rsplit(".", 1)[0] + ".raw"
+                    if os.path.exists(s_raw):
+                        os.remove(s_raw)
                 except Exception:
                     pass
             for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post, ruta_grabacion_completa):
                 try:
                     if os.path.exists(f_tmp):
                         os.remove(f_tmp)
+                    f_raw = f_tmp.rsplit(".", 1)[0] + ".raw"
+                    if os.path.exists(f_raw):
+                        os.remove(f_raw)
                 except Exception:
                     pass
             print("Grabación cancelada y eliminada por un administrador.")
@@ -1275,9 +1294,27 @@ async def main() -> None:
                 tgcalls = PyTgCalls(client)
                 await tgcalls.start()
                 print("Servicio de audio PyTgCalls iniciado exitosamente.")
-                # Iniciar grabación del segmento previo a la meditación
+
+                # Inyectar input_call en el caché de PyTgCalls de inmediato
                 try:
-                    await tgcalls.record(destino, ruta_grabacion_pre)
+                    resolved_id = await tgcalls.resolve_chat_id(destino)
+                    if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
+                        tgcalls._app._bind_client._cache.set_cache(resolved_id, input_call)
+                        print(f"input_call registrado en caché de PyTgCalls para {resolved_id}.")
+                except Exception as e_c:
+                    print("Nota registrando input_call en PyTgCalls:", e_c)
+
+                # Iniciar grabación del segmento previo a la meditación usando AudioFileWriter nativo (.raw)
+                try:
+                    ruta_grab_raw = ruta_grabacion_pre.rsplit(".", 1)[0] + ".raw"
+                    stream_rec = Stream(
+                        speaker=AudioStream(
+                            media_source=MediaSource.FILE,
+                            path=os.path.abspath(ruta_grab_raw),
+                            parameters=AudioParameters(48000, 2)
+                        )
+                    )
+                    await tgcalls.record(destino, stream_rec)
                     print("Grabación de bienvenida y charla inicial iniciada.")
                 except Exception as e:
                     print("Nota iniciando grabación inicial PyTgCalls:", e)
@@ -1380,7 +1417,18 @@ async def main() -> None:
                         return "error"
                     eq_estado["cambiando"] = True
                     try:
-                        await tgcalls.play(destino, ruta_resto)
+                        ruta_resto_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_resto)
+                        if ruta_resto_pcm.endswith(".raw") and os.path.exists(ruta_resto_pcm):
+                            stream_eq = Stream(
+                                microphone=AudioStream(
+                                    media_source=MediaSource.FILE,
+                                    path=os.path.abspath(ruta_resto_pcm),
+                                    parameters=AudioParameters(48000, 2)
+                                )
+                            )
+                            await tgcalls.play(destino, stream_eq)
+                        else:
+                            await tgcalls.play(destino, ruta_resto)
                         iniciar_seguimiento_posicion(pos)
                         if en_pausa:
                             await tgcalls.pause(destino)
@@ -1397,9 +1445,13 @@ async def main() -> None:
             # Pre-procesa en segundo plano para que los audios estén listos a la hora de reproducir
             asyncio.create_task(preparar_audio_eq())
 
+        ultimo_error_reproduccion = ""
+
         async def reproducir_meditacion(pista_idx: int = 0):
-            nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy
+            nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy, ultimo_error_reproduccion
+            ultimo_error_reproduccion = ""
             if not tgcalls:
+                ultimo_error_reproduccion = "Servicio PyTgCalls no disponible"
                 return False
 
             if not cola_reproduccion and ruta_meditacion and os.path.exists(ruta_meditacion):
@@ -1409,13 +1461,19 @@ async def main() -> None:
                     "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
                 })
 
-            if not cola_reproduccion or pista_idx >= len(cola_reproduccion):
+            if not cola_reproduccion:
+                ultimo_error_reproduccion = "Cola de reproducción vacía"
+                return False
+
+            if pista_idx >= len(cola_reproduccion):
+                ultimo_error_reproduccion = f"Índice de pista fuera de rango ({pista_idx} >= {len(cola_reproduccion)})"
                 return False
 
             indice_pista_actual = pista_idx
             pista_actual = cola_reproduccion[indice_pista_actual]
             ruta_pista = pista_actual.get("ruta")
             if not ruta_pista or not os.path.exists(ruta_pista):
+                ultimo_error_reproduccion = f"Archivo de audio no encontrado: {ruta_pista}"
                 return False
 
             ruta_meditacion = ruta_pista
@@ -1440,8 +1498,29 @@ async def main() -> None:
                 ruta_base_audio = await preparar_audio_eq(ruta_pista)
                 ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
 
-                # PyTgCalls conmuta a reproducir el audio de meditación (omitiendo meditación de la grabación)
-                await tgcalls.play(destino, ruta_a_reproducir)
+                # Asegurar registro de input_call en PyTgCalls
+                try:
+                    resolved_id = await tgcalls.resolve_chat_id(destino)
+                    if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
+                        tgcalls._app._bind_client._cache.set_cache(resolved_id, input_call)
+                except Exception:
+                    pass
+
+                # Convertir a PCM crudo (.raw) para que NTgCalls use io::FileReader (ifstream nativo C++)
+                # evitando por completo cualquier error de vfork/boost::process en Linux
+                ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_a_reproducir)
+                if ruta_pcm.endswith(".raw") and os.path.exists(ruta_pcm):
+                    stream_obj = Stream(
+                        microphone=AudioStream(
+                            media_source=MediaSource.FILE,
+                            path=os.path.abspath(ruta_pcm),
+                            parameters=AudioParameters(48000, 2)
+                        )
+                    )
+                    await tgcalls.play(destino, stream_obj)
+                else:
+                    await tgcalls.play(destino, ruta_a_reproducir)
+
                 try:
                     await tgcalls.resume(destino)
                 except Exception:
@@ -1463,6 +1542,7 @@ async def main() -> None:
                 return True
             except Exception as e:
                 print("Error reproduciendo meditación:", e)
+                ultimo_error_reproduccion = str(e)
                 return False
 
         async def auto_desbloquear_microfono(uid_target: int, segundos: int = DURACION_BLOQUEO_MUTE_SEGUNDOS):
@@ -1537,7 +1617,15 @@ async def main() -> None:
                                 if not grabacion_cancelada and not grabacion_pausada:
                                     segmentos_grabados.append(ruta_grabacion_post)
                                     try:
-                                        await tgcalls.record(destino, ruta_grabacion_post)
+                                        ruta_post_raw = ruta_grabacion_post.rsplit(".", 1)[0] + ".raw"
+                                        stream_rec_post = Stream(
+                                            speaker=AudioStream(
+                                                media_source=MediaSource.FILE,
+                                                path=os.path.abspath(ruta_post_raw),
+                                                parameters=AudioParameters(48000, 2)
+                                            )
+                                        )
+                                        await tgcalls.record(destino, stream_rec_post)
                                         print("Grabación de preguntas y testimonios reanudada tras la meditación.")
                                     except Exception as e:
                                         print("Nota reanudando grabación:", e)
@@ -1679,12 +1767,15 @@ async def main() -> None:
                 nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual
                 if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
+                if cola_reproduccion and indice_pista_actual >= len(cola_reproduccion):
+                    indice_pista_actual = 0
                 if tgcalls and (cola_reproduccion or (ruta_meditacion and os.path.exists(ruta_meditacion))):
                     ok = await reproducir_meditacion(indice_pista_actual)
                     if ok:
                         await responder_admin("▶️ Reproduciendo meditación en la sala de voz...")
                     else:
-                        await responder_admin("❌ Error iniciando la reproducción de la meditación.")
+                        detalle = f"\n*(Detalle: {ultimo_error_reproduccion})*" if ultimo_error_reproduccion else ""
+                        await responder_admin(f"❌ Error iniciando la reproducción de la meditación.{detalle}")
                 else:
                     await responder_admin("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
             elif cmd in ("/saltaraudio", "/siguienteaudio", "/nextaudio"):
@@ -2220,8 +2311,24 @@ async def main() -> None:
                     ids_mensajes_efimeros.add(r.id)
                 return r
 
+            # Reproducir meditación por lenguaje natural de administración
+            if any(p in texto_raw for p in ["reproducir meditacion", "reproducir meditación", "reproduce la meditacion", "reproduce la meditación", "poner meditacion", "poner meditación", "pon la meditacion", "pon la meditación", "iniciar meditacion", "iniciar meditación", "reproducir audio", "reproduce el audio"]):
+                nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, ultimo_error_reproduccion
+                if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
+                    ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
+                if cola_reproduccion and indice_pista_actual >= len(cola_reproduccion):
+                    indice_pista_actual = 0
+                if tgcalls and (cola_reproduccion or (ruta_meditacion and os.path.exists(ruta_meditacion))):
+                    ok = await reproducir_meditacion(indice_pista_actual)
+                    if ok:
+                        await responder_nat("▶️ Reproduciendo meditación en la sala de voz...")
+                    else:
+                        detalle = f"\n*(Detalle: {ultimo_error_reproduccion})*" if ultimo_error_reproduccion else ""
+                        await responder_nat(f"❌ Error iniciando la reproducción de la meditación.{detalle}")
+                else:
+                    await responder_nat("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
             # Pausar meditación
-            if any(p in texto_raw for p in ["pausar meditacion", "pausa la meditacion", "pausar meditación", "pausa la meditación", "pausar audio", "pausa el audio"]):
+            elif any(p in texto_raw for p in ["pausar meditacion", "pausa la meditacion", "pausar meditación", "pausa la meditación", "pausar audio", "pausa el audio"]):
                 if tgcalls:
                     try:
                         await tgcalls.pause(destino)
@@ -3306,6 +3413,8 @@ async def main() -> None:
         # Unir grabaciones de voz si existen y no fueron canceladas (excluyendo meditación)
         audio_para_ia = None
         if not grabacion_cancelada:
+            for s in segmentos_grabados:
+                asegurar_mp3_desde_raw(s)
             valid_segments = [s for s in segmentos_grabados if os.path.exists(s) and os.path.getsize(s) > 1000]
             if len(valid_segments) == 1:
                 try:
@@ -3449,12 +3558,18 @@ async def main() -> None:
             try:
                 if os.path.exists(s):
                     os.remove(s)
+                s_raw = s.rsplit(".", 1)[0] + ".raw"
+                if os.path.exists(s_raw):
+                    os.remove(s_raw)
             except Exception:
                 pass
         for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post, ruta_grabacion_completa):
             try:
                 if os.path.exists(f_tmp):
                     os.remove(f_tmp)
+                f_raw = f_tmp.rsplit(".", 1)[0] + ".raw"
+                if os.path.exists(f_raw):
+                    os.remove(f_raw)
             except Exception:
                 pass
 
