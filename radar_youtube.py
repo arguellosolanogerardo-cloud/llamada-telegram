@@ -5,7 +5,6 @@ import urllib.request
 import re
 import threading
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 CANALES_RADAR = [
     {"id": "UCms8TOzGiu0Ozj-QmpwstQw", "nombre": "ALANISO 2012"},
@@ -28,7 +27,6 @@ def guardar_vistos(vistos):
         json.dump(vistos, f)
 
 def extraer_datos_xml(xml_texto):
-    # Buscamos el primer entry que representa el Aoltimo video
     entry_match = re.search(r'<entry>(.*?)</entry>', xml_texto, re.DOTALL)
     if not entry_match: return None
     entry = entry_match.group(1)
@@ -58,22 +56,18 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo):
             datos = extraer_datos_xml(xml_texto)
             if datos:
                 vid = datos["video_id"]
-                # Si es la primera vez que corre, no mandamos spam, solo guardamos
                 if not vistos:
                     nuevos_vistos.append(vid)
                     hay_nuevos = True
                 elif vid not in vistos and vid not in nuevos_vistos:
-                    # ES UN VIDEO NUEVO!
                     nuevos_vistos.append(vid)
                     hay_nuevos = True
                     
-                    # Preparar anuncio
-                    thumb_url = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
                     texto_anuncio = (
-                        f"🔔 **¡Nueva enseñanza publicada!**\\n\\n"
-                        f"📺 **Canal:** {canal['nombre']}\\n"
-                        f"✨ **Título:** {datos['titulo']}\\n\\n"
-                        f"Puedes ver el video completo aquA-:\\n{datos['link']}"
+                        f"🔔 **¡HACE ALGUNOS SEGUNDOS SE ACABO DE PUBLICAR UN VIDEO NUEVO!**\n\n"
+                        f"📺 **Canal:** {canal['nombre']}\n"
+                        f"✨ **Título:** {datos['titulo']}\n\n"
+                        f"Puedes ver el video completo aquí:\n{datos['link']}"
                     )
                     
                     teclado = {
@@ -82,14 +76,11 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo):
                             [{"text": "📅 Programar para la Sala", "callback_data": f"yttarea_{vid}"}]
                         ]
                     }
-                    
-                    # Enviar mensaje con foto (usando la funciA3n generica si soporta mandar fotos, o mandando texto)
                     bot_enviar_mensaje_func(chat_id_grupo, texto_anuncio, reply_markup=teclado)
         except Exception as e:
             print(f"Error revisando radar {canal['nombre']}: {e}")
             
     if hay_nuevos:
-        # Mantener solo los Aoltimos 50 para no hacer un archivo enorme
         guardar_vistos(nuevos_vistos[-50:])
 
 def radar_loop(bot_enviar_mensaje_func, chat_id_grupo):
@@ -98,7 +89,7 @@ def radar_loop(bot_enviar_mensaje_func, chat_id_grupo):
             chequear_canales(bot_enviar_mensaje_func, chat_id_grupo)
         except Exception as e:
             print(f"Error en loop radar: {e}")
-        time.sleep(900) # Revisa cada 15 minutos
+        time.sleep(900)
 
 def iniciar_radar(bot_enviar_mensaje_func, chat_id_grupo):
     t = threading.Thread(target=radar_loop, args=(bot_enviar_mensaje_func, chat_id_grupo), daemon=True)
