@@ -1551,6 +1551,29 @@ def escuchar_comandos() -> None:
                                 info_cat = list(db_a.values())[-1]
 
                     entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
+                elif cmd in ("/progreso",):
+                    if not es_mensaje_de_admin(msg, chat_id):
+                        enviar_mensaje(chat_id, "🚫 Solo admins.", reply_to_message_id=msg_id)
+                        continue
+                    estado_path = os.path.join("data", "estado_descarga.json")
+                    if os.path.exists(estado_path):
+                        import json
+                        try:
+                            with open(estado_path, "r", encoding="utf-8") as f_est:
+                                st = json.load(f_est)
+                            barra = "█" * int(st['porcentaje'] / 5) + "░" * (20 - int(st['porcentaje'] / 5))
+                            msg_prog = f"📊 **Progreso Biblioteca Universal**\n\n"
+                            msg_prog += f"[{barra}] {st['porcentaje']}%\n\n"
+                            msg_prog += f"✅ **Completados:** {st['completados']} / {st['total']}\n"
+                            msg_prog += f"⏳ **Tiempo restante:** {st['tiempo_estimado_restante']}\n"
+                            msg_prog += f"⚠️ **Imprevistos (Errores):** {st['errores']}\n"
+                            msg_prog += f"🔄 **Última actualización:** {st['ultima_actualizacion']}"
+                            enviar_mensaje(chat_id, msg_prog, reply_to_message_id=msg_id)
+                        except:
+                            enviar_mensaje(chat_id, "⚠️ Error leyendo el estado de la descarga.", reply_to_message_id=msg_id)
+                    else:
+                        enviar_mensaje(chat_id, "⏳ El escáner aún no ha generado el archivo de progreso. Posiblemente siga en la Fase 1 (Inventario).", reply_to_message_id=msg_id)
+                    continue
                 elif cmd == "/panel":
                     if not es_mensaje_de_admin(msg, chat_id):
                         enviar_mensaje(chat_id, "🚫 Solo los administradores pueden usar el panel de control.", reply_to_message_id=msg_id)
