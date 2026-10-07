@@ -30,6 +30,7 @@ RUTA_MSGS_BOT = os.path.join("data", "mensajes_bot_grupo.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
 
 COLA_LOGS = []
+_TAREA_FLOTANTE = {"msg_id": None, "contador": 0, "texto": "", "reply_markup": None, "chat_id": None}
 
 def log_debug(msg: str) -> None:
     timestamp = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
@@ -1159,6 +1160,27 @@ def escuchar_comandos() -> None:
                 msg = update.get("message")
                 if not msg:
                     continue
+                
+                # --- LOGICA MENSAJE FLOTANTE ---
+                chat_id_msg = msg.get("chat", {}).get("id")
+                if chat_id_msg and _TAREA_FLOTANTE["msg_id"] and chat_id_msg == _TAREA_FLOTANTE["chat_id"]:
+                    from_id = msg.get("from", {}).get("id")
+                    if not BOT_ID or from_id != BOT_ID:
+                        from zoneinfo import ZoneInfo
+                        from datetime import datetime
+                        ahora_flot = datetime.now(ZoneInfo("America/Bogota"))
+                        minutos_flot = ahora_flot.hour * 60 + ahora_flot.minute
+                        # Solo flota hasta las 7:26 PM (19*60 + 26 = 1166)
+                        if minutos_flot < 1166:
+                            _TAREA_FLOTANTE["contador"] += 1
+                            if _TAREA_FLOTANTE["contador"] >= 8:
+                                eliminar_mensaje(chat_id_msg, _TAREA_FLOTANTE["msg_id"])
+                                nuevo_id = enviar_mensaje(chat_id_msg, _TAREA_FLOTANTE["texto"], reply_markup=_TAREA_FLOTANTE["reply_markup"])
+                                if nuevo_id:
+                                    _TAREA_FLOTANTE["msg_id"] = nuevo_id
+                                    _TAREA_FLOTANTE["contador"] = 0
+                # -------------------------------
+
 
                 from_user = msg.get("from", {})
                 user_id = from_user.get("id")
@@ -1302,7 +1324,9 @@ def escuchar_comandos() -> None:
                             # 2. Enviar anuncio con botones al chat actual
                             anuncio = generar_anuncio_tarea(audios_procesados if len(audios_procesados) > 1 else info_cat, fecha_admin)
                             teclado_actual = armar_teclado_audio(chat_id, msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio, audios_lista=audios_procesados)
-                            enviar_mensaje(chat_id, anuncio, reply_markup=teclado_actual)
+                            m_id = enviar_mensaje(chat_id, anuncio, reply_markup=teclado_actual)
+                            if m_id:
+                                _TAREA_FLOTANTE.update({"msg_id": m_id, "contador": 0, "texto": anuncio, "reply_markup": teclado_actual, "chat_id": chat_id})
 
                             # 3. Si la orden se dio en privado Y CHAT_ID del grupo está configurado, publicar también en el grupo
                             if chat_id > 0 and CHAT_ID and str(chat_id) != str(CHAT_ID):
@@ -1528,7 +1552,9 @@ Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclad
                             fecha_admin = extraer_fecha_de_texto(param_texto) or (extraer_fecha_de_texto(reply_m.get("text") or reply_m.get("caption") or "") if reply_m else None)
                             anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
                             teclado = armar_teclado_audio(chat_id, msg_id_audio, numero_tarea=info_cat.get('numero'), tipo_tarea=info_cat.get('tipo'))
-                            enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
+                            m_id = enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
+                            if m_id:
+                                _TAREA_FLOTANTE.update({"msg_id": m_id, "contador": 0, "texto": anuncio, "reply_markup": teclado, "chat_id": chat_id})
                             fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
                             db_pts = cargar_puntos()
                             usuarios = db_pts.get("usuarios", {})
