@@ -19,7 +19,6 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg
           ln -sf $(which ffmpeg) ./ffmpeg
           ln -sf $(which ffprobe) ./ffprobe
-          chmod +x ./ffmpeg ./ffprobe
           echo "FFmpeg instalado y enlazado: $(which ffmpeg) -> ./ffmpeg"
       - run: python -u llamada.py
         env:
