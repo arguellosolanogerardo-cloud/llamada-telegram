@@ -201,17 +201,18 @@ def _cadena(aj: AjusteEQ, separado: bool) -> str:
     lp_ruido = (14000, 12000, 10000, 8500)[aj.limpieza]
     lp_musica = graves if separado else (14000, 12000, 10000, 8500)[aj.musica]
     hp = ConfigAudio.corte_graves_hz + (0 if separado else 30 * aj.musica)
-    dip = -2 - (0 if separado else aj.musica)
+    dip = -4 - (0 if separado else aj.musica * 2)
     f = [
         "aformat=channel_layouts=stereo", "pan=mono|c0=0.5*c0+0.5*c1",
         f"highpass=f={hp}:poles=2",
         f"afftdn=nr={8 + 4 * aj.limpieza}:nf={ConfigAudio.piso_ruido_db}:tn=1",
         f"lowpass=f={min(lp_ruido, lp_musica)}",
         f"equalizer=f=250:t=q:w=1.0:g={dip}",
-        f"equalizer=f=3000:t=q:w=0.9:g={3 + 1.5 * aj.voz}",
+        f"equalizer=f=600:t=q:w=1.5:g={dip + 1}",
+        f"equalizer=f=3000:t=q:w=0.8:g={5 + 2.0 * aj.voz}",
     ]
     if aj.voz >= 1:
-        f.append(f"speechnorm=e={3 + aj.voz}:r=0.0001:l=1")
+        f.append(f"speechnorm=e={5 + aj.voz * 2}:r=0.0001:l=1")
     f.append("acompressor=threshold=-20dB:ratio=3:attack=10:release=120:makeup=2")
     return ",".join(f)
 
