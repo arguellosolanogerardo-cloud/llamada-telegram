@@ -17,6 +17,7 @@ from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_f
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_ID = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
 CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
 TG_API_ID = os.environ.get("TG_API_ID")
 TG_API_HASH = os.environ.get("TG_API_HASH")
@@ -356,15 +357,21 @@ def obtener_admin_ids(target_chat=None) -> set:
 
 def es_mensaje_de_admin(msg: dict, chat_id: int | str) -> bool:
     """Verifica si un mensaje proviene de un administrador o del dueño (incluye administradores anónimos o que envían como el grupo/canal)."""
+    from_user = msg.get("from", {})
+    user_id = from_user.get("id")
+
+    # Rechazar cualquier bot como administrador (a menos que sea el bot anónimo oficial de Telegram)
+    if from_user.get("is_bot") and user_id != 1087968824 and from_user.get("username") != "GroupAnonymousBot":
+        return False
+    if BOT_ID and user_id == BOT_ID:
+        return False
+
     # 1. Si el mensaje se envió a nombre del grupo o canal
     sender_chat = msg.get("sender_chat")
     if sender_chat:
         sc_id = sender_chat.get("id")
         if sc_id and (str(sc_id) == str(chat_id) or (CHAT_ID and str(sc_id) == str(CHAT_ID))):
             return True
-
-    from_user = msg.get("from", {})
-    user_id = from_user.get("id")
 
     # 2. Si el remitente es el bot anónimo oficial de Telegram (@GroupAnonymousBot)
     if user_id == 1087968824 or from_user.get("username") == "GroupAnonymousBot":
@@ -1117,16 +1124,34 @@ def escuchar_comandos() -> None:
                 if not msg:
                     continue
 
+                from_user = msg.get("from", {})
+                user_id = from_user.get("id")
+
+                # Ignorar completamente bots (excepto anónimo oficial) para evitar bucles
+                if from_user.get("is_bot") and user_id != 1087968824 and from_user.get("username") != "GroupAnonymousBot":
+                    continue
+                if BOT_ID and user_id == BOT_ID:
+                    continue
+
                 texto = (msg.get("text") or msg.get("caption") or "").strip()
                 chat_id = msg["chat"]["id"]
                 msg_id = msg["message_id"]
-                from_user = msg.get("from", {})
-                user_id = from_user.get("id")
                 nombre = f"{from_user.get('first_name', '')} {from_user.get('last_name', '')}".strip()
+
+                # Ignorar mensajes automáticos de bot o sistema para prevenir ecos y bucles
+                if any(texto.startswith(prefix) for prefix in ("✅", "📢", "🕊️", "▶️", "🔍", "📋", "🧘✨", "🎙️", "ℹ️", "⚠️", "⛔", "[", "🔴", "⚪")):
+                    continue
+
+                texto_upper = texto.upper()
+                if any(k in texto_upper for k in [
+                    "DESDE GOOGLE DRIVE", "OBTENIDOS DESDE", "BUSCANDO AUDIO PARA",
+                    "TAREA DEL DÍA", "TAREA DEL DIA", "LISTA DE REPRODUCCIÓN",
+                    "REPRODUCIENDO MEDITACIÓN", "INICIANDO REPRODUCCIÓN", "PROGRAMADOS PARA REPRODUCIRSE"
+                ]):
+                    continue
 
                 # Detectar si se subió un audio/documento o se declaró tarea por texto
                 audio_obj = msg.get("audio") or msg.get("voice") or msg.get("document")
-                texto_upper = texto.upper()
                 es_tarea_declarada = any(k in texto_upper for k in [
                     "MEDITACION DE TAREA", "TAREA DE MEDITACION",
                     "MENSAJE DE TAREA", "TAREA DE MENSAJE",

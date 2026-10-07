@@ -98,6 +98,7 @@ API_HASH = os.environ.get("TG_API_HASH", "")
 SESSION = os.environ.get("TG_SESSION", "")
 GRUPO = os.environ.get("TG_GROUP", "")  # @usuario, o id numérico (-100...)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")  # opcional
+BOT_ID = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
 CHAT_ID = os.environ.get("CHAT_ID", GRUPO)  # id del grupo para el bot
 TITULO = os.environ.get("CALL_TITLE", "Llamada diaria")
 AVISO = os.environ.get(
@@ -1529,12 +1530,18 @@ async def main() -> None:
         # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos, /buscar, /resumen, /acta, /oracion)
         @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta|oracion)"))
         async def responder_comandos_en_vivo(event):
+            if event.out:
+                return
+            sender = await event.get_sender()
+            if sender and getattr(sender, "bot", False):
+                return
+            uid = sender.id if sender else event.sender_id
+            if uid == me.id or (BOT_ID and uid == BOT_ID):
+                return
             partes = event.raw_text.strip().split()
             texto_cmd = partes[0].lower().split("@")[0]
             param = partes[1].lower() if len(partes) > 1 else ""
             db = cargar_puntos()
-            sender = await event.get_sender()
-            uid = sender.id if sender else event.sender_id
             nom = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".strip() or "Participante"
             usr = getattr(sender, "username", "") or ""
 
@@ -1632,8 +1639,14 @@ async def main() -> None:
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
         @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
+            if event.out:
+                return
             sender = await event.get_sender()
+            if sender and getattr(sender, "bot", False):
+                return
             uid = sender.id if sender else event.sender_id
+            if uid == me.id or (BOT_ID and uid == BOT_ID):
+                return
             if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
                 ids_mensajes_efimeros.add(event.message.id)
 
@@ -1826,8 +1839,14 @@ async def main() -> None:
         # Ecualizador de voz en vivo (solo administradores): /eq
         @client.on(events.NewMessage(pattern=r"(?i)^/(eq|ecualizador)(@\w+)?(\s|$)"))
         async def controlar_ecualizador(event):
+            if event.out:
+                return
             sender = await event.get_sender()
+            if sender and getattr(sender, "bot", False):
+                return
             uid = sender.id if sender else event.sender_id
+            if uid == me.id or (BOT_ID and uid == BOT_ID):
+                return
             if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
                 ids_mensajes_efimeros.add(event.message.id)
 
@@ -1915,8 +1934,14 @@ async def main() -> None:
         # Gestionar lista de reproducción: /cola, /playlist, /encolar, /agregar, /limpiarcola
         @client.on(events.NewMessage(pattern=r"(?i)^/(cola|playlist|encolar|agregar|limpiarcola|vaciarcola)(@\w+)?(\s|$)"))
         async def gestionar_cola_reproduccion(event):
+            if event.out:
+                return
             sender = await event.get_sender()
+            if sender and getattr(sender, "bot", False):
+                return
             uid = sender.id if sender else event.sender_id
+            if uid == me.id or (BOT_ID and uid == BOT_ID):
+                return
             if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
                 ids_mensajes_efimeros.add(event.message.id)
 
@@ -1996,6 +2021,11 @@ async def main() -> None:
         @client.on(events.NewMessage(chats=entidad))
         async def mantener_turnos_al_fondo_por_chat(event):
             nonlocal mensajes_chat_recientes
+            if event.out:
+                return
+            sender = await event.get_sender()
+            if sender and getattr(sender, "bot", False):
+                return
             if msg_turnos and event.message.id == getattr(msg_turnos, "id", None):
                 return
             mensajes_chat_recientes += 1
@@ -2006,11 +2036,33 @@ async def main() -> None:
         @client.on(events.NewMessage(chats=entidad))
         async def detectar_nueva_meditacion(event):
             nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual
-            sender_id = event.sender_id
-            if sender_id not in admin_ids:
+            if event.out:
                 return
 
-            texto = (event.raw_text or "").upper()
+            sender = await event.get_sender()
+            if sender and getattr(sender, "bot", False):
+                return
+
+            sender_id = event.sender_id
+            if sender_id not in admin_ids or sender_id == me.id or (BOT_ID and sender_id == BOT_ID):
+                return
+
+            if hasattr(entidad, "id") and sender_id == entidad.id:
+                return
+
+            texto_raw = (event.raw_text or "").strip()
+            texto = texto_raw.upper()
+
+            # Ignorar mensajes automáticos de bot o sistema para prevenir bucles
+            if any(texto_raw.startswith(p) for p in ("✅", "📢", "🕊️", "▶️", "🔍", "📋", "🧘✨", "🎙️", "ℹ️", "⚠️", "⛔", "[", "🔴", "⚪")):
+                return
+            if any(k in texto for k in [
+                "DESDE GOOGLE DRIVE", "OBTENIDOS DESDE", "BUSCANDO AUDIO",
+                "TAREA DEL DÍA", "TAREA DEL DIA", "LISTA DE REPRODUCCIÓN",
+                "PROGRAMADOS PARA REPRODUCIRSE"
+            ]):
+                return
+
             if any(k in texto for k in ["MEDITACION", "MEDITACIÓN", "TAREA", "MENSAJE"]):
                 target_msg = event.message
                 es_audio = False
@@ -2136,11 +2188,20 @@ async def main() -> None:
         # Escuchar comandos por lenguaje natural de administradores en el grupo
         @client.on(events.NewMessage(chats=entidad))
         async def comandos_naturales_admin(event):
+            if event.out:
+                return
+            sender = await event.get_sender()
+            if sender and getattr(sender, "bot", False):
+                return
             sender_id = event.sender_id
-            if sender_id not in admin_ids:
+            if sender_id not in admin_ids or sender_id == me.id or (BOT_ID and sender_id == BOT_ID):
+                return
+            if hasattr(entidad, "id") and sender_id == entidad.id:
                 return
             texto_raw = (event.raw_text or "").strip().lower()
             if not texto_raw or texto_raw.startswith("/"):
+                return
+            if any(texto_raw.startswith(p) for p in ("✅", "📢", "🕊️", "▶️", "🔍", "📋", "🧘", "🎙️", "ℹ️", "⚠️", "⛔", "[", "🔴", "⚪")):
                 return
 
             if getattr(event, "message", None) and hasattr(event.message, "id"):
