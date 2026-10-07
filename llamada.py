@@ -335,7 +335,9 @@ def enviar_foto_con_bot(ruta_foto: str, caption: str = "") -> None:
 
 def generar_sonido_campana_gong(ruta_salida: str = os.path.join(CARPETA_MEDITACIONES, "campana.wav"), duracion: float = 3.5) -> str:
     """Genera sintéticamente un tono armónico de cuenco tibetano / campana zen a 432 Hz."""
-    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
+    dir_salida = os.path.dirname(ruta_salida)
+    if dir_salida:
+        os.makedirs(dir_salida, exist_ok=True)
     sample_rate = 44100
     num_samples = int(sample_rate * duracion)
     try:
@@ -366,8 +368,14 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
     """Inserta campana de cuenco tibetano al inicio y al final de la meditación."""
     if not os.path.exists(ruta_audio):
         return ruta_audio
-    campana = generar_sonido_campana_gong()
     ruta_con_gong = os.path.join(CARPETA_MEDITACIONES, "meditacion_con_gong.mp3")
+    try:
+        # Reutilizar si ya fue generado para no retrasar la reproducción con FFmpeg
+        if os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 1000 and os.path.getmtime(ruta_con_gong) >= os.path.getmtime(ruta_audio):
+            return ruta_con_gong
+    except Exception:
+        pass
+    campana = generar_sonido_campana_gong()
     try:
         fbin = shutil.which("ffmpeg") or "ffmpeg"
         cmd = [
@@ -1443,7 +1451,14 @@ async def main() -> None:
 
         if MEJORA_AUDIO and (cola_reproduccion or ruta_meditacion):
             # Pre-procesa en segundo plano para que los audios estén listos a la hora de reproducir
-            asyncio.create_task(preparar_audio_eq())
+            async def _preparar_meditacion_completa():
+                try:
+                    audio_eq = await preparar_audio_eq()
+                    if audio_eq and os.path.exists(audio_eq):
+                        await asyncio.to_thread(agregar_gongs_al_audio, audio_eq)
+                except Exception as e_p:
+                    print("Nota pre-procesando meditacion:", e_p)
+            asyncio.create_task(_preparar_meditacion_completa())
 
         ultimo_error_reproduccion = ""
 
@@ -1480,23 +1495,24 @@ async def main() -> None:
             info_catalogo_hoy = pista_actual.get("info")
 
             try:
-                # 1. Si PyTgCalls estaba conectado en modo escucha/grabación, cerrar la sesión previa para renegociar con Telegram en modo emisión (sendrecv)
-                try:
-                    await tgcalls.leave_call(destino)
-                    await asyncio.sleep(1.0)
-                    print("Sesión de escucha previa liberada para reiniciar en modo emisión oficial.")
-                except Exception:
-                    pass
+                # 1. Incorporar campanas tibetanas / gong zen al inicio y final con antelación
+                ruta_base_audio = await preparar_audio_eq(ruta_pista)
+                ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
+                ruta_a_reproducir = os.path.abspath(ruta_a_reproducir)
 
-                # 2. Desactivar temporalmente join_muted para que el robot ingrese con micrófono activo
+                # 2. Asegurar que la sala permita la transmisión sin silenciamiento global
                 try:
                     await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
                 except Exception:
                     pass
 
-                # 3. Incorporar campanas tibetanas / gong zen al inicio y final
-                ruta_base_audio = await preparar_audio_eq(ruta_pista)
-                ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
+                # 3. Si PyTgCalls estaba conectado en modo escucha/grabación, liberar para conectar en modo emisión
+                try:
+                    await tgcalls.leave_call(destino)
+                    await asyncio.sleep(0.5)
+                    print("Sesión de escucha previa liberada para reiniciar en modo emisión oficial.")
+                except Exception:
+                    pass
 
                 # Asegurar registro de input_call en PyTgCalls
                 try:
@@ -1519,7 +1535,7 @@ async def main() -> None:
                     print("Nota reproduciendo con MediaStream, usando fallback:", e_ms)
                     await tgcalls.play(destino, ruta_a_reproducir)
 
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
 
                 # 5. Desmutear PyTgCalls a nivel WebRTC y maximizar volumen de emisión
                 try:
@@ -1535,28 +1551,22 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # 6. Activar silencio para nuevos participantes regulares (evitar ruidos de fondo durante la meditación)
+                # 6. Desmutear el micrófono del robot en Telegram utilizando InputPeerSelf
                 try:
-                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
-                except Exception:
-                    pass
-
-                # 7. Garantizar micrófono activo para el robot en Telegram
-                try:
-                    me_user = await client.get_me()
-                    me_peer = await client.get_input_entity(me_user)
-                    await client(EditGroupCallParticipantRequest(call=input_call, participant=me_peer, muted=False, volume=20000))
-                    print("Micrófono del robot confirmado activo en Telegram.")
+                    from telethon.tl.types import InputPeerSelf
+                    await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
+                    print("Micrófono del robot confirmado activo en Telegram (InputPeerSelf).")
                 except Exception as e_me:
                     print("Nota desmuteando robot en Telegram:", e_me)
 
-                # 8. Garantizar explícitamente que TODOS los administradores tengan el micrófono desbloqueado (NUNCA silenciados)
+                # 7. Garantizar explícitamente que TODOS los administradores tengan el micrófono desbloqueado (NUNCA silenciados)
                 for aid in admin_ids:
-                    try:
-                        admin_peer = await client.get_input_entity(aid)
-                        await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
-                    except Exception:
-                        pass
+                    if aid != me.id:
+                        try:
+                            admin_peer = await client.get_input_entity(aid)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                        except Exception:
+                            pass
                 print("Todos los administradores confirmados con permiso de voz libre y desbloqueado.")
                 iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
                 reproduciendo_meditacion = True
@@ -2521,11 +2531,10 @@ async def main() -> None:
                     except Exception as e:
                         print("Nota pausando grabación en oración:", e)
 
-                # Silenciar micrófonos para garantizar silencio y respeto en la sala (No afecta a administradores)
+                # Silenciar micrófonos de oradores regulares para garantizar respeto en oración (No afecta a administradores)
                 try:
-                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
                     for uid_orador in list(oradores_activos):
-                        if uid_orador in admin_ids:
+                        if uid_orador in admin_ids or uid_orador == me.id:
                             continue
                         try:
                             input_peer = await client.get_input_entity(uid_orador)
@@ -2535,11 +2544,12 @@ async def main() -> None:
                     oradores_activos = {u for u in oradores_activos if u in admin_ids}
                     # Garantizar que todos los administradores tengan el micrófono habilitado
                     for aid in admin_ids:
-                        try:
-                            admin_peer = await client.get_input_entity(aid)
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
-                        except Exception:
-                            pass
+                        if aid != me.id:
+                            try:
+                                admin_peer = await client.get_input_entity(aid)
+                                await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                            except Exception:
+                                pass
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 except Exception as e:
                     print("Nota silenciando micrófonos para oración:", e)
@@ -2798,22 +2808,24 @@ async def main() -> None:
                 if uid in admin_ids:
                     # Garantizar que ningún administrador tenga candado de silencio en ningún momento (ni en meditación)
                     # Y garantizar que la cuenta del robot nunca quede con micrófono apagado durante reproducción
-                    debe_desmutear = False
-                    if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
-                        debe_desmutear = True
-                    elif uid == me.id and reproduciendo_meditacion and getattr(p, "muted", False) is True:
-                        debe_desmutear = True
-
-                    if debe_desmutear:
-                        try:
-                            input_peer = await client.get_input_entity(p.peer)
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
-                            if uid != me.id:
+                    if uid == me.id:
+                        if reproduciendo_meditacion and p_muted:
+                            try:
+                                from telethon.tl.types import InputPeerSelf
+                                await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
+                                if tgcalls:
+                                    await tgcalls.unmute(destino)
+                            except Exception:
+                                pass
+                    else:
+                        # ADMINISTRADORES HUMANOS: NUNCA SILENCIADOS (siempre tienen micrófono libre)
+                        if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
+                            try:
+                                input_peer = await client.get_input_entity(p.peer)
+                                await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
                                 print(f"🔓 Candado de silencio retirado para administrador {nombre} ({uid}).")
-                            else:
-                                print("🔓 Micrófono del robot reactivado para transmisión de audio.")
-                        except Exception:
-                            pass
+                            except Exception:
+                                pass
                 else:
                     if reproduciendo_meditacion:
                         # Durante la meditación, silenciar a cualquier participante regular que tenga el micrófono abierto
