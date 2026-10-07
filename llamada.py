@@ -1620,6 +1620,14 @@ async def main() -> None:
                 ultimo_error_reproduccion = str(e)
                 return False
 
+        _bg_tasks = set()
+
+        def lanzar_tarea(coro):
+            task = asyncio.create_task(coro)
+            _bg_tasks.add(task)
+            task.add_done_callback(_bg_tasks.discard)
+            return task
+
         async def auto_desbloquear_microfono(uid_target: int, segundos: int = DURACION_BLOQUEO_MUTE_SEGUNDOS):
             """Espera los segundos configurados (5s) y retira el bloqueo de administrador de Telegram."""
             await asyncio.sleep(segundos)
@@ -1771,7 +1779,7 @@ async def main() -> None:
                     try:
                         input_peer = await client.get_input_entity(uid)
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                        asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
+                        lanzar_tarea(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                     except Exception:
                         pass
                     await responder(f"🤝 **{nom}**, has cedido tu turno de palabra. ¡Muchas gracias por compartir!")
@@ -1992,7 +2000,7 @@ async def main() -> None:
                     try:
                         input_peer = await client.get_input_entity(t_uid)
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                        asyncio.create_task(auto_desbloquear_microfono(t_uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
+                        lanzar_tarea(auto_desbloquear_microfono(t_uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                     except Exception as e:
                         print(f"Nota silenciando a {t_nom}:", e)
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
@@ -2895,7 +2903,7 @@ async def main() -> None:
                                     try:
                                         input_peer = await client.get_input_entity(uid)
                                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                        asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
+                                        lanzar_tarea(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                                         if not any(t["id"] == uid for t in cola_turnos):
                                             cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
                                         hubo_cambio_turnos = True
@@ -2912,7 +2920,7 @@ async def main() -> None:
                                     try:
                                         input_peer = await client.get_input_entity(uid)
                                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                        asyncio.create_task(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
+                                        lanzar_tarea(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                                         oradores_activos.discard(uid)
                                         segundos_inactividad_mic[uid] = 0
                                         hubo_cambio_turnos = True
