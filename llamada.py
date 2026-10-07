@@ -1480,21 +1480,21 @@ async def main() -> None:
             info_catalogo_hoy = pista_actual.get("info")
 
             try:
-                # Silenciar a nuevos participantes para evitar ruidos de fondo
+                # 1. Si PyTgCalls estaba conectado en modo escucha/grabación, cerrar la sesión previa para renegociar con Telegram en modo emisión (sendrecv)
                 try:
-                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
+                    await tgcalls.leave_call(destino)
+                    await asyncio.sleep(1.0)
+                    print("Sesión de escucha previa liberada para reiniciar en modo emisión oficial.")
                 except Exception:
                     pass
 
-                # Garantizar explícitamente que los administradores NUNCA tengan el micrófono bloqueado
-                for aid in admin_ids:
-                    try:
-                        admin_peer = await client.get_input_entity(aid)
-                        await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
-                    except Exception:
-                        pass
+                # 2. Desactivar temporalmente join_muted para que el robot ingrese con micrófono activo
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                except Exception:
+                    pass
 
-                # Incorporar campanas tibetanas / gong zen al inicio y final
+                # 3. Incorporar campanas tibetanas / gong zen al inicio y final
                 ruta_base_audio = await preparar_audio_eq(ruta_pista)
                 ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
 
@@ -1506,38 +1506,26 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # Conectar reproducción de audio a PyTgCalls
+                # 4. Conectar reproducción de audio con canal de micrófono activo
+                from pytgcalls.types import MediaStream, AudioQuality
                 try:
-                    from pytgcalls.types import MediaStream, AudioQuality
                     stream_play = MediaStream(
                         ruta_a_reproducir,
                         audio_parameters=AudioQuality.HIGH,
                     )
                     await tgcalls.play(destino, stream_play)
-                    print(f"Reproducción iniciada con MediaStream: {ruta_a_reproducir}")
+                    print(f"Emisión de audio iniciada con MediaStream: {ruta_a_reproducir}")
                 except Exception as e_ms:
-                    print("Nota reproduciendo con MediaStream, usando fallback PCM FILE:", e_ms)
-                    ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_a_reproducir)
-                    if ruta_pcm.endswith(".raw") and os.path.exists(ruta_pcm):
-                        stream_obj = Stream(
-                            microphone=AudioStream(
-                                media_source=MediaSource.FILE,
-                                path=os.path.abspath(ruta_pcm),
-                                parameters=AudioParameters(48000, 2)
-                            )
-                        )
-                        await tgcalls.play(destino, stream_obj)
-                        print(f"Reproducción iniciada con PCM FILE: {ruta_pcm}")
-                    else:
-                        await tgcalls.play(destino, ruta_a_reproducir)
+                    print("Nota reproduciendo con MediaStream, usando fallback:", e_ms)
+                    await tgcalls.play(destino, ruta_a_reproducir)
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1.0)
 
-                # Desmutear PyTgCalls a nivel WebRTC y subir volumen
+                # 5. Desmutear PyTgCalls a nivel WebRTC y maximizar volumen de emisión
                 try:
                     await tgcalls.unmute(destino)
-                except Exception as e_u:
-                    print("Nota desmuteando PyTgCalls:", e_u)
+                except Exception:
+                    pass
                 try:
                     await tgcalls.resume(destino)
                 except Exception:
@@ -1547,23 +1535,29 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # Retirar candado de silencio del robot en Telegram para que transmita sonido
+                # 6. Activar silencio para nuevos participantes regulares (evitar ruidos de fondo durante la meditación)
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
+                except Exception:
+                    pass
+
+                # 7. Garantizar micrófono activo para el robot en Telegram
                 try:
                     me_user = await client.get_me()
                     me_peer = await client.get_input_entity(me_user)
                     await client(EditGroupCallParticipantRequest(call=input_call, participant=me_peer, muted=False, volume=20000))
-                    print("Micrófono del robot desmuteado y desbloqueado en Telegram.")
+                    print("Micrófono del robot confirmado activo en Telegram.")
                 except Exception as e_me:
                     print("Nota desmuteando robot en Telegram:", e_me)
 
-                # Retirar candado de silencio de TODOS los administradores en Telegram (NUNCA silenciados)
+                # 8. Garantizar explícitamente que TODOS los administradores tengan el micrófono desbloqueado (NUNCA silenciados)
                 for aid in admin_ids:
                     try:
                         admin_peer = await client.get_input_entity(aid)
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
                     except Exception:
                         pass
-                print("Todos los administradores confirmados con micrófono desbloqueado.")
+                print("Todos los administradores confirmados con permiso de voz libre y desbloqueado.")
                 iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
