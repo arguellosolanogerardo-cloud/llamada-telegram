@@ -1535,16 +1535,29 @@ async def main() -> None:
                     pass
 
                 # 5. Iniciar emisión de audio con PyTgCalls
-                from pytgcalls.types import MediaStream, AudioQuality
                 try:
-                    stream_play = MediaStream(
-                        ruta_a_reproducir,
-                        audio_parameters=AudioQuality.HIGH,
-                    )
+                    ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_a_reproducir)
+                    if ruta_pcm and ruta_pcm.endswith(".raw") and os.path.exists(ruta_pcm):
+                        from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
+                        from ntgcalls import MediaSource
+                        stream_play = Stream(
+                            microphone=AudioStream(
+                                media_source=MediaSource.FILE,
+                                path=os.path.abspath(ruta_pcm),
+                                parameters=AudioParameters(48000, 2)
+                            )
+                        )
+                    else:
+                        from pytgcalls.types import MediaStream, AudioQuality
+                        stream_play = MediaStream(
+                            ruta_a_reproducir,
+                            audio_parameters=AudioQuality.HIGH,
+                        )
+                    
                     await tgcalls.play(destino, stream_play)
-                    print(f"Emisión de audio iniciada con MediaStream: {ruta_a_reproducir}")
+                    print(f"Emisión de audio iniciada con Stream: {ruta_a_reproducir}")
                 except Exception as e_ms:
-                    print("Nota reproduciendo con MediaStream, usando fallback:", e_ms)
+                    print("Nota reproduciendo audio, usando fallback:", e_ms)
                     await tgcalls.play(destino, ruta_a_reproducir)
 
                 await asyncio.sleep(0.5)
