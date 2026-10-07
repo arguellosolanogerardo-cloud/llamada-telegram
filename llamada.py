@@ -744,7 +744,10 @@ def guardar_cola_hoy(cola: list[dict], fecha_destino: str = None) -> None:
     try:
         os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
         tz_col = ZoneInfo("America/Bogota")
-        fecha = fecha_destino or datetime.now(tz_col).strftime("%d/%m/%Y")
+        ahora = datetime.now(tz_col)
+        if ahora.hour < 4:
+            ahora -= timedelta(days=1)
+        fecha = fecha_destino or ahora.strftime("%d/%m/%Y")
         payload = {
             "fecha": fecha,
             "cola": cola
@@ -769,7 +772,10 @@ def guardar_cola_manana(cola: list[dict], fecha_destino: str = None) -> None:
     try:
         os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
         tz_col = ZoneInfo("America/Bogota")
-        fecha = fecha_destino or (datetime.now(tz_col) + timedelta(days=1)).strftime("%d/%m/%Y")
+        ahora = datetime.now(tz_col)
+        if ahora.hour < 4:
+            ahora -= timedelta(days=1)
+        fecha = fecha_destino or (ahora + timedelta(days=1)).strftime("%d/%m/%Y")
         payload = {
             "fecha": fecha,
             "cola": cola
@@ -793,7 +799,10 @@ def cargar_cola_hoy() -> list[dict]:
     """Carga y valida los audios previamente guardados en cola_hoy.json o promociona cola_manana.json si corresponde a hoy."""
     try:
         tz_col = ZoneInfo("America/Bogota")
-        hoy_str = datetime.now(tz_col).strftime("%d/%m/%Y")
+        ahora = datetime.now(tz_col)
+        if ahora.hour < 4:
+            ahora -= timedelta(days=1)
+        hoy_str = ahora.strftime("%d/%m/%Y")
 
         # 1. Si existe cola_manana.json y su fecha coincide con HOY, promocionarla a la lista de hoy
         ruta_manana = os.path.join(CARPETA_MEDITACIONES, "cola_manana.json")
@@ -864,8 +873,11 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
     try:
         os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
         tz_col = ZoneInfo("America/Bogota")
-        hoy_str = datetime.now(tz_col).strftime("%d/%m/%Y")
-        manana_str = (datetime.now(tz_col) + timedelta(days=1)).strftime("%d/%m/%Y")
+        ahora = datetime.now(tz_col)
+        if ahora.hour < 4:
+            ahora -= timedelta(days=1)
+        hoy_str = ahora.strftime("%d/%m/%Y")
+        manana_str = (ahora + timedelta(days=1)).strftime("%d/%m/%Y")
 
         # 1. Revisar si ya existe cola_hoy.json guardada previamente para hoy
         cola_guardada = cargar_cola_hoy()
@@ -1027,6 +1039,8 @@ def generar_texto_turnos(cola: list, oradores: list) -> str:
 async def main() -> None:
     tz_col = ZoneInfo("America/Bogota")
     inicio_llamada = datetime.now(tz_col)
+    if inicio_llamada.hour < 4:
+        inicio_llamada -= timedelta(days=1)
     fecha_hoy = inicio_llamada.strftime("%Y-%m-%d")
     fecha_ayer = (inicio_llamada - timedelta(days=1)).strftime("%Y-%m-%d")
 
