@@ -1463,6 +1463,7 @@ async def main() -> None:
         ultimo_error_reproduccion = ""
 
         async def reproducir_meditacion(pista_idx: int = 0):
+            with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"\\n--- Iniciando reproducir_meditacion {pista_idx} ---\\n")
             nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy, ultimo_error_reproduccion
             ultimo_error_reproduccion = ""
             if not tgcalls:
@@ -1554,11 +1555,15 @@ async def main() -> None:
                             audio_parameters=AudioQuality.HIGH,
                         )
                     
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Iniciando tgcalls.play con stream_play...\\n")
                     await tgcalls.play(destino, stream_play)
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"tgcalls.play completado exitosamente.\\n")
                     print(f"Emisión de audio iniciada con Stream: {ruta_a_reproducir}")
                 except Exception as e_ms:
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Excepcion en play 1: {e_ms}\\n")
                     print("Nota reproduciendo audio, usando fallback:", e_ms)
                     await tgcalls.play(destino, ruta_a_reproducir)
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Fallback tgcalls.play completado.\\n")
 
                 await asyncio.sleep(0.5)
 
@@ -1607,8 +1612,10 @@ async def main() -> None:
                 else:
                     txt_act = formatear_info_audio(info_act) if info_act else f"🧘 **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Meditación')}"
                     avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"reproducir_meditacion termino todo y retorna True.\\n")
                 return True
             except Exception as e:
+                with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Excepcion general reproduciendo: {e}\\n")
                 print("Error reproduciendo meditación:", e)
                 ultimo_error_reproduccion = str(e)
                 return False
