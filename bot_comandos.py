@@ -1130,7 +1130,130 @@ def escuchar_comandos() -> None:
                     msg_cb = cb.get("message", {})
                     chat_id_cb = msg_cb.get("chat", {}).get("id")
                     
-                    if cb_data.startswith("panel_"):
+                    if cb_data.startswith("ytmp3_"):
+
+                    
+                        vid = cb_data.split("_")[1]
+
+                    
+                        url_yt = f"https://www.youtube.com/watch?v={vid}"
+
+                    
+                        import urllib.request
+
+                    
+                        try:
+
+                    
+                            url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+
+                    
+                            urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "⏳ Descargando MP3 desde YouTube... (Esto tomará 1 minuto)", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+
+                    
+                        except: pass
+
+                    
+                        def descargar_y_enviar(user_id):
+
+                    
+                            import subprocess
+
+                    
+                            import os
+
+                    
+                            tmp_path = os.path.join("data", f"tmp_{vid}.mp3")
+
+                    
+                            cmd = ["python", "-m", "yt_dlp", "-x", "--audio-format", "mp3", "--audio-quality", "5", "-o", tmp_path, url_yt]
+
+                    
+                            subprocess.run(cmd)
+
+                    
+                            if os.path.exists(tmp_path):
+
+                    
+                                try:
+
+                    
+                                    url_doc = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+
+                    
+                                    import requests
+
+                    
+                                    with open(tmp_path, "rb") as f_aud:
+
+                    
+                                        requests.post(url_doc, data={"chat_id": user_id, "caption": "🎧 Aquí tienes el audio solicitado."}, files={"document": f_aud})
+
+                    
+                                    os.remove(tmp_path)
+
+                    
+                                except: pass
+
+                    
+                        import threading
+
+                    
+                        threading.Thread(target=descargar_y_enviar, args=(update["callback_query"]["from"].get("id"),)).start()
+
+                    
+                        continue
+
+                    
+                    elif cb_data.startswith("yttarea_"):
+
+                    
+                        vid = cb_data.split("_")[1]
+
+                    
+                        url_yt = f"https://www.youtube.com/watch?v={vid}"
+
+                    
+                        user_id_cb = update["callback_query"]["from"].get("id")
+
+                    
+                        if user_id_cb not in admins_set:
+
+                    
+                            try:
+
+                    
+                                url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+
+                    
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "🚫 Solo administradores.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+
+                    
+                            except: pass
+
+                    
+                        else:
+
+                    
+                            try:
+
+                    
+                                url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+
+                    
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "✅ Programando audio para esta noche..."}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+
+                    
+                            except: pass
+
+                    
+                            enviar_mensaje(chat_id_cb, f"/tarea {url_yt}")
+
+                    
+                        continue
+
+                    
+                    elif cb_data.startswith("panel_"):
                         import urllib.request
                         import time
                         accion = cb_data.split("_")[1]
