@@ -1506,25 +1506,64 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # Convertir a PCM crudo (.raw) para que NTgCalls use io::FileReader (ifstream nativo C++)
-                # evitando por completo cualquier error de vfork/boost::process en Linux
-                ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_a_reproducir)
-                if ruta_pcm.endswith(".raw") and os.path.exists(ruta_pcm):
-                    stream_obj = Stream(
-                        microphone=AudioStream(
-                            media_source=MediaSource.FILE,
-                            path=os.path.abspath(ruta_pcm),
-                            parameters=AudioParameters(48000, 2)
-                        )
+                # Conectar reproducción de audio a PyTgCalls
+                try:
+                    from pytgcalls.types import MediaStream, AudioQuality
+                    stream_play = MediaStream(
+                        ruta_a_reproducir,
+                        audio_parameters=AudioQuality.HIGH,
                     )
-                    await tgcalls.play(destino, stream_obj)
-                else:
-                    await tgcalls.play(destino, ruta_a_reproducir)
+                    await tgcalls.play(destino, stream_play)
+                    print(f"Reproducción iniciada con MediaStream: {ruta_a_reproducir}")
+                except Exception as e_ms:
+                    print("Nota reproduciendo con MediaStream, usando fallback PCM FILE:", e_ms)
+                    ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_a_reproducir)
+                    if ruta_pcm.endswith(".raw") and os.path.exists(ruta_pcm):
+                        stream_obj = Stream(
+                            microphone=AudioStream(
+                                media_source=MediaSource.FILE,
+                                path=os.path.abspath(ruta_pcm),
+                                parameters=AudioParameters(48000, 2)
+                            )
+                        )
+                        await tgcalls.play(destino, stream_obj)
+                        print(f"Reproducción iniciada con PCM FILE: {ruta_pcm}")
+                    else:
+                        await tgcalls.play(destino, ruta_a_reproducir)
 
+                await asyncio.sleep(0.5)
+
+                # Desmutear PyTgCalls a nivel WebRTC y subir volumen
+                try:
+                    await tgcalls.unmute(destino)
+                except Exception as e_u:
+                    print("Nota desmuteando PyTgCalls:", e_u)
                 try:
                     await tgcalls.resume(destino)
                 except Exception:
                     pass
+                try:
+                    await tgcalls.change_volume_call(destino, 200)
+                except Exception:
+                    pass
+
+                # Retirar candado de silencio del robot en Telegram para que transmita sonido
+                try:
+                    me_user = await client.get_me()
+                    me_peer = await client.get_input_entity(me_user)
+                    await client(EditGroupCallParticipantRequest(call=input_call, participant=me_peer, muted=False, volume=20000))
+                    print("Micrófono del robot desmuteado y desbloqueado en Telegram.")
+                except Exception as e_me:
+                    print("Nota desmuteando robot en Telegram:", e_me)
+
+                # Retirar candado de silencio de TODOS los administradores en Telegram (NUNCA silenciados)
+                for aid in admin_ids:
+                    try:
+                        admin_peer = await client.get_input_entity(aid)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                    except Exception:
+                        pass
+                print("Todos los administradores confirmados con micrófono desbloqueado.")
                 iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
@@ -2764,11 +2803,21 @@ async def main() -> None:
                 # Moderación de micrófonos en vivo
                 if uid in admin_ids:
                     # Garantizar que ningún administrador tenga candado de silencio en ningún momento (ni en meditación)
+                    # Y garantizar que la cuenta del robot nunca quede con micrófono apagado durante reproducción
+                    debe_desmutear = False
                     if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
+                        debe_desmutear = True
+                    elif uid == me.id and reproduciendo_meditacion and getattr(p, "muted", False) is True:
+                        debe_desmutear = True
+
+                    if debe_desmutear:
                         try:
                             input_peer = await client.get_input_entity(p.peer)
                             await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
-                            print(f"🔓 Candado de silencio retirado para administrador {nombre} ({uid}).")
+                            if uid != me.id:
+                                print(f"🔓 Candado de silencio retirado para administrador {nombre} ({uid}).")
+                            else:
+                                print("🔓 Micrófono del robot reactivado para transmisión de audio.")
                         except Exception:
                             pass
                 else:
