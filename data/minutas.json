@@ -17,5 +17,35 @@
       "maestro": "Alaniso",
       "detectado_como": "MEDITACION"
     }
+  },
+  "2026-10-07": {
+    "fecha": "2026-10-07",
+    "duracion_minutos": 101,
+    "asistentes_count": 13,
+    "oradores": [
+      "Alexis Gutiérrez",
+      "Norma campos carrillo ❤️",
+      "Elvia Lopez",
+      "Víctor Martínez",
+      "YASNA ANDRADE SAIGG Linaje Rha",
+      "Claudia Marina🇦🇷",
+      "Hugo Abad",
+      "Gerardo ARGUELLO",
+      "Beto Zamora",
+      "Alezaida Guevara",
+      "GERARDO ARGUELLO2",
+      "Salvador Benitez",
+      "GERARDO Argüello"
+    ],
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-07** con una duración de **101 minutos** y un total de **13 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **Alexis Gutiérrez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Norma campos carrillo ❤️:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Elvia Lopez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Víctor Martínez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **YASNA ANDRADE SAIGG Linaje Rha:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Claudia Marina🇦🇷:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Hugo Abad:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Gerardo ARGUELLO:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Beto Zamora:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Alezaida Guevara:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Salvador Benitez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO Argüello:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "ruta_pdf": "data/actas/acta_2026-10-07.pdf",
+    "info_catalogo": {
+      "numero": 21,
+      "tipo": "MEDITACION",
+      "titulo": "Un diálogo con el Padre, mi creador",
+      "fecha": "30/07/04",
+      "maestro": "Alaniso",
+      "detectado_como": "MEDITACION"
+    }
   }
 }
