@@ -1737,11 +1737,9 @@ async def main() -> None:
         @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta|oracion)"))
         async def responder_comandos_en_vivo(event):
             sender = await event.get_sender()
-            if sender and getattr(sender, "bot", False):
-                return
+            
             uid = sender.id if sender else event.sender_id
-            if BOT_ID and uid == BOT_ID:
-                return
+            
             partes = event.raw_text.strip().split()
             texto_cmd = partes[0].lower().split("@")[0]
             param = partes[1].lower() if len(partes) > 1 else ""
@@ -1844,11 +1842,9 @@ async def main() -> None:
         @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
-            if sender and getattr(sender, "bot", False):
-                return
+            
             uid = sender.id if sender else event.sender_id
-            if BOT_ID and uid == BOT_ID:
-                return
+            
             if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
                 ids_mensajes_efimeros.add(event.message.id)
 
@@ -2045,11 +2041,9 @@ async def main() -> None:
         @client.on(events.NewMessage(pattern=r"(?i)^/(eq|ecualizador)(@\w+)?(\s|$)"))
         async def controlar_ecualizador(event):
             sender = await event.get_sender()
-            if sender and getattr(sender, "bot", False):
-                return
+            
             uid = sender.id if sender else event.sender_id
-            if BOT_ID and uid == BOT_ID:
-                return
+            
             if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
                 ids_mensajes_efimeros.add(event.message.id)
 
@@ -2138,11 +2132,9 @@ async def main() -> None:
         @client.on(events.NewMessage(pattern=r"(?i)^/(cola|playlist|encolar|agregar|limpiarcola|vaciarcola)(@\w+)?(\s|$)"))
         async def gestionar_cola_reproduccion(event):
             sender = await event.get_sender()
-            if sender and getattr(sender, "bot", False):
-                return
+            
             uid = sender.id if sender else event.sender_id
-            if BOT_ID and uid == BOT_ID:
-                return
+            
             if event.is_group and getattr(event, "message", None) and hasattr(event.message, "id"):
                 ids_mensajes_efimeros.add(event.message.id)
 
@@ -2225,8 +2217,7 @@ async def main() -> None:
             if event.out:
                 return
             sender = await event.get_sender()
-            if sender and getattr(sender, "bot", False):
-                return
+            
             if msg_turnos and event.message.id == getattr(msg_turnos, "id", None):
                 return
             mensajes_chat_recientes += 1
@@ -2241,11 +2232,10 @@ async def main() -> None:
                 return
 
             sender = await event.get_sender()
-            if sender and getattr(sender, "bot", False):
-                return
+            
 
             sender_id = event.sender_id
-            if sender_id not in admin_ids or sender_id == me.id or (BOT_ID and sender_id == BOT_ID):
+            if sender_id not in admin_ids or sender_id == me.id :
                 return
 
             if hasattr(entidad, "id") and sender_id == entidad.id:
@@ -2390,10 +2380,9 @@ async def main() -> None:
         @client.on(events.NewMessage(chats=entidad))
         async def comandos_naturales_admin(event):
             sender = await event.get_sender()
-            if sender and getattr(sender, "bot", False):
-                return
+            
             sender_id = event.sender_id
-            if sender_id not in admin_ids or (BOT_ID and sender_id == BOT_ID):
+            if sender_id not in admin_ids :
                 return
             if hasattr(entidad, "id") and sender_id == entidad.id:
                 return
