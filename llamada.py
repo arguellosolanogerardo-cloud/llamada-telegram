@@ -1086,9 +1086,12 @@ async def main() -> None:
         lock_turnos = asyncio.Lock()
         mensajes_chat_recientes = 0
         ultimo_envio_turnos = 0
+        bloqueo_flood_hasta = 0.0
+        ultimo_texto_turnos = None
+        INTERVALO_MIN_REPUBLICAR = 90  # segundos mínimos entre republicaciones al fondo
 
         async def actualizar_mensaje_turnos(forzar_al_fondo: bool = False):
-            nonlocal msg_turnos, mensajes_chat_recientes, ultimo_envio_turnos
+            nonlocal msg_turnos, mensajes_chat_recientes, ultimo_envio_turnos, bloqueo_flood_hasta, ultimo_texto_turnos
             async with lock_turnos:
                 nombres_oradores = [
                     participantes[u]["nombre"] if u in participantes else f"ID {u}"
@@ -1097,8 +1100,15 @@ async def main() -> None:
                 txt = generar_texto_turnos(cola_turnos, nombres_oradores)
                 ahora = time.time()
 
-                # Si se solicita explícitamente al fondo, o si aún no hay mensaje, o si pasaron >= 5 mensajes en el chat
-                if forzar_al_fondo or not msg_turnos or mensajes_chat_recientes >= 5:
+                # Anti-spam: respetar FloodWait de Telegram y no repetir texto idéntico
+                if ahora < bloqueo_flood_hasta:
+                    return
+                if msg_turnos and txt == ultimo_texto_turnos:
+                    return
+                ultimo_texto_turnos = txt
+
+                puede_republicar = (ahora - ultimo_envio_turnos) >= INTERVALO_MIN_REPUBLICAR
+                if not msg_turnos or ((forzar_al_fondo or mensajes_chat_recientes >= 5) and puede_republicar):
                     if msg_turnos:
                         try:
                             await client.delete_messages(entidad, msg_turnos)
@@ -1112,19 +1122,30 @@ async def main() -> None:
                         ultimo_envio_turnos = ahora
                         mensajes_chat_recientes = 0
                     except Exception as e:
+                        segs = getattr(e, "seconds", None)
+                        if segs:
+                            bloqueo_flood_hasta = time.time() + int(segs) + 5
+                        ultimo_texto_turnos = None
                         print("Nota publicando mensaje de turnos al fondo:", e)
                 else:
                     try:
                         await client.edit_message(entidad, msg_turnos, txt)
-                    except Exception:
-                        try:
-                            msg_turnos = await client.send_message(entidad, txt)
-                            if msg_turnos and hasattr(msg_turnos, "id"):
-                                ids_mensajes_efimeros.add(msg_turnos.id)
-                            ultimo_envio_turnos = ahora
-                            mensajes_chat_recientes = 0
-                        except Exception:
+                    except Exception as e:
+                        segs = getattr(e, "seconds", None)
+                        if segs:
+                            bloqueo_flood_hasta = time.time() + int(segs) + 5
+                            ultimo_texto_turnos = None
+                        elif "not modified" in str(e).lower():
                             pass
+                        elif puede_republicar:
+                            try:
+                                msg_turnos = await client.send_message(entidad, txt)
+                                if msg_turnos and hasattr(msg_turnos, "id"):
+                                    ids_mensajes_efimeros.add(msg_turnos.id)
+                                ultimo_envio_turnos = ahora
+                                mensajes_chat_recientes = 0
+                            except Exception as e2:
+                                print("Nota reenviando mensaje de turnos:", e2)
 
         # Mensaje fijado dinámico en el grupo
         msg_fijado = None
