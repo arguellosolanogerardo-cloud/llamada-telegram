@@ -60,23 +60,40 @@ except ImportError:
 # Asegurar enlaces locales y absolutos de ffmpeg y ffprobe para Boost.Process v2 / NTgCalls en Linux
 for _tool in ("ffmpeg", "ffprobe"):
     _tool_path = shutil.which(_tool)
-    if _tool_path and not os.path.exists(_tool):
+    if _tool_path:
         try:
-            if hasattr(os, "symlink"):
-                os.symlink(_tool_path, _tool)
-                print(f"Enlace simbólico local creado: {_tool_path} -> ./{_tool}")
+            if os.path.exists(_tool) and not os.path.islink(_tool):
+                try:
+                    os.remove(_tool)
+                except Exception:
+                    pass
+            if not os.path.exists(_tool):
+                if hasattr(os, "symlink"):
+                    os.symlink(_tool_path, _tool)
+                    print(f"Enlace simbólico local creado: {_tool_path} -> ./{_tool}")
+                else:
+                    shutil.copy2(_tool_path, _tool)
+                    print(f"Copia local de {_tool} creada en el directorio de trabajo.")
         except Exception:
-            try:
-                shutil.copy2(_tool_path, _tool)
-                print(f"Copia local de {_tool} creada en el directorio de trabajo.")
-            except Exception:
-                pass
+            pass
 
 if PYTGCALLS_AVAILABLE:
     try:
         from pytgcalls.types.stream.record_stream import RecordStream
+        import pytgcalls.types.stream.media_stream as _ms
         from ntgcalls import MediaSource
 
+        # 1. Parchear build_command en MediaStream para que la REPRODUCCIÓN use ruta absoluta de ffmpeg/ffprobe
+        _orig_build_command = _ms.build_command
+
+        def _patched_build_command(name, *args, **kwargs):
+            real_bin = shutil.which(name) or name
+            return _orig_build_command(real_bin, *args, **kwargs)
+
+        _ms.build_command = _patched_build_command
+        print("MediaStream de PyTgCalls parcheado con ruta absoluta de ffmpeg.")
+
+        # 2. Parchear RecordStream para que la GRABACIÓN use ruta absoluta de ffmpeg
         _orig_get_audio_stream = RecordStream._get_audio_stream
 
         def _patched_get_audio_stream(audio, raw_audio_parameters):
@@ -90,7 +107,7 @@ if PYTGCALLS_AVAILABLE:
         RecordStream._get_audio_stream = staticmethod(_patched_get_audio_stream)
         print("RecordStream de PyTgCalls parcheado con ruta absoluta de ffmpeg.")
     except Exception as e:
-        print("Nota parcheando RecordStream:", e)
+        print("Nota parcheando streams de PyTgCalls:", e)
 
 # Credenciales obligatorias
 API_ID = int(os.environ.get("TG_API_ID", "0"))

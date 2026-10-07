@@ -17,8 +17,10 @@ jobs:
       - name: Preparar dependencias de audio y enlaces para PyTgCalls
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
+          rm -f ./ffmpeg ./ffprobe
           ln -sf $(which ffmpeg) ./ffmpeg
           ln -sf $(which ffprobe) ./ffprobe
+          chmod +x ./ffmpeg ./ffprobe
           echo "FFmpeg instalado y enlazado: $(which ffmpeg) -> ./ffmpeg"
       - run: python -u llamada.py
         env:
