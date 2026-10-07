@@ -219,7 +219,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.wfile.write(diag_txt.encode("utf-8"))
             return
         if self.path in ("/aviso", "/aviso_previo", "/recordatorio"):
-            m_id = enviar_aviso_preparacion_sala(forzar=True)
+            m_id = enviar_aviso_preparacion_sala()
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
@@ -232,7 +232,7 @@ class HealthHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path in ("/aviso", "/aviso_previo", "/recordatorio"):
-            m_id = enviar_aviso_preparacion_sala(forzar=True)
+            m_id = enviar_aviso_preparacion_sala()
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
@@ -640,10 +640,30 @@ def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> st
         return None
 
 
+_LOCK_AVISO = threading.Lock()
+_FECHA_ULTIMO_AVISO: str | None = None
+
+
 def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | None:
+    """Envía el aviso previo. Sin `forzar`, solo se envía una vez por día (Colombia)."""
+    global _FECHA_ULTIMO_AVISO
     cid = target_chat_id or CHAT_ID
     if not cid:
+        log_debug("Aviso previo: CHAT_ID no configurado")
         return None
+
+    fecha_hoy = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d")
+    with _LOCK_AVISO:
+        if not forzar and _FECHA_ULTIMO_AVISO == fecha_hoy:
+            log_debug("Aviso previo ya enviado hoy; se omite duplicado")
+            return None
+        m_id = _enviar_aviso_preparacion_sala_impl(cid)
+        if m_id:
+            _FECHA_ULTIMO_AVISO = fecha_hoy
+        return m_id
+
+
+def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
 
     # Obtener tarea del día si está disponible
     info_tarea = None
@@ -705,6 +725,8 @@ def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | No
 
     if m_id:
         log_debug(f"Aviso de preparación enviado con éxito a {cid}: msg_id={m_id}")
+    else:
+        log_debug(f"❌ Aviso de preparación FALLÓ (foto y texto) para {cid}")
     return m_id
 
 
@@ -1058,13 +1080,15 @@ def escuchar_comandos() -> None:
     # Iniciar reloj para aviso previo de preparación automático (7:26 PM Colombia - 30 min antes)
     def hilo_recordatorio_726():
         tz_col = ZoneInfo("America/Bogota")
-        ultimo_dia_aviso = None
+        ultimo_intento = 0.0
         while True:
             try:
                 ahora = datetime.now(tz_col)
-                fecha_hoy = ahora.strftime("%Y-%m-%d")
-                if ahora.hour == 19 and ahora.minute == 26 and ultimo_dia_aviso != fecha_hoy:
-                    ultimo_dia_aviso = fecha_hoy
+                minutos = ahora.hour * 60 + ahora.minute
+                en_ventana = (19 * 60 + 26) <= minutos <= (19 * 60 + 45)
+                ya_enviado = _FECHA_ULTIMO_AVISO == ahora.strftime("%Y-%m-%d")
+                if en_ventana and not ya_enviado and time.time() - ultimo_intento >= 60:
+                    ultimo_intento = time.time()
                     log_debug("⏰ Disparando aviso previo automático de preparación (7:26 PM)...")
                     enviar_aviso_preparacion_sala()
             except Exception as e:
