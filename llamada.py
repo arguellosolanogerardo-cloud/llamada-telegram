@@ -2125,7 +2125,7 @@ async def main() -> None:
 
             actual = eq_efectivo() or AjusteEQ()
             if not reproduciendo_meditacion:
-                await resp(f"âœ… Guardado: {describir_ajuste(actual)}\nSe aplicará al iniciar la meditación.")
+                await resp(f"✅ Guardado: {describir_ajuste(actual)}\nSe aplicará al iniciar la meditación.")
                 asyncio.create_task(preparar_audio_eq())  # deja el audio listo con los nuevos niveles
                 return
 
@@ -2134,7 +2134,7 @@ async def main() -> None:
             async def _aplicar():
                 estado = await aplicar_eq_en_vivo()
                 if estado == "ok":
-                    await resp("âœ… Ecualizador aplicado. Si ya estaba bien, no hace falta tocar nada más.")
+                    await resp("✅ Ecualizador aplicado. Si ya estaba bien, no hace falta tocar nada más.")
                 else:
                     await resp("âš ï¸ No se pudo aplicar el cambio; la meditación continúa con el audio anterior.")
 
@@ -2247,7 +2247,7 @@ async def main() -> None:
             
 
             sender_id = event.sender_id
-            if sender_id not in admin_ids or sender_id == me.id :
+            if sender_id not in admin_ids or sender_id == me.id or (BOT_ID and sender_id == BOT_ID):
                 return
 
             if hasattr(entidad, "id") and sender_id == entidad.id:
@@ -2257,7 +2257,7 @@ async def main() -> None:
             texto = texto_raw.upper()
 
             # Ignorar mensajes automáticos de bot o sistema para prevenir bucles
-            if any(texto_raw.startswith(p) for p in ("âœ…", "ðŸ“¢", "🕊️", "â–¶ï¸", "ðŸ”", "ðŸ“‹", "🧘âœ¨", "🎙️", "â„¹ï¸", "âš ï¸", "â›”", "[", "ðŸ”´", "âšª")):
+            if any(texto_raw.startswith(p) for p in ("✅", "📢", "🕊️", "â–¶ï¸", "ðŸ”", "ðŸ“‹", "🧘âœ¨", "🎙️", "â„¹ï¸", "âš ï¸", "â›”", "[", "ðŸ”´", "âšª")):
                 return
             if any(k in texto for k in [
                 "DESDE GOOGLE DRIVE", "OBTENIDOS DESDE", "BUSCANDO AUDIO",
@@ -2326,9 +2326,9 @@ async def main() -> None:
                         if info_cat:
                             txt_card = formatear_info_audio(info_cat)
                             await event.reply(f"⏳n de hoy:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz (Total en cola: {len(cola_reproduccion)}).")
-                            avisar_con_bot(f"ðŸ“¢ **{lbl_tarea} registrada (Pista #{len(cola_reproduccion)}):**\n\n{txt_card}")
+                            avisar_con_bot(f"📢 **{lbl_tarea} registrada (Pista #{len(cola_reproduccion)}):**\n\n{txt_card}")
                         else:
-                            await event.reply(f"âœ… Meditación recibida para hoy (Pista #{len(cola_reproduccion)}). Programada para reproducirse {txt_horario} en la sala de voz.")
+                            await event.reply(f"✅ Meditación recibida para hoy (Pista #{len(cola_reproduccion)}). Programada para reproducirse {txt_horario} en la sala de voz.")
                     else:
                         ruta = os.path.join(CARPETA_MEDITACIONES, "meditacion_manana.mp3")
                         await client.download_media(target_msg, file=ruta)
@@ -2342,7 +2342,7 @@ async def main() -> None:
                         if info_cat:
                             txt_card = formatear_info_audio(info_cat)
                             await event.reply(f"⏳n de la sala de hoy se mantiene intacta).*")
-                            avisar_con_bot(f"ðŸ“¢ **{lbl_tarea} registrada:**\n\n{txt_card}")
+                            avisar_con_bot(f"📢 **{lbl_tarea} registrada:**\n\n{txt_card}")
                         else:
                             await event.reply(f"⏳n: {txt_horario}.")
                 else:
@@ -2380,13 +2380,13 @@ async def main() -> None:
 
                                 guardar_cola_hoy(cola_reproduccion)
                                 txt_cola = formatear_cola_audios(cola_reproduccion)
-                                await event.reply(f"âœ… **Audios obtenidos automáticamente desde Google Drive (Hoy):**\n\n{txt_cola}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.")
-                                avisar_con_bot(f"ðŸ“¢ **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola}")
+                                await event.reply(f"✅ **Audios obtenidos automáticamente desde Google Drive (Hoy):**\n\n{txt_cola}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.")
+                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola}")
                             else:
                                 guardar_cola_manana(descargados)
                                 txt_cola_manana = formatear_cola_audios(descargados)
                                 await event.reply(f"⏳n de la sala de hoy se mantiene intacta).*")
-                                avisar_con_bot(f"ðŸ“¢ **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola_manana}")
+                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola_manana}")
 
         # Escuchar comandos por lenguaje natural de administradores en el grupo
         @client.on(events.NewMessage(chats=entidad))
@@ -2417,7 +2417,7 @@ async def main() -> None:
             texto_raw = (event.raw_text or "").strip().lower()
             if not texto_raw or texto_raw.startswith("/"):
                 return
-            if any(texto_raw.startswith(p) for p in ("âœ…", "ðŸ“¢", "🕊️", "â–¶ï¸", "ðŸ”", "ðŸ“‹", "🧘", "🎙️", "â„¹ï¸", "âš ï¸", "â›”", "[", "ðŸ”´", "âšª")):
+            if any(texto_raw.startswith(p) for p in ("✅", "📢", "🕊️", "â–¶ï¸", "ðŸ”", "ðŸ“‹", "🧘", "🎙️", "â„¹ï¸", "âš ï¸", "â›”", "[", "ðŸ”´", "âšª")):
                 return
 
             if getattr(event, "message", None) and hasattr(event.message, "id"):
@@ -3509,7 +3509,7 @@ async def main() -> None:
             f"📅 Fecha: {fecha_hoy} | ⏰ {inicio_llamada.strftime('%I:%M:%S %p')} – {fin_llamada.strftime('%I:%M:%S %p')}",
             f"⏳n total: {duracion_reunion_minutos} minutos (Motivo cierre: {motivo_cierre})",
             f"🧘 Meditación/Mensaje reproducido: {med_detalle}",
-            f"👥 Total que entraron: {len(participantes)} | âœ… Válidos: {len(asistentes_validos)} | âš ï¸ Fugaces: {len(visitas_fugaces)}\n",
+            f"👥 Total que entraron: {len(participantes)} | ✅ Válidos: {len(asistentes_validos)} | âš ï¸ Fugaces: {len(visitas_fugaces)}\n",
             "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
             "ðŸ“‹ **DESGLOSE INDIVIDUAL DE ASISTENTES:**",
         ]
