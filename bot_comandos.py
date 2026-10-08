@@ -1864,7 +1864,7 @@ def escuchar_comandos() -> None:
 
         except Exception as e:
             print("Error en bucle de comandos:", e)
-        import sys; sys.stdout.flush()
+            import sys; sys.stdout.flush()
             time.sleep(3)
 
 
