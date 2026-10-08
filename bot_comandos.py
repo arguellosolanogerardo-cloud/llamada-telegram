@@ -1398,7 +1398,7 @@ def escuchar_comandos() -> None:
                                 enviar_mensaje(chat_id_priv, f"Ã¢Å¡Â Ã¯Â¸Â Error buscando: {e}")
                         else:
                             enviar_mensaje(chat_id_priv, "Ã¢ÂÂ³ La Biblioteca Aon se estAÃ‚Â¡ construyendo. Intenta mAs tarde.")
-                    continue
+                        continue
                 # ------------------------------------
 
                 # --- LOGICA MENSAJE FLOTANTE ---
