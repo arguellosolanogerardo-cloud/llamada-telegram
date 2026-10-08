@@ -355,9 +355,24 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
             with open(RUTA_PUNTOS, "r", encoding="utf-8") as f:
                 db_puntos = json.load(f)
             usuarios = db_puntos.get("usuarios", {})
+            ruta_sin_priv = os.path.join("data", "usuarios_sin_privado.json")
+            sin_priv = set()
+            if os.path.exists(ruta_sin_priv):
+                try:
+                    with open(ruta_sin_priv, "r", encoding="utf-8") as fs:
+                        sin_priv = set(str(x) for x in json.load(fs))
+                except Exception:
+                    pass
             enviados_priv = 0
             for uid, datos in usuarios.items():
                 if str(uid) == str(CHAT_ID):
+                    continue
+                if str(uid) in sin_priv:
+                    continue
+                try:
+                    if int(str(uid)) <= 0:
+                        continue
+                except ValueError:
                     continue
                 if len(items) > 1:
                     txt_detalles = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)

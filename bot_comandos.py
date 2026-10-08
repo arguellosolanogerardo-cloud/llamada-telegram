@@ -50,10 +50,51 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 RUTA_AUDIOS_REGISTRADOS = os.path.join("data", "meditaciones", "audios_registrados.json")
 RUTA_MSGS_BOT = os.path.join("data", "mensajes_bot_grupo.json")
+RUTA_USUARIOS_SIN_PRIVADO = os.path.join("data", "usuarios_sin_privado.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
 
 COLA_LOGS = []
 _TAREA_FLOTANTE = {"msg_id": None, "contador": 0, "texto": "", "reply_markup": None, "chat_id": None}
+
+
+def cargar_usuarios_sin_privado() -> set:
+    if os.path.exists(RUTA_USUARIOS_SIN_PRIVADO):
+        try:
+            with open(RUTA_USUARIOS_SIN_PRIVADO, "r", encoding="utf-8") as f:
+                return set(str(x) for x in json.load(f))
+        except Exception:
+            pass
+    return set()
+
+
+def marcar_usuario_sin_privado(uid: int | str) -> None:
+    if not uid:
+        return
+    try:
+        os.makedirs(os.path.dirname(RUTA_USUARIOS_SIN_PRIVADO), exist_ok=True)
+        s = cargar_usuarios_sin_privado()
+        uid_str = str(uid)
+        if uid_str not in s:
+            s.add(uid_str)
+            with open(RUTA_USUARIOS_SIN_PRIVADO, "w", encoding="utf-8") as f:
+                json.dump(sorted(list(s)), f, indent=2)
+    except Exception:
+        pass
+
+
+def marcar_usuario_con_privado(uid: int | str) -> None:
+    if not uid:
+        return
+    try:
+        s = cargar_usuarios_sin_privado()
+        uid_str = str(uid)
+        if uid_str in s:
+            s.remove(uid_str)
+            with open(RUTA_USUARIOS_SIN_PRIVADO, "w", encoding="utf-8") as f:
+                json.dump(sorted(list(s)), f, indent=2)
+    except Exception:
+        pass
+
 
 def log_debug(msg: str) -> None:
     timestamp = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
@@ -562,10 +603,33 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
             if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
                 registrar_msg_bot(m_id)
             return m_id
-    except Exception as e:
-        print(f"Error enviando mensaje a {chat_id}:", e)
+    except urllib.error.HTTPError as e_http:
+        _cod = e_http.code
+        err_body = ""
+        try:
+            err_body = e_http.read().decode('utf-8', errors='ignore')
+        except Exception:
+            pass
+
+        # 403 Forbidden o 400 Bad Request por chat no iniciado / bot bloqueado
+        es_inaccesible = False
+        if _cod == 403:
+            es_inaccesible = True
+        elif _cod == 400:
+            err_lower = err_body.lower()
+            if any(k in err_lower for k in ["chat not found", "initiate conversation", "user not found", "bot was blocked", "chat_id is empty", "user_is_blocked"]):
+                es_inaccesible = True
+
+        if es_inaccesible:
+            marcar_usuario_sin_privado(chat_id)
+            log_debug(f"ℹ️ Usuario {chat_id} inaccesible en privado (omitido).")
+            return None
+
+        print(f"Error enviando mensaje a {chat_id}: HTTP {_cod} {err_body[:100]}")
         import sys; sys.stdout.flush()
-        if "parse_mode" in payload:
+
+        # Si el error es de formato (Markdown inválido), reintentar sin parse_mode
+        if "parse_mode" in payload and any(k in err_body.lower() for k in ["can't parse entities", "parse_mode", "entity"]):
             del payload["parse_mode"]
             datos = json.dumps(payload, ensure_ascii=False).encode('utf-8')
             req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json; charset=utf-8"})
@@ -579,7 +643,11 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
             except Exception as e2:
                 print(f"Error re-enviando sin formato a {chat_id}:", e2)
                 sys.stdout.flush()
-    return None
+        return None
+    except Exception as e:
+        print(f"Error enviando mensaje a {chat_id}:", e)
+        import sys; sys.stdout.flush()
+        return None
 
 
 def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_markup: dict = None) -> int | None:
@@ -1235,6 +1303,9 @@ def escuchar_comandos() -> None:
                 if "callback_query" in update:
 #                     import json
                     cb = update["callback_query"]
+                    cb_from = cb.get("from", {})
+                    if cb_from.get("id"):
+                        marcar_usuario_con_privado(cb_from["id"])
                     cb_id = cb.get("id")
                     cb_data = cb.get("data", "")
                     msg_cb = cb.get("message", {})
@@ -1370,6 +1441,9 @@ def escuchar_comandos() -> None:
                 # --- LOGICA BIBLIOTECARIO PRIVADO ---
                 chat_type = msg.get("chat", {}).get("type")
                 if chat_type == "private":
+                    from_u = msg.get("from", {})
+                    if from_u.get("id"):
+                        marcar_usuario_con_privado(from_u["id"])
                     texto = msg.get("text", "")
                     msg_id_priv = msg.get("message_id")
                     chat_id_priv = msg.get("chat", {}).get("id")
@@ -1644,8 +1718,12 @@ def escuchar_comandos() -> None:
                             if not _ya_procesada:
                                 db_pts = cargar_puntos()
                                 usuarios = db_pts.get("usuarios", {})
+                                sin_privado = cargar_usuarios_sin_privado()
+                                enviados_priv = 0
                                 for u_id, datos in usuarios.items():
                                     if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
+                                        continue
+                                    if str(u_id) in sin_privado:
                                         continue
                                     # Solo enviar a usuarios con chat privado positivo
                                     try:
@@ -1669,7 +1747,9 @@ def escuchar_comandos() -> None:
                                             f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
                                             f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                                         )
-                                    enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
+                                    if enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual):
+                                        enviados_priv += 1
+                                log_debug(f"Notificaciones privadas de tarea enviadas a {enviados_priv} miembros con chat activo.")
 
                 # Petición de audio en lenguaje natural (ej: "¿Tienes el mensaje 989?", "meditación 21")
                 if not es_tarea_declarada and not audio_obj and es_solicitud_de_audio(texto, chat_id):
@@ -1902,8 +1982,12 @@ def escuchar_comandos() -> None:
                             if not _ya_procesada:
                                 db_pts = cargar_puntos()
                                 usuarios = db_pts.get("usuarios", {})
+                                sin_privado = cargar_usuarios_sin_privado()
+                                enviados_priv = 0
                                 for u_id, datos in usuarios.items():
                                     if str(u_id) == str(chat_id):
+                                        continue
+                                    if str(u_id) in sin_privado:
                                         continue
                                     # Solo enviar a usuarios con chat privado positivo
                                     try:
@@ -1918,7 +2002,9 @@ def escuchar_comandos() -> None:
                                         f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
                                         f"¡Te esperamos puntual esta noche a las 7:56 PM!"
                                     )
-                                    enviar_mensaje(u_id, txt_priv, reply_markup=teclado)
+                                    if enviar_mensaje(u_id, txt_priv, reply_markup=teclado):
+                                        enviados_priv += 1
+                                log_debug(f"Notificaciones privadas de tarea enviadas a {enviados_priv} miembros con chat activo.")
                         else:
                             enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
                 elif cmd in ("/turno", "/pedirturno", "/ceder", "/turnos", "/mano"):
