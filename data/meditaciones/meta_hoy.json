@@ -1,26 +1,50 @@
 {
-  "numero": 21,
+  "numero": 1099,
   "tipo": "MEDITACION",
-  "titulo": "Un diálogo con el Padre, mi creador",
-  "fecha": "30/07/04",
-  "maestro": "Alaniso",
+  "titulo": "Quiero poner en sus mentes como va a ser este planeta reconstruido",
+  "fecha": "10/02/20",
+  "maestro": "A-Zen",
   "detectado_como": "MEDITACION",
   "fecha_tarea_admin": "07/10/2026",
   "cola_audios": [
     {
-      "numero": 21,
+      "numero": 1099,
       "tipo": "MEDITACION",
-      "titulo": "Un diálogo con el Padre, mi creador",
-      "fecha": "30/07/04",
-      "maestro": "Alaniso",
+      "titulo": "Quiero poner en sus mentes como va a ser este planeta reconstruido",
+      "fecha": "10/02/20",
+      "maestro": "A-Zen",
       "detectado_como": "MEDITACION"
     },
     {
-      "numero": 21,
+      "numero": 1099,
       "tipo": "MEDITACION",
-      "titulo": "Un diálogo con el Padre, mi creador",
-      "fecha": "30/07/04",
-      "maestro": "Alaniso",
+      "titulo": "Quiero poner en sus mentes como va a ser este planeta reconstruido",
+      "fecha": "10/02/20",
+      "maestro": "A-Zen",
+      "detectado_como": "MEDITACION"
+    },
+    {
+      "numero": 1099,
+      "tipo": "MEDITACION",
+      "titulo": "Quiero poner en sus mentes como va a ser este planeta reconstruido",
+      "fecha": "10/02/20",
+      "maestro": "A-Zen",
+      "detectado_como": "MEDITACION"
+    },
+    {
+      "numero": 1099,
+      "tipo": "MEDITACION",
+      "titulo": "Quiero poner en sus mentes como va a ser este planeta reconstruido",
+      "fecha": "10/02/20",
+      "maestro": "A-Zen",
+      "detectado_como": "MEDITACION"
+    },
+    {
+      "numero": 1099,
+      "tipo": "MEDITACION",
+      "titulo": "Quiero poner en sus mentes como va a ser este planeta reconstruido",
+      "fecha": "10/02/20",
+      "maestro": "A-Zen",
       "detectado_como": "MEDITACION"
     }
   ]
