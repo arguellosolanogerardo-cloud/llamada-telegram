@@ -1333,8 +1333,7 @@ def escuchar_comandos() -> None:
                     if texto and not texto.startswith("/"):
                         enviar_mensaje(chat_id_priv, "🔍 *Buscando en la Biblioteca Conocimiento Universal...*", reply_to_message_id=msg_id_priv)
                         
-                        # Guardar auditorA-a
-                        import json
+                        # Guardar auditoría
                         auditoria_path = os.path.join("data", "auditoria_consultas.json")
                         consultas = []
                         if os.path.exists(auditoria_path):
@@ -1352,7 +1351,6 @@ def escuchar_comandos() -> None:
                             json.dump(consultas, f_aud, indent=4, ensure_ascii=False)
                             
                         # Buscar en SQLite
-                        import sqlite3
                         db_path = os.path.join("data", "biblioteca_conocimiento_universal.db")
                         if os.path.exists(db_path):
                             try:
