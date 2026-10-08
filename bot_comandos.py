@@ -235,7 +235,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/diag":
             import urllib.request, json
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
             try:
                 req = urllib.request.Request(url)
                 with urllib.request.urlopen(req, timeout=10) as r:
