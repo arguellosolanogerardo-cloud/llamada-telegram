@@ -1701,6 +1701,45 @@ async def main() -> None:
             except Exception as e:
                 print("Nota desbloqueando todos los participantes:", e)
 
+        async def anunciar_turno_por_voz(nombre_destinatario: str):
+            """Emite la voz de Toby (Opción 6: Niño Robot) en vivo en la sala anunciando el turno."""
+            if not tgcalls or reproduciendo_meditacion:
+                return
+            try:
+                import edge_tts
+                nom_limpio = str(nombre_destinatario or "").split()[0][:20] or "Compañero"
+                texto_tts = f"¡Turno de palabra para {nom_limpio}, adelante te escuchamos!"
+                ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_turno_{int(time.time()*1000)}.mp3")
+                com = edge_tts.Communicate(texto_tts, "es-CO-GonzaloNeural", pitch="+35Hz", rate="+5%")
+                await com.save(ruta_tts)
+                if os.path.exists(ruta_tts) and os.path.getsize(ruta_tts) > 1000:
+                    ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_tts)
+                    if ruta_pcm and os.path.exists(ruta_pcm):
+                        from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
+                        from ntgcalls import MediaSource
+                        stream_play = Stream(
+                            microphone=AudioStream(
+                                media_source=MediaSource.FILE,
+                                path=os.path.abspath(ruta_pcm),
+                                parameters=AudioParameters(48000, 2)
+                            )
+                        )
+                    else:
+                        from pytgcalls.types import MediaStream, AudioQuality
+                        stream_play = MediaStream(ruta_tts, audio_parameters=AudioQuality.HIGH)
+
+                    if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
+                        try:
+                            resolved_id = await tgcalls.resolve_chat_id(destino)
+                            tgcalls._app._bind_client._cache.set_cache(resolved_id, input_call)
+                            tgcalls._app._bind_client._cache.set_cache(destino, input_call)
+                        except Exception:
+                            pass
+                    await tgcalls.play(destino, stream_play)
+                    print(f"🤖🎙️ Toby anunció por voz en la sala: Turno para {nom_limpio}")
+            except Exception as e_voz:
+                print("Nota emitiendo voz de Toby:", e_voz)
+
         # Configurar evento de fin de audio en PyTgCalls
         if tgcalls:
             try:
@@ -1965,6 +2004,7 @@ async def main() -> None:
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 await responder_admin(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
                 avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
+                lanzar_tarea(anunciar_turno_por_voz(s_nom))
             elif cmd in ("/limpiarturnos",):
                 cola_turnos.clear()
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
@@ -2517,6 +2557,7 @@ async def main() -> None:
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
                     await responder_nat(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
                     avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
+                    lanzar_tarea(anunciar_turno_por_voz(s_nom))
             # Limpiar notificaciones y ventanas de la sala a petición del administrador
             elif any(p in texto_raw for p in [
                 "notificaciones del robot",
