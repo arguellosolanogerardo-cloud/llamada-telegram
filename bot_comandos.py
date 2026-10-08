@@ -1134,9 +1134,10 @@ def escuchar_comandos() -> None:
 
             for update in res.get("result", []):
                 offset = update["update_id"] + 1
+                print("Recibido update:", update.get("update_id"))
                 
                 if "callback_query" in update:
-                    import json
+#                     import json
                     cb = update["callback_query"]
                     cb_id = cb.get("id")
                     cb_data = cb.get("data", "")
@@ -1173,7 +1174,7 @@ def escuchar_comandos() -> None:
                             import subprocess
 
                     
-                            import os
+#                             import os
 
                     
                             tmp_path = os.path.join("data", f"tmp_{vid}.mp3")
@@ -1194,7 +1195,7 @@ def escuchar_comandos() -> None:
                                     url_doc = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
 
                     
-                                    import requests
+#                                     import requests
 
                     
                                     with open(tmp_path, "rb") as f_aud:
@@ -1308,7 +1309,7 @@ def escuchar_comandos() -> None:
                         enviar_mensaje(chat_id_priv, "Ã°Å¸â€Â *Buscando en la Biblioteca Conocimiento Universal...*", reply_to_message_id=msg_id_priv)
                         
                         # Guardar auditorA-a
-                        import json
+#                         import json
                         auditoria_path = os.path.join("data", "auditoria_consultas.json")
                         consultas = []
                         if os.path.exists(auditoria_path):
@@ -1693,7 +1694,7 @@ def escuchar_comandos() -> None:
                         continue
                     estado_path = os.path.join("data", "estado_descarga.json")
                     if os.path.exists(estado_path):
-                        import json
+#                         import json
                         try:
                             with open(estado_path, "r", encoding="utf-8") as f_est:
                                 st = json.load(f_est)
