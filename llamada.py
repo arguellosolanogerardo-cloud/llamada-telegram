@@ -2695,7 +2695,7 @@ async def main() -> None:
                         txt_alerta_med = (
                             f"{prefijo}🧘 **En 1 minuto (8:32 PM) dará inicio la {info_catalogo_hoy['tipo'].lower()} diaria:**\n"
                             f"📌 **{info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}:** «{info_catalogo_hoy['titulo']}»\n"
-                            f"👤 **Guía / Maestro:** {info_catalogo_hoy['maestro']}\n"
+                            f"👤 **Maestro:** {info_catalogo_hoy['maestro']}\n"
                             f"🗓️ **Grabación original:** {info_catalogo_hoy['fecha']}\n\n"
                             "Los micrófonos han sido habilitados. Por favor tomen una postura cómoda y permanezcan en silencio."
                         )

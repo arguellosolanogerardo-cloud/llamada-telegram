@@ -949,7 +949,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     caption = (
         f"🧘 **{tipo_nombre} #{num}**\n"
         f"📌 **Título:** «{titulo}»\n"
-        f"👤 **Guía:** {maestro}\n"
+        f"👤 **Maestro:** {maestro}\n"
         f"🗓️ **Grabación original:** {fecha}\n\n"
         "🎧 Audio para tu práctica en diferido."
     )
@@ -1053,7 +1053,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
         f"🧘 **CATÁLOGO OFICIAL DE AUDIOS**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📌 **{tipo_nombre} #{num}:** «{titulo}»\n"
-        f"👤 **Maestro / Guía:** {maestro}\n"
+        f"👤 **Maestro:** {maestro}\n"
         f"🗓️ **Fecha de grabación original:** {fecha}\n\n"
         f"ℹ️ El archivo .mp3 correspondiente aún no se encuentra registrado en el almacenamiento del bot ni en la carpeta de Google Drive.\n\n"
         f"💡 **Para administradores:** Puedes enviar o reenviar el archivo de audio directamente a este chat privado para vincularlo a la meditación #{num}."
@@ -1483,7 +1483,7 @@ def escuchar_comandos() -> None:
                                 chat_id,
                                 f"✅ **¡Audio guardado exitosamente!**\n\n"
                                 f"🧘 **{tipo_audio.title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                f"👤 **Guía:** {info_cat['maestro']}\n"
+                                f"👤 **Maestro:** {info_cat['maestro']}\n"
                                 f"🗓️ **Grabación:** {info_cat['fecha']}\n\n"
                                 f"El bot ha registrado este archivo y ahora se lo entregará directamente a cualquier usuario que lo solicite con `/meditacion` o el botón de audio.",
                                 reply_to_message_id=msg_id
@@ -1525,7 +1525,7 @@ def escuchar_comandos() -> None:
                                     log_debug(f"Buscando audio para {t_proc} #{n_proc}...")
                                     ruta_audio_desc = obtener_o_descargar_audio(t_proc, int(n_proc))
                                     if ruta_audio_desc:
-                                        cap_audio = f"🧘 **{t_nombre} #{n_proc}:** «{it_proc.get('titulo', '')}»\n👤 **Guía:** {it_proc.get('maestro', 'Alaniso')}\n🗓️ **Grabación:** {it_proc.get('fecha', '')}"
+                                        cap_audio = f"🧘 **{t_nombre} #{n_proc}:** «{it_proc.get('titulo', '')}»\n👤 **Maestro:** {it_proc.get('maestro', 'Alaniso')}\n🗓️ **Grabación:** {it_proc.get('fecha', '')}"
                                         ok_a, m_id_a, f_id_a = enviar_audio(
                                             chat_id,
                                             ruta_audio_desc,
@@ -1598,7 +1598,7 @@ def escuchar_comandos() -> None:
                                         f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
                                         f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
                                         f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                        f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
+                                        f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
                                         f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                                     )
                                 enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
@@ -1821,7 +1821,7 @@ def escuchar_comandos() -> None:
                                     f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
                                     f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
                                     f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                    f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
+                                    f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
                                     f"¡Te esperamos puntual esta noche a las 7:56 PM!"
                                 )
                                 enviar_mensaje(u_id, txt_priv, reply_markup=teclado)

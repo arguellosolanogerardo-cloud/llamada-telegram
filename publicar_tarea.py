@@ -123,7 +123,7 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
             icono = "🧘" if tipo == "Meditación" else "📜"
             bloques_items.append(
                 f"{idx}️⃣ {icono} **{tipo} #{num}:** «{titulo}»\n"
-                f"    👤 **Guía:** {maestro} | 📅 **Grabación original:** {fecha_orig}"
+                f"    👤 **Maestro:** {maestro} | 📅 **Grabación original:** {fecha_orig}"
             )
         txt_items = "\n\n".join(bloques_items)
         return (
@@ -147,7 +147,7 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     tipo = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
     num = info.get("numero", "")
     titulo = info.get("titulo", "")
-    maestro = info.get("maestro", "Guía Espiritual")
+    maestro = info.get("maestro", "Alaniso")
     fecha_orig = info.get("fecha_original") or info.get("fecha", "")
 
     return (
@@ -155,7 +155,7 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Comunidad, {tiempo_palabra} ({fecha_str}) trabajaremos con la siguiente práctica:\n\n"
         f"🧘 **{tipo} #{num}:** «{titulo}»\n"
-        f"👤 **Maestro / Guía:** {maestro}\n"
+        f"👤 **Maestro:** {maestro}\n"
         f"🗓️ **Grabación original:** {fecha_orig}\n\n"
         f"⏰ **Cronograma para {cronograma_palabra}:**\n"
         f"• **7:56 PM:** Apertura de la sala de voz en Telegram.\n"
@@ -372,7 +372,7 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                         f"🕊️ **TAREA DEL DÍA {fecha_final}** 🕊️\n"
                         f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
                         f"🧘 **{info.get('tipo', 'MEDITACION').title()} #{info['numero']}:** «{info['titulo']}»\n"
-                        f"👤 **Guía:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
+                        f"👤 **Maestro:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
                         f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                     )
                 teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items)

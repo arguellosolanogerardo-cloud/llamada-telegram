@@ -252,6 +252,6 @@ def formatear_cola_audios(cola: list[dict], indice_actual: int = 0, reproduciend
                 estado_pista = " ⏳ *(En espera)*"
 
         num_txt = f" #{num}" if num else ""
-        lineas.append(f"{pref_num} {icono_tipo} **{tipo.capitalize()}{num_txt}:** *«{titulo}»*{estado_pista}\n   🎙️ Guía: {maestro}")
+        lineas.append(f"{pref_num} {icono_tipo} **{tipo.capitalize()}{num_txt}:** *«{titulo}»*{estado_pista}\n   🎙️ Maestro: {maestro}")
 
     return "\n\n".join(lineas)
