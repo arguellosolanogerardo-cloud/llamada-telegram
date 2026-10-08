@@ -1170,8 +1170,33 @@ def escuchar_comandos() -> None:
 
     threading.Thread(target=hilo_recordatorio_726, daemon=True).start()
 
+    # ── Evitar HTTP 409 Conflict ─────────────────────────────────────────────
+    # Llamar deleteWebhook para liberar el token de cualquier webhook activo
+    # antes de iniciar el long-polling.  Si otra instancia está corriendo,
+    # sus requests de getUpdates fallarán con 409 hasta que Render la mate.
+    try:
+        url_dw = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=false"
+        urllib.request.urlopen(urllib.request.Request(url_dw, headers={"User-Agent": "BotComandos"}), timeout=10)
+        print("✅ deleteWebhook ejecutado correctamente al inicio.")
+    except Exception as e_dw:
+        print(f"⚠️ deleteWebhook falló (no crítico): {e_dw}")
+
+    # Cargar offset persistido en disco para no reprocesar updates tras reinicio
+    _OFFSET_FILE = os.path.join("data", "last_update_id.txt")
+    try:
+        if os.path.exists(_OFFSET_FILE):
+            with open(_OFFSET_FILE, "r") as _f_off:
+                offset = int(_f_off.read().strip()) + 1
+                print(f"🔁 Reanudando desde offset guardado: {offset}")
+        else:
+            offset = 0
+    except Exception:
+        offset = 0
+
+    # Set en memoria para deduplicar updates dentro de la misma ejecución
+    _updates_procesados: set = set()
+
     print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion, /buscar, /resumen, /acta, /tarea...")
-    offset = 0
 
     while True:
         try:
@@ -1185,8 +1210,27 @@ def escuchar_comandos() -> None:
                 continue
 
             for update in res.get("result", []):
-                offset = update["update_id"] + 1
-                print("Recibido update:", update.get("update_id"))
+                _uid = update["update_id"]
+                offset = _uid + 1
+
+                # ── Persistir offset en disco para sobrevivir reinicios ──────
+                try:
+                    os.makedirs("data", exist_ok=True)
+                    with open(_OFFSET_FILE, "w") as _f_off_w:
+                        _f_off_w.write(str(_uid))
+                except Exception:
+                    pass
+
+                # ── Deduplicar: ignorar si ya procesamos este update_id ──────
+                if _uid in _updates_procesados:
+                    print(f"⚠️ Update {_uid} ya procesado (instancia duplicada), ignorando.")
+                    continue
+                _updates_procesados.add(_uid)
+                # Mantener el set acotado a los últimos 500 para no crecer indefinidamente
+                if len(_updates_procesados) > 500:
+                    _updates_procesados.discard(min(_updates_procesados))
+
+                print("Recibido update:", _uid)
                 
                 if "callback_query" in update:
 #                     import json
@@ -1580,28 +1624,52 @@ def escuchar_comandos() -> None:
 
                             es_hoy_priv = fecha_priv == ahora_col.strftime("%d/%m/%Y")
                             tiempo_saludo = "hoy" if es_hoy_priv else "mañana"
-                            db_pts = cargar_puntos()
-                            usuarios = db_pts.get("usuarios", {})
-                            for u_id, datos in usuarios.items():
-                                if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
-                                    continue
-                                if len(audios_procesados) > 1:
-                                    txt_items_p = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in audios_procesados)
-                                    txt_priv = (
-                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                        f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
-                                        f"{txt_items_p}\n\n"
-                                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
-                                    )
-                                else:
-                                    txt_priv = (
-                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                        f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
-                                        f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                        f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
-                                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
-                                    )
-                                enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
+
+                            # ── Deduplicar declaración de tarea (primer bloque) ─────────────
+                            _tarea_uid_file = os.path.join("data", "ultima_tarea_update_id.txt")
+                            _tarea_uid_actual = str(_uid) if "_uid" in dir() else ""
+                            _ya_procesada = False
+                            try:
+                                if os.path.exists(_tarea_uid_file) and _tarea_uid_actual:
+                                    with open(_tarea_uid_file, "r") as _f_tuid:
+                                        if _f_tuid.read().strip() == _tarea_uid_actual:
+                                            print(f"⚠️ Tarea update_id={_tarea_uid_actual} ya procesada, saltando notificaciones.")
+                                            _ya_procesada = True
+                                if not _ya_procesada and _tarea_uid_actual:
+                                    with open(_tarea_uid_file, "w") as _f_tuid_w:
+                                        _f_tuid_w.write(_tarea_uid_actual)
+                            except Exception:
+                                pass
+
+                            if not _ya_procesada:
+                                db_pts = cargar_puntos()
+                                usuarios = db_pts.get("usuarios", {})
+                                for u_id, datos in usuarios.items():
+                                    if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
+                                        continue
+                                    # Solo enviar a usuarios con chat privado positivo
+                                    try:
+                                        if int(str(u_id)) <= 0:
+                                            continue
+                                    except ValueError:
+                                        continue
+                                    if len(audios_procesados) > 1:
+                                        txt_items_p = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in audios_procesados)
+                                        txt_priv = (
+                                            f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                            f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
+                                            f"{txt_items_p}\n\n"
+                                            f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                        )
+                                    else:
+                                        txt_priv = (
+                                            f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                            f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
+                                            f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                            f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
+                                            f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                        )
+                                    enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
 
                 # Petición de audio en lenguaje natural (ej: "¿Tienes el mensaje 989?", "meditación 21")
                 if not es_tarea_declarada and not audio_obj and es_solicitud_de_audio(texto, chat_id):
@@ -1812,19 +1880,45 @@ def escuchar_comandos() -> None:
                             if m_id:
                                 _TAREA_FLOTANTE.update({"msg_id": m_id, "contador": 0, "texto": anuncio, "reply_markup": teclado, "chat_id": chat_id})
                             fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
-                            db_pts = cargar_puntos()
-                            usuarios = db_pts.get("usuarios", {})
-                            for u_id, datos in usuarios.items():
-                                if str(u_id) == str(chat_id):
-                                    continue
-                                txt_priv = (
-                                    f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                    f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
-                                    f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                    f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
-                                    f"¡Te esperamos puntual esta noche a las 7:56 PM!"
-                                )
-                                enviar_mensaje(u_id, txt_priv, reply_markup=teclado)
+                            # ── Deduplicar declaración de tarea ─────────────────────────────
+                            # Si Render arranca dos instancias, ambas procesarán el mismo
+                            # update. Guardamos el update_id de la última tarea procesada en
+                            # disco.  Si coincide, no volvemos a notificar.
+                            _tarea_uid_file = os.path.join("data", "ultima_tarea_update_id.txt")
+                            _tarea_uid_actual = str(_uid) if "_uid" in dir() else ""
+                            _ya_procesada = False
+                            try:
+                                if os.path.exists(_tarea_uid_file) and _tarea_uid_actual:
+                                    with open(_tarea_uid_file, "r") as _f_tuid:
+                                        if _f_tuid.read().strip() == _tarea_uid_actual:
+                                            print(f"⚠️ Tarea update_id={_tarea_uid_actual} ya procesada, saltando notificaciones.")
+                                            _ya_procesada = True
+                                if not _ya_procesada and _tarea_uid_actual:
+                                    with open(_tarea_uid_file, "w") as _f_tuid_w:
+                                        _f_tuid_w.write(_tarea_uid_actual)
+                            except Exception:
+                                pass
+
+                            if not _ya_procesada:
+                                db_pts = cargar_puntos()
+                                usuarios = db_pts.get("usuarios", {})
+                                for u_id, datos in usuarios.items():
+                                    if str(u_id) == str(chat_id):
+                                        continue
+                                    # Solo enviar a usuarios con chat privado positivo
+                                    try:
+                                        if int(str(u_id)) <= 0:
+                                            continue
+                                    except ValueError:
+                                        continue
+                                    txt_priv = (
+                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                        f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
+                                        f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                        f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
+                                        f"¡Te esperamos puntual esta noche a las 7:56 PM!"
+                                    )
+                                    enviar_mensaje(u_id, txt_priv, reply_markup=teclado)
                         else:
                             enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
                 elif cmd in ("/turno", "/pedirturno", "/ceder", "/turnos", "/mano"):
