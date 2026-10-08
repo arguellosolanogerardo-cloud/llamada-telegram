@@ -190,7 +190,7 @@ def limpiar_sala_notificaciones(chat_id: int | str) -> int:
         except Exception as e:
             log_debug(f"Nota en limpieza Telethon: {e}")
 
-    # 3. Disparar workflow de limpieza en GitHub Actions si GITHUB_TOKEN está presente
+    # 3. Disparar workflow de limpieza en GitHub Actions si GITHUB_TOKEN estÃƒÂ¡ presente
     if GITHUB_TOKEN:
         try:
             url_gh = "https://api.github.com/repos/arguellosolanogerardo-cloud/llamada-telegram/actions/workflows/limpieza.yml/dispatches"
@@ -298,12 +298,12 @@ def iniciar_servidor_health():
 
 def obtener_rango(puntos: int) -> str:
     if puntos >= 1800:
-        return "💎 Diamante"
+        return "Ã°Å¸â€™Å½ Diamante"
     if puntos >= 750:
-        return "🥇 Oro"
+        return "Ã°Å¸Â¥â€¡ Oro"
     if puntos >= 250:
-        return "🥈 Plata"
-    return "🥉 Bronce"
+        return "Ã°Å¸Â¥Ë† Plata"
+    return "Ã°Å¸Â¥â€° Bronce"
 
 
 def cargar_puntos() -> dict:
@@ -337,7 +337,7 @@ def obtener_admin_ids(target_chat=None) -> set:
         return _ADMIN_IDS_CACHE[t_str]
 
     admins = set()
-    # Identificadores de administradores anónimos en Telegram
+    # Identificadores de administradores anÃƒÂ³nimos en Telegram
     admins.add(1087968824)  # @GroupAnonymousBot
     if target:
         try:
@@ -370,28 +370,28 @@ def obtener_admin_ids(target_chat=None) -> set:
 
 
 def es_mensaje_de_admin(msg: dict, chat_id: int | str) -> bool:
-    """Verifica si un mensaje proviene de un administrador o del dueño (incluye administradores anónimos o que envían como el grupo/canal)."""
+    """Verifica si un mensaje proviene de un administrador o del dueÃƒÂ±o (incluye administradores anÃƒÂ³nimos o que envÃƒÂ­an como el grupo/canal)."""
     from_user = msg.get("from", {})
     user_id = from_user.get("id")
 
-    # Rechazar cualquier bot como administrador (a menos que sea el bot anónimo oficial de Telegram)
+    # Rechazar cualquier bot como administrador (a menos que sea el bot anÃƒÂ³nimo oficial de Telegram)
     if from_user.get("is_bot") and user_id != 1087968824 and from_user.get("username") != "GroupAnonymousBot":
         return False
     if BOT_ID and user_id == BOT_ID:
         return False
 
-    # 1. Si el mensaje se envió a nombre del grupo o canal
+    # 1. Si el mensaje se enviÃƒÂ³ a nombre del grupo o canal
     sender_chat = msg.get("sender_chat")
     if sender_chat:
         sc_id = sender_chat.get("id")
         if sc_id and (str(sc_id) == str(chat_id) or (CHAT_ID and str(sc_id) == str(CHAT_ID))):
             return True
 
-    # 2. Si el remitente es el bot anónimo oficial de Telegram (@GroupAnonymousBot)
+    # 2. Si el remitente es el bot anÃƒÂ³nimo oficial de Telegram (@GroupAnonymousBot)
     if user_id == 1087968824 or from_user.get("username") == "GroupAnonymousBot":
         return True
 
-    # 3. Verificar si el usuario está en la lista de administradores del grupo
+    # 3. Verificar si el usuario estÃƒÂ¡ en la lista de administradores del grupo
     if user_id:
         admins_set = obtener_admin_ids(chat_id)
         if user_id in admins_set:
@@ -404,20 +404,20 @@ def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "",
     if es_admin:
         nombre = user_nombre or "Administrador"
         return (
-            f"👑 **PERFIL DE MODERACIÓN: {nombre}**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🛡️ **Rol:** Administrador / Moderador de la Sala\n\n"
-            "ℹ️ *Los administradores y moderadores están exentos del sistema de puntos y no participan en los rankings ni podios de puntualidad, garantizando una competencia justa y transparente para toda la comunidad.*"
+            f"Ã°Å¸â€˜â€˜ **PERFIL DE MODERACIÃƒâ€œN: {nombre}**\n"
+            "Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n"
+            "Ã°Å¸â€ºÂ¡Ã¯Â¸Â **Rol:** Administrador / Moderador de la Sala\n\n"
+            "Ã¢â€žÂ¹Ã¯Â¸Â *Los administradores y moderadores estÃƒÂ¡n exentos del sistema de puntos y no participan en los rankings ni podios de puntualidad, garantizando una competencia justa y transparente para toda la comunidad.*"
         )
 
     usuarios = db_puntos.get("usuarios", {})
     u = usuarios.get(str(user_id))
     if not u:
-        nombre = user_nombre or "Compañero"
+        nombre = user_nombre or "CompaÃƒÂ±ero"
         return (
-            f"👤 **Perfil de Asistencia:** {nombre}\n\n"
-            f"Aún no registras asistencias válidas en las llamadas.\n"
-            f"¡Únete hoy a las 7:56 PM para ganar tus primeros puntos y subir de rango!"
+            f"Ã°Å¸â€˜Â¤ **Perfil de Asistencia:** {nombre}\n\n"
+            f"AÃƒÂºn no registras asistencias vÃƒÂ¡lidas en las llamadas.\n"
+            f"Ã‚Â¡ÃƒÅ¡nete hoy a las 7:56 PM para ganar tus primeros puntos y subir de rango!"
         )
     nombre = u.get("nombre", user_nombre or "Usuario")
     pts_mes = u.get("puntos_mes", u.get("puntos_totales", 0))
@@ -427,24 +427,24 @@ def generar_texto_miperfil(user_id: int, db_puntos: dict, user_nombre: str = "",
     asistencias_mes = u.get("asistencias_mes", 0)
     asistencias_tot = u.get("asistencias_totales", 0)
     medallas = u.get("medallas", [])
-    txt_medallas = "\n• " + "\n• ".join(medallas) if medallas else "Ninguna aún"
+    txt_medallas = "\nÃ¢â‚¬Â¢ " + "\nÃ¢â‚¬Â¢ ".join(medallas) if medallas else "Ninguna aÃƒÂºn"
 
     return (
-        f"👤 **FICHA DE USUARIO: {nombre}**\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎖️ **Rango actual:** {rango}\n"
-        f"🏆 **Puntos del mes:** {pts_mes} pts\n"
-        f"⭐ **Puntos históricos:** {pts_tot} pts\n"
-        f"🔥 **Racha actual:** {racha} días consecutivos\n"
-        f"📅 **Asistencias:** {asistencias_mes} este mes ({asistencias_tot} en total)\n\n"
-        f"🏅 **Medallas obtenidas:**{txt_medallas}"
+        f"Ã°Å¸â€˜Â¤ **FICHA DE USUARIO: {nombre}**\n"
+        f"Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n"
+        f"Ã°Å¸Å½â€“Ã¯Â¸Â **Rango actual:** {rango}\n"
+        f"Ã°Å¸Ââ€  **Puntos del mes:** {pts_mes} pts\n"
+        f"Ã¢Â­Â **Puntos histÃƒÂ³ricos:** {pts_tot} pts\n"
+        f"Ã°Å¸â€Â¥ **Racha actual:** {racha} dÃƒÂ­as consecutivos\n"
+        f"Ã°Å¸â€œâ€¦ **Asistencias:** {asistencias_mes} este mes ({asistencias_tot} en total)\n\n"
+        f"Ã°Å¸Ââ€¦ **Medallas obtenidas:**{txt_medallas}"
     )
 
 
 def generar_texto_ranking(db_puntos: dict, admin_ids: set = None) -> str:
     usuarios = db_puntos.get("usuarios", {})
     if not usuarios:
-        return "🏆 **Ranking Mensual:** Aún no hay registros de asistencia este mes."
+        return "Ã°Å¸Ââ€  **Ranking Mensual:** AÃƒÂºn no hay registros de asistencia este mes."
 
     if admin_ids is None:
         admin_ids = obtener_admin_ids()
@@ -454,63 +454,63 @@ def generar_texto_ranking(db_puntos: dict, admin_ids: set = None) -> str:
         if int(u.get("id", 0)) not in admin_ids
     ]
     if not usuarios_filtrados:
-        return "🏆 **Ranking Mensual:** Aún no hay registros de participantes de la comunidad este mes."
+        return "Ã°Å¸Ââ€  **Ranking Mensual:** AÃƒÂºn no hay registros de participantes de la comunidad este mes."
 
     top = sorted(usuarios_filtrados, key=lambda x: x.get("puntos_mes", x.get("puntos_totales", 0)), reverse=True)[:10]
     lineas = [
-        "🏆 **TOP 10 DE ASISTENCIA Y PUNTOS (ESTE MES)** 🏆",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "Ã°Å¸Ââ€  **TOP 10 DE ASISTENCIA Y PUNTOS (ESTE MES)** Ã°Å¸Ââ€ ",
+        "Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â",
     ]
-    medallas_top = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
+    medallas_top = ["Ã°Å¸Â¥â€¡", "Ã°Å¸Â¥Ë†", "Ã°Å¸Â¥â€°"] + [f"{i}." for i in range(4, 11)]
     for i, u in enumerate(top):
         pts = u.get("puntos_mes", u.get("puntos_totales", 0))
         rango = obtener_rango(u.get("puntos_totales", 0))
         medallas = " ".join([m.split()[0] for m in u.get("medallas", [])])
-        lineas.append(f"{medallas_top[i]} {rango} **{u['nombre']}** — {pts} pts {medallas}".strip())
+        lineas.append(f"{medallas_top[i]} {rango} **{u['nombre']}** Ã¢â‚¬â€ {pts} pts {medallas}".strip())
 
-    lineas.append("\n💡 Escribe `/puntos` para ver tus estadísticas personales.")
+    lineas.append("\nÃ°Å¸â€™Â¡ Escribe `/puntos` para ver tus estadÃƒÂ­sticas personales.")
     return "\n".join(lineas)
 
 
 def generar_texto_reglas() -> str:
     return (
-        "📜 **SISTEMA DE PUNTOS Y REGLAS DE LA COMUNIDAD**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Cada noche a las 7:56 PM se abre la llamada diaria. ¡Participa y suma puntos!\n\n"
-        "⏰ **PUNTUALIDAD:**\n"
-        "• Entrar en los primeros 5 min: **+25 pts**\n"
-        "• Entrar entre min 5 y 10: **+15 pts**\n\n"
-        "🌟 **PERMANENCIA:**\n"
-        "• Asistencia completa (>= 80% de la sesión): **+50 pts**\n"
-        "• Asistencia parcial: **+20 a +35 pts**\n\n"
-        "🎙️ **MICRÓFONO / VOZ:**\n"
-        "• Hablar y aportar activamente: **+20 pts**\n\n"
-        "🧘 **MEDITACIÓN DIARIA (8:32 PM):**\n"
-        "• Participar en la meditación: **+30 pts**\n\n"
-        "🔥 **RACHAS:**\n"
-        "• Asistir días seguidos: **+5 pts extra por día consecutivo**\n\n"
-        "🏅 **MEDALLAS ESPECIALES:**\n"
-        "• 🛡️ *Puntualidad de Hierro:* 5 días seguidos en el podio (Top 9 de puntualidad).\n"
-        "• 🎙️ *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
-        "• 🧘 *Mente Serena:* Completar 10 meditaciones en el mes.\n"
-        "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
-        "👑 **ADMINISTRADORES Y MODERADORES:**\n"
-        "• Los administradores y moderadores están exentos del sistema de puntos y no entran en el ranking ni en el podio de puntualidad, garantizando una competencia justa para todos los miembros de la comunidad.\n\n"
-        "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
-        "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
-        "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
-        "• Si dejas el micrófono abierto sin hablar por 5 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
-        "📝 **MINUTAS Y ACTAS CON IA:**\n"
-        "• Escribe `/resumen` para leer la minuta oficial de la última sesión.\n"
-        "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
-        "• Escribe `/acta [fecha]` para consultar el documento formal.\n\n"
-        "👑 **GRABACIÓN (SOLO ADMINS):**\n"
-        "• `/estadograbacion` — Consultar estado actual.\n"
-        "• `/pausargrabacion` — Pausar la grabación (ej. tema confidencial).\n"
-        "• `/reanudargrabacion` — Reanudar la grabación.\n"
-        "• `/detenergrabacion` — Cancelar y borrar grabación de hoy.\n\n"
-        "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
-        "¡Los 3 primeros del mes reciben mención de honor!"
+        "Ã°Å¸â€œÅ“ **SISTEMA DE PUNTOS Y REGLAS DE LA COMUNIDAD**\n"
+        "Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n"
+        "Cada noche a las 7:56 PM se abre la llamada diaria. Ã‚Â¡Participa y suma puntos!\n\n"
+        "Ã¢ÂÂ° **PUNTUALIDAD:**\n"
+        "Ã¢â‚¬Â¢ Entrar en los primeros 5 min: **+25 pts**\n"
+        "Ã¢â‚¬Â¢ Entrar entre min 5 y 10: **+15 pts**\n\n"
+        "Ã°Å¸Å’Å¸ **PERMANENCIA:**\n"
+        "Ã¢â‚¬Â¢ Asistencia completa (>= 80% de la sesiÃƒÂ³n): **+50 pts**\n"
+        "Ã¢â‚¬Â¢ Asistencia parcial: **+20 a +35 pts**\n\n"
+        "Ã°Å¸Å½â„¢Ã¯Â¸Â **MICRÃƒâ€œFONO / VOZ:**\n"
+        "Ã¢â‚¬Â¢ Hablar y aportar activamente: **+20 pts**\n\n"
+        "Ã°Å¸Â§Ëœ **MEDITACIÃƒâ€œN DIARIA (8:32 PM):**\n"
+        "Ã¢â‚¬Â¢ Participar en la meditaciÃƒÂ³n: **+30 pts**\n\n"
+        "Ã°Å¸â€Â¥ **RACHAS:**\n"
+        "Ã¢â‚¬Â¢ Asistir dÃƒÂ­as seguidos: **+5 pts extra por dÃƒÂ­a consecutivo**\n\n"
+        "Ã°Å¸Ââ€¦ **MEDALLAS ESPECIALES:**\n"
+        "Ã¢â‚¬Â¢ Ã°Å¸â€ºÂ¡Ã¯Â¸Â *Puntualidad de Hierro:* 5 dÃƒÂ­as seguidos en el podio (Top 9 de puntualidad).\n"
+        "Ã¢â‚¬Â¢ Ã°Å¸Å½â„¢Ã¯Â¸Â *Voz de la Comunidad:* Hablar en 7 llamadas consecutivas.\n"
+        "Ã¢â‚¬Â¢ Ã°Å¸Â§Ëœ *Mente Serena:* Completar 10 meditaciones en el mes.\n"
+        "Ã¢â‚¬Â¢ Ã°Å¸â€˜â€˜ *Centinela:* Asistir a mÃƒÂ¡s del 90% de las reuniones del mes.\n\n"
+        "Ã°Å¸â€˜â€˜ **ADMINISTRADORES Y MODERADORES:**\n"
+        "Ã¢â‚¬Â¢ Los administradores y moderadores estÃƒÂ¡n exentos del sistema de puntos y no entran en el ranking ni en el podio de puntualidad, garantizando una competencia justa para todos los miembros de la comunidad.\n\n"
+        "Ã¢Å“â€¹ **TURNOS Y MODERACIÃƒâ€œN DE MICRÃƒâ€œFONOS:**\n"
+        "Ã¢â‚¬Â¢ Escribe `/turno` en el grupo o levanta la mano Ã¢Å“â€¹ en la sala para pedir la palabra.\n"
+        "Ã¢â‚¬Â¢ MÃƒÂ¡ximo 2 personas hablando a la vez para evitar interferencias.\n"
+        "Ã¢â‚¬Â¢ Si dejas el micrÃƒÂ³fono abierto sin hablar por 5 segundos, el bot lo silenciarÃƒÂ¡ automÃƒÂ¡ticamente para proteger la sala de ruidos de fondo.\n\n"
+        "Ã°Å¸â€œÂ **MINUTAS Y ACTAS CON IA:**\n"
+        "Ã¢â‚¬Â¢ Escribe `/resumen` para leer la minuta oficial de la ÃƒÂºltima sesiÃƒÂ³n.\n"
+        "Ã¢â‚¬Â¢ Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
+        "Ã¢â‚¬Â¢ Escribe `/acta [fecha]` para consultar el documento formal.\n\n"
+        "Ã°Å¸â€˜â€˜ **GRABACIÃƒâ€œN (SOLO ADMINS):**\n"
+        "Ã¢â‚¬Â¢ `/estadograbacion` Ã¢â‚¬â€ Consultar estado actual.\n"
+        "Ã¢â‚¬Â¢ `/pausargrabacion` Ã¢â‚¬â€ Pausar la grabaciÃƒÂ³n (ej. tema confidencial).\n"
+        "Ã¢â‚¬Â¢ `/reanudargrabacion` Ã¢â‚¬â€ Reanudar la grabaciÃƒÂ³n.\n"
+        "Ã¢â‚¬Â¢ `/detenergrabacion` Ã¢â‚¬â€ Cancelar y borrar grabaciÃƒÂ³n de hoy.\n\n"
+        "Ã°Å¸â€™Å½ **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
+        "Ã‚Â¡Los 3 primeros del mes reciben menciÃƒÂ³n de honor!"
     )
 
 
@@ -565,28 +565,28 @@ def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_mar
                     registrar_msg_bot(m_id)
                 log_debug(f"Foto enviada exitosamente a {chat_id}: msg_id={m_id}")
                 return m_id
-            log_debug(f"Telegram rechazó foto ({chat_id}): {res}")
+            log_debug(f"Telegram rechazÃƒÂ³ foto ({chat_id}): {res}")
     except Exception as e:
         log_debug(f"Error enviando foto a {chat_id}: {e}")
     return None
 
 
 def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> str | None:
-    """Genera una tarjeta gráfica de alta resolución en color vívido para el aviso de preparación."""
+    """Genera una tarjeta grÃƒÂ¡fica de alta resoluciÃƒÂ³n en color vÃƒÂ­vido para el aviso de preparaciÃƒÂ³n."""
     try:
         from PIL import Image, ImageDraw, ImageFont
         width, height = 1080, 680
         img = Image.new("RGB", (width, height), color=(15, 23, 42))
         draw = ImageDraw.Draw(img)
 
-        # 1. Fondo degradado de alta gama (Azul cósmico profundo)
+        # 1. Fondo degradado de alta gama (Azul cÃƒÂ³smico profundo)
         for y in range(height):
             r = int(14 + (28 - 14) * (y / height))
             g = int(20 + (16 - 20) * (y / height))
             b = int(48 + (72 - 48) * (y / height))
             draw.line([(0, y), (width, y)], fill=(r, g, b))
 
-        # 2. Borde exterior neón brillante con doble marco
+        # 2. Borde exterior neÃƒÂ³n brillante con doble marco
         draw.rounded_rectangle([(16, 16), (width - 16, height - 16)], radius=24, outline=(99, 102, 241), width=3)
         draw.rounded_rectangle([(22, 22), (width - 22, height - 22)], radius=20, outline=(56, 189, 248), width=2)
 
@@ -609,31 +609,31 @@ def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> st
         draw.rounded_rectangle([(45, 38), (width - 45, 128)], radius=18, fill=(67, 24, 255), outline=(147, 197, 253), width=2)
         draw.text((75, 58), "AVISO: SALA DE VOZ EN 30 MINUTOS (7:56 PM)", fill=(255, 255, 255), font=font_badge)
 
-        # 5. Caja de Tarea del Día (Dorado / Ámbar brillante)
+        # 5. Caja de Tarea del DÃƒÂ­a (Dorado / ÃƒÂmbar brillante)
         y_caja_start = 148
         if info_tarea:
             draw.rounded_rectangle([(45, y_caja_start), (width - 45, y_caja_start + 65)], radius=14, fill=(120, 53, 15), outline=(245, 158, 11), width=2)
-            tipo = info_tarea.get('tipo', 'Meditación').capitalize()
+            tipo = info_tarea.get('tipo', 'MeditaciÃƒÂ³n').capitalize()
             num = info_tarea.get('numero', '')
             tit = info_tarea.get('titulo', '')
             maestro = info_tarea.get('maestro', '')
-            txt_med = f"Sesión de Hoy: {tipo} #{num} - «{tit}» ({maestro})"
+            txt_med = f"SesiÃƒÂ³n de Hoy: {tipo} #{num} - Ã‚Â«{tit}Ã‚Â» ({maestro})"
             if len(txt_med) > 85:
                 txt_med = txt_med[:82] + "..."
             draw.text((70, y_caja_start + 20), txt_med, fill=(254, 243, 199), font=font_tarea)
             y_caja_start += 80
 
-        # 6. Cuadro interior de preparación (Fondo oscuro con borde Cian neón)
+        # 6. Cuadro interior de preparaciÃƒÂ³n (Fondo oscuro con borde Cian neÃƒÂ³n)
         caja_h = 345 if info_tarea else 420
         draw.rounded_rectangle([(45, y_caja_start), (width - 45, y_caja_start + caja_h)], radius=18, fill=(30, 41, 59), outline=(56, 189, 248), width=2)
 
         draw.text((75, y_caja_start + 22), "CONSEJOS IMPORTANTES ANTES DE ENTRAR A LA SALA:", fill=(56, 189, 248), font=font_title)
 
         tips = [
-            ("1", "Batería:", "Carga tu celular al menos al 50% o déjalo conectado."),
-            ("2", "Conexión:", "Usa Wi-Fi o datos estables y evita cambiar de red."),
-            ("3", "Android:", "Pon Telegram en 'Sin restricciones' de batería y candado."),
-            ("4", "Audio:", "Ten listos tus audífonos para disfrutar la meditación.")
+            ("1", "BaterÃƒÂ­a:", "Carga tu celular al menos al 50% o dÃƒÂ©jalo conectado."),
+            ("2", "ConexiÃƒÂ³n:", "Usa Wi-Fi o datos estables y evita cambiar de red."),
+            ("3", "Android:", "Pon Telegram en 'Sin restricciones' de baterÃƒÂ­a y candado."),
+            ("4", "Audio:", "Ten listos tus audÃƒÂ­fonos para disfrutar la meditaciÃƒÂ³n.")
         ]
 
         y_pos = y_caja_start + 72
@@ -651,7 +651,7 @@ def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> st
             y_pos += sep
 
         # 7. Footer
-        draw.text((75, height - 52), "Comunidad La Verdad Os Hará Libres  •  Apertura en directo a las 7:56 PM", fill=(148, 163, 184), font=font_body)
+        draw.text((75, height - 52), "Comunidad La Verdad Os HarÃƒÂ¡ Libres  Ã¢â‚¬Â¢  Apertura en directo a las 7:56 PM", fill=(148, 163, 184), font=font_body)
 
         os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
         img.save(ruta_salida, "PNG")
@@ -662,12 +662,12 @@ def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> st
 
 
 _LOCK_AVISO = threading.Lock()
-_FECHA_ULTIMO_AVISO: str | None = None
+_FECHA_ULTIMO_AVISO_AUTO: str | None = None
 
 
 def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | None:
-    """Envía el aviso previo. Sin `forzar`, solo se envía una vez por día (Colombia)."""
-    global _FECHA_ULTIMO_AVISO
+    """EnvÃƒÂ­a el aviso previo. Sin `forzar`, solo se envÃƒÂ­a una vez por dÃƒÂ­a (Colombia)."""
+    global _FECHA_ULTIMO_AVISO_AUTO
     cid = target_chat_id or CHAT_ID
     if not cid:
         log_debug("Aviso previo: CHAT_ID no configurado")
@@ -675,18 +675,18 @@ def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | No
 
     fecha_hoy = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d")
     with _LOCK_AVISO:
-        if not forzar and _FECHA_ULTIMO_AVISO == fecha_hoy:
+        if not forzar and _FECHA_ULTIMO_AVISO_AUTO == fecha_hoy:
             log_debug("Aviso previo ya enviado hoy; se omite duplicado")
             return None
         m_id = _enviar_aviso_preparacion_sala_impl(cid)
         if m_id:
-            _FECHA_ULTIMO_AVISO = fecha_hoy
+            if not forzar: _FECHA_ULTIMO_AVISO_AUTO = fecha_hoy
         return m_id
 
 
 def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
 
-    # Obtener tarea del día si está disponible
+    # Obtener tarea del dÃƒÂ­a si estÃƒÂ¡ disponible
     info_tarea = None
     ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
     if os.path.exists(ruta_meta):
@@ -698,41 +698,41 @@ def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
 
     txt_med_bloque = ""
     if info_tarea and info_tarea.get("numero"):
-        tipo = info_tarea.get("tipo", "Meditación").capitalize()
+        tipo = info_tarea.get("tipo", "MeditaciÃƒÂ³n").capitalize()
         num = info_tarea.get("numero")
         tit = info_tarea.get("titulo", "")
         maestro = info_tarea.get("maestro", "")
-        txt_med_bloque = f"🧘 **Sesión de Hoy:** {tipo} #{num} — «{tit}» ({maestro})\n"
+        txt_med_bloque = f"Ã°Å¸Â§Ëœ **SesiÃƒÂ³n de Hoy:** {tipo} #{num} Ã¢â‚¬â€ Ã‚Â«{tit}Ã‚Â» ({maestro})\n"
 
     # Texto con cuadro de cita / blockquote de Telegram
     caption = (
-        "🔔 **RECORDATORIO: SALA DE VOZ EN 30 MINUTOS** ⏰\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🕗 **Apertura de sala:** 7:56 PM Colombia\n"
+        "Ã°Å¸â€â€ **RECORDATORIO: SALA DE VOZ EN 30 MINUTOS** Ã¢ÂÂ°\n"
+        "Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n"
+        "Ã°Å¸â€¢â€” **Apertura de sala:** 7:56 PM Colombia\n"
         f"{txt_med_bloque}"
-        "> 📋 **CONSEJOS IMPORTANTES ANTES DE ENTRAR:**\n"
+        "> Ã°Å¸â€œâ€¹ **CONSEJOS IMPORTANTES ANTES DE ENTRAR:**\n"
         "> \n"
-        "> 🔋 **Batería:** Carga tu dispositivo al menos al 50% o conéctalo.\n"
-        "> 📶 **Conexión:** Usa Wi-Fi o datos estables (evita cambiar de red durante la llamada).\n"
-        "> ⚙️ **Android:** Ajusta Telegram en *\"Sin restricciones\"* en Batería y fíjalo con candado en apps recientes.\n"
-        "> 🔁 **Estabilidad:** Si se cae seguido: *Ajustes > Privacidad > Llamadas > Peer-to-peer > \"Nunca\"*.\n"
-        "> 🎧 **Espacio y Audio:** Prepara tus audífonos y busca un lugar tranquilo para la sesión.\n\n"
-        "✨ *¡Nos encontramos puntuales a las 7:56 PM para compartir juntos!*"
+        "> Ã°Å¸â€â€¹ **BaterÃƒÂ­a:** Carga tu dispositivo al menos al 50% o conÃƒÂ©ctalo.\n"
+        "> Ã°Å¸â€œÂ¶ **ConexiÃƒÂ³n:** Usa Wi-Fi o datos estables (evita cambiar de red durante la llamada).\n"
+        "> Ã¢Å¡â„¢Ã¯Â¸Â **Android:** Ajusta Telegram en *\"Sin restricciones\"* en BaterÃƒÂ­a y fÃƒÂ­jalo con candado en apps recientes.\n"
+        "> Ã°Å¸â€Â **Estabilidad:** Si se cae seguido: *Ajustes > Privacidad > Llamadas > Peer-to-peer > \"Nunca\"*.\n"
+        "> Ã°Å¸Å½Â§ **Espacio y Audio:** Prepara tus audÃƒÂ­fonos y busca un lugar tranquilo para la sesiÃƒÂ³n.\n\n"
+        "Ã¢Å“Â¨ *Ã‚Â¡Nos encontramos puntuales a las 7:56 PM para compartir juntos!*"
     )
 
     bot_u = obtener_info_bot()
     inline_kb = []
     if bot_u:
         inline_kb.append([
-            {"text": "🧘 Ver Tarea del Día", "url": f"https://t.me/{bot_u}?start=meditacion"},
-            {"text": "🏆 Ranking Mensual", "url": f"https://t.me/{bot_u}?start=ranking"}
+            {"text": "Ã°Å¸Â§Ëœ Ver Tarea del DÃƒÂ­a", "url": f"https://t.me/{bot_u}?start=meditacion"},
+            {"text": "Ã°Å¸Ââ€  Ranking Mensual", "url": f"https://t.me/{bot_u}?start=ranking"}
         ])
         inline_kb.append([
-            {"text": "📜 Reglas de Asistencia y Puntos", "url": f"https://t.me/{bot_u}?start=reglas"}
+            {"text": "Ã°Å¸â€œÅ“ Reglas de Asistencia y Puntos", "url": f"https://t.me/{bot_u}?start=reglas"}
         ])
     reply_markup = {"inline_keyboard": inline_kb} if inline_kb else None
 
-    # Intentar generar la tarjeta gráfica en color vívido
+    # Intentar generar la tarjeta grÃƒÂ¡fica en color vÃƒÂ­vido
     ruta_banner = os.path.join("data", "meditaciones", "banner_aviso_previo.png")
     ruta_gen = generar_banner_aviso_previo(ruta_banner, info_tarea=info_tarea)
 
@@ -740,18 +740,18 @@ def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
     if ruta_gen and os.path.exists(ruta_gen):
         m_id = enviar_foto(cid, ruta_gen, caption=caption, reply_markup=reply_markup)
 
-    # Si falló la foto, enviar mensaje de texto formateado con el cuadro
+    # Si fallÃƒÂ³ la foto, enviar mensaje de texto formateado con el cuadro
     if not m_id:
         m_id = enviar_mensaje(cid, caption, reply_markup=reply_markup)
 
     if m_id:
-        log_debug(f"Aviso de preparación enviado con éxito a {cid}: msg_id={m_id}")
+        log_debug(f"Aviso de preparaciÃƒÂ³n enviado con ÃƒÂ©xito a {cid}: msg_id={m_id}")
     else:
-        log_debug(f"❌ Aviso de preparación FALLÓ (foto y texto) para {cid}")
+        log_debug(f"Ã¢ÂÅ’ Aviso de preparaciÃƒÂ³n FALLÃƒâ€œ (foto y texto) para {cid}")
     return m_id
 
 
-def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
+def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "MeditaciÃƒÂ³n Diaria", performer: str = "Comunidad", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
     if not BOT_TOKEN or not ruta_audio:
         return False, None, None
 
@@ -778,9 +778,9 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
                 if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
                     registrar_msg_bot(m_id)
                 f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id") or ruta_audio
-                log_debug(f"Audio enviado vía file_id a {chat_id}: msg_id={m_id}")
+                log_debug(f"Audio enviado vÃƒÂ­a file_id a {chat_id}: msg_id={m_id}")
                 return True, m_id, f_id
-            log_debug(f"Telegram rechazó audio file_id ({chat_id}): {res}")
+            log_debug(f"Telegram rechazÃƒÂ³ audio file_id ({chat_id}): {res}")
             return False, None, None
         except Exception as e:
             log_debug(f"Error enviando audio por file_id a {chat_id}: {e}")
@@ -812,9 +812,9 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
                     registrar_msg_bot(m_id)
                 f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id")
                 dur = round(time.time() - t_inicio, 1)
-                log_debug(f"Audio subido con éxito a {chat_id} en {dur}s: msg_id={m_id}, file_id={f_id}")
+                log_debug(f"Audio subido con ÃƒÂ©xito a {chat_id} en {dur}s: msg_id={m_id}, file_id={f_id}")
                 return True, m_id, f_id
-            log_debug(f"Telegram rechazó audio local ({chat_id}): {res}")
+            log_debug(f"Telegram rechazÃƒÂ³ audio local ({chat_id}): {res}")
             return False, None, None
     except Exception as e:
         log_debug(f"Error enviando audio local a {chat_id}: {e}")
@@ -884,23 +884,23 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     if not info_cat:
         enviar_mensaje(
             chat_id,
-            "🧘 **Meditación Diaria:**\nAún no hay un audio de meditación disponible para hoy. Puedes consultar el catálogo escribiendo `/meditacion [número]` o `/mensaje [número]`.",
+            "Ã°Å¸Â§Ëœ **MeditaciÃƒÂ³n Diaria:**\nAÃƒÂºn no hay un audio de meditaciÃƒÂ³n disponible para hoy. Puedes consultar el catÃƒÂ¡logo escribiendo `/meditacion [nÃƒÂºmero]` o `/mensaje [nÃƒÂºmero]`.",
             reply_to_message_id=msg_id_reply
         )
         return
 
-    tipo_nombre = info_cat.get('tipo', 'Meditación').title()
+    tipo_nombre = info_cat.get('tipo', 'MeditaciÃƒÂ³n').title()
     num = str(info_cat.get('numero', '')).strip()
     titulo = info_cat.get('titulo', '')
     maestro = info_cat.get('maestro', 'Comunidad')
     fecha = info_cat.get('fecha', '')
 
     caption = (
-        f"🧘 **{tipo_nombre} #{num}**\n"
-        f"📌 **Título:** «{titulo}»\n"
-        f"👤 **Guía:** {maestro}\n"
-        f"🗓️ **Grabación original:** {fecha}\n\n"
-        "🎧 Audio para tu práctica en diferido."
+        f"Ã°Å¸Â§Ëœ **{tipo_nombre} #{num}**\n"
+        f"Ã°Å¸â€œÅ’ **TÃƒÂ­tulo:** Ã‚Â«{titulo}Ã‚Â»\n"
+        f"Ã°Å¸â€˜Â¤ **GuÃƒÂ­a:** {maestro}\n"
+        f"Ã°Å¸â€”â€œÃ¯Â¸Â **GrabaciÃƒÂ³n original:** {fecha}\n\n"
+        "Ã°Å¸Å½Â§ Audio para tu prÃƒÂ¡ctica en diferido."
     )
     title = f"{tipo_nombre} #{num} - {titulo}"
     performer = maestro
@@ -908,7 +908,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     bot_u = obtener_info_bot()
     clean_tipo = "mensaje" if "MENSAJE" in tipo_nombre.upper() else "meditacion"
     param_audio = f"audio_{clean_tipo}_{num}" if num else "audio"
-    teclado_grupo = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start={param_audio}"}]]} if (int(chat_id) < 0 and bot_u) else None
+    teclado_grupo = {"inline_keyboard": [[{"text": "Ã°Å¸â€œÂ¥ RECIBIR AUDIO EN MI TELEGRAM PRIVADO Ã°Å¸Å½Â§", "url": f"https://t.me/{bot_u}?start={param_audio}"}]]} if (int(chat_id) < 0 and bot_u) else None
 
     def enviar_copia_privada(ref_audio):
         if user_id_privado and str(user_id_privado) != str(chat_id) and int(user_id_privado) > 0:
@@ -921,7 +921,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     # A) file_id directo en info_cat
     audio_file_id = info_cat.get("file_id")
 
-    # B) file_id en meta_hoy.json (si coincide el número o si no se especificó)
+    # B) file_id en meta_hoy.json (si coincide el nÃƒÂºmero o si no se especificÃƒÂ³)
     ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
     meta_hoy = {}
     if os.path.exists(ruta_meta):
@@ -942,7 +942,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
         if reg:
             audio_file_id = reg.get("file_id")
 
-    # Intentar enviar vía file_id si lo tenemos
+    # Intentar enviar vÃƒÂ­a file_id si lo tenemos
     if audio_file_id:
         ok, m_id, f_id = enviar_audio(chat_id, audio_file_id, caption=caption, title=title, performer=performer, reply_markup=teclado_grupo)
         if ok:
@@ -984,9 +984,9 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
             enviar_copia_privada(audio_file_id)
             return
 
-    # F) Descargar automáticamente desde Google Drive!
+    # F) Descargar automÃƒÂ¡ticamente desde Google Drive!
     if num and num.isdigit():
-        enviar_mensaje(chat_id, f"🔍 Buscando audio para {tipo_nombre} #{num}...", reply_to_message_id=msg_id_reply)
+        enviar_mensaje(chat_id, f"Ã°Å¸â€Â Buscando audio para {tipo_nombre} #{num}...", reply_to_message_id=msg_id_reply)
         ruta_drive = obtener_o_descargar_audio(tipo_nombre, int(num))
         if ruta_drive:
             ok, m_id, f_id = enviar_audio(chat_id, ruta_drive, caption=caption, title=title, performer=performer, reply_markup=teclado_grupo)
@@ -996,15 +996,15 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
                 enviar_copia_privada(f_id or ruta_drive)
                 return
 
-    # G) Si aún no está cargado el archivo en ninguna fuente
+    # G) Si aÃƒÂºn no estÃƒÂ¡ cargado el archivo en ninguna fuente
     txt_cat = (
-        f"🧘 **CATÁLOGO OFICIAL DE AUDIOS**\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **{tipo_nombre} #{num}:** «{titulo}»\n"
-        f"👤 **Maestro / Guía:** {maestro}\n"
-        f"🗓️ **Fecha de grabación original:** {fecha}\n\n"
-        f"ℹ️ El archivo .mp3 correspondiente aún no se encuentra registrado en el almacenamiento del bot ni en la carpeta de Google Drive.\n\n"
-        f"💡 **Para administradores:** Puedes enviar o reenviar el archivo de audio directamente a este chat privado para vincularlo a la meditación #{num}."
+        f"Ã°Å¸Â§Ëœ **CATÃƒÂLOGO OFICIAL DE AUDIOS**\n"
+        f"Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n"
+        f"Ã°Å¸â€œÅ’ **{tipo_nombre} #{num}:** Ã‚Â«{titulo}Ã‚Â»\n"
+        f"Ã°Å¸â€˜Â¤ **Maestro / GuÃƒÂ­a:** {maestro}\n"
+        f"Ã°Å¸â€”â€œÃ¯Â¸Â **Fecha de grabaciÃƒÂ³n original:** {fecha}\n\n"
+        f"Ã¢â€žÂ¹Ã¯Â¸Â El archivo .mp3 correspondiente aÃƒÂºn no se encuentra registrado en el almacenamiento del bot ni en la carpeta de Google Drive.\n\n"
+        f"Ã°Å¸â€™Â¡ **Para administradores:** Puedes enviar o reenviar el archivo de audio directamente a este chat privado para vincularlo a la meditaciÃƒÂ³n #{num}."
     )
     enviar_mensaje(chat_id, txt_cat, reply_to_message_id=msg_id_reply)
 
@@ -1046,10 +1046,10 @@ def enviar_documento(chat_id: int | str, ruta_doc: str, caption: str = "") -> No
 
 def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
     """
-    Detecta si un mensaje es una pregunta o petición de un audio del catálogo (meditación o mensaje).
+    Detecta si un mensaje es una pregunta o peticiÃƒÂ³n de un audio del catÃƒÂ¡logo (meditaciÃƒÂ³n o mensaje).
     Ejemplos:
       - 'tienes el mensaje 989?'
-      - '¿Tienes la meditacion 21?'
+      - 'Ã‚Â¿Tienes la meditacion 21?'
       - 'me pasas el mensaje 800'
       - 'audio del mensaje 989'
       - 'meditacion 21' (en privado o grupo)
@@ -1058,33 +1058,33 @@ def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
         return False
     t_up = texto.upper()
 
-    # Si es declaración de tarea diaria para el grupo, no es solicitud individual
-    if any(k in t_up for k in ["TAREA PARA MAÑANA", "TAREA PARA MANANA", "MEDITACION DE TAREA", "MENSAJE DE TAREA", "TAREA DE MEDITACION", "TAREA DE MENSAJE"]):
+    # Si es declaraciÃƒÂ³n de tarea diaria para el grupo, no es solicitud individual
+    if any(k in t_up for k in ["TAREA PARA MAÃƒâ€˜ANA", "TAREA PARA MANANA", "MEDITACION DE TAREA", "MENSAJE DE TAREA", "TAREA DE MEDITACION", "TAREA DE MENSAJE"]):
         return False
 
-    tiene_palabra_audio = any(w in t_up for w in ["MEDITACION", "MEDITACIÓN", "MENSAJE", "AUDIO"])
+    tiene_palabra_audio = any(w in t_up for w in ["MEDITACION", "MEDITACIÃƒâ€œN", "MENSAJE", "AUDIO"])
     tiene_numero = bool(re.search(r"\b\d{1,4}\b", t_up))
 
     if not (tiene_palabra_audio and tiene_numero):
         return False
 
-    # En chat privado (chat_id > 0), cualquier mención de meditación/mensaje con número es para el bot
+    # En chat privado (chat_id > 0), cualquier menciÃƒÂ³n de meditaciÃƒÂ³n/mensaje con nÃƒÂºmero es para el bot
     if int(chat_id) > 0:
         return True
 
-    # En grupos (chat_id < 0), verificar que sea una pregunta o petición
+    # En grupos (chat_id < 0), verificar que sea una pregunta o peticiÃƒÂ³n
     verbos = [
         "TIENES", "TIENE", "TIENEN", "HAY", "PASAME", "PASA", "PASAS",
         "COMPARTE", "COMPARTIR", "QUIERO", "QUISIERA", "ENVIAME", "ENVIA",
         "MANDAME", "MANDA", "AUDIO DE", "AUDIO DEL", "BUSCA", "BUSCAR",
         "REGALAME", "ME DAS", "ME PASAS", "QUIEN TIENE", "ALGUIEN TIENE",
-        "POR FAVOR", "DESCARGAR", "SUBIR", "DONDE ESTA", "¿TIENES", "¿HAY",
+        "POR FAVOR", "DESCARGAR", "SUBIR", "DONDE ESTA", "Ã‚Â¿TIENES", "Ã‚Â¿HAY",
         "DISPONIBLE", "COMPARTEN"
     ]
     if any(v in t_up for v in verbos):
         return True
 
-    if re.match(r"^(?:MEDITACI[OÓ]N|MENSAJE|AUDIO)\s+#?\d{1,4}", t_up.strip()):
+    if re.match(r"^(?:MEDITACI[OÃƒâ€œ]N|MENSAJE|AUDIO)\s+#?\d{1,4}", t_up.strip()):
         return True
 
     return False
@@ -1098,7 +1098,7 @@ def escuchar_comandos() -> None:
     # Iniciar servidor HTTP para health check (Koyeb / Render)
     threading.Thread(target=iniciar_servidor_health, daemon=True).start()
 
-    # Iniciar reloj para aviso previo de preparación automático (7:26 PM Colombia - 30 min antes)
+    # Iniciar reloj para aviso previo de preparaciÃƒÂ³n automÃƒÂ¡tico (7:26 PM Colombia - 30 min antes)
     def hilo_recordatorio_726():
         tz_col = ZoneInfo("America/Bogota")
         ultimo_intento = 0.0
@@ -1107,10 +1107,10 @@ def escuchar_comandos() -> None:
                 ahora = datetime.now(tz_col)
                 minutos = ahora.hour * 60 + ahora.minute
                 en_ventana = (19 * 60 + 26) <= minutos <= (19 * 60 + 45)
-                ya_enviado = _FECHA_ULTIMO_AVISO == ahora.strftime("%Y-%m-%d")
+                ya_enviado = _FECHA_ULTIMO_AVISO_AUTO == ahora.strftime("%Y-%m-%d")
                 if en_ventana and not ya_enviado and time.time() - ultimo_intento >= 60:
                     ultimo_intento = time.time()
-                    log_debug("⏰ Disparando aviso previo automático de preparación (7:26 PM)...")
+                    log_debug("Ã¢ÂÂ° Disparando aviso previo automÃƒÂ¡tico de preparaciÃƒÂ³n (7:26 PM)...")
                     enviar_aviso_preparacion_sala()
             except Exception as e:
                 log_debug(f"Error en hilo_recordatorio_726: {e}")
@@ -1118,7 +1118,7 @@ def escuchar_comandos() -> None:
 
     threading.Thread(target=hilo_recordatorio_726, daemon=True).start()
 
-    print("🤖 Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion, /buscar, /resumen, /acta, /tarea...")
+    print("Ã°Å¸Â¤â€“ Bot de comandos iniciado. Escuchando /puntos, /ranking, /reglas, /ayuda, /meditacion, /buscar, /resumen, /acta, /tarea...")
     offset = 0
 
     while True:
@@ -1161,7 +1161,7 @@ def escuchar_comandos() -> None:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
 
                     
-                            urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "⏳ Descargando MP3 desde YouTube... (Esto tomará 1 minuto)", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                            urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "Ã¢ÂÂ³ Descargando MP3 desde YouTube... (Esto tomarÃƒÂ¡ 1 minuto)", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
 
                     
                         except: pass
@@ -1200,7 +1200,7 @@ def escuchar_comandos() -> None:
                                     with open(tmp_path, "rb") as f_aud:
 
                     
-                                        requests.post(url_doc, data={"chat_id": user_id, "caption": "🎧 Aquí tienes el audio solicitado."}, files={"document": f_aud})
+                                        requests.post(url_doc, data={"chat_id": user_id, "caption": "Ã°Å¸Å½Â§ AquÃƒÂ­ tienes el audio solicitado."}, files={"document": f_aud})
 
                     
                                     os.remove(tmp_path)
@@ -1239,7 +1239,7 @@ def escuchar_comandos() -> None:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
 
                     
-                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "🚫 Solo administradores.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "Ã°Å¸Å¡Â« Solo administradores.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
 
                     
                             except: pass
@@ -1254,7 +1254,7 @@ def escuchar_comandos() -> None:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
 
                     
-                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "✅ Programando audio para esta noche..."}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "Ã¢Å“â€¦ Programando audio para esta noche..."}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
 
                     
                             except: pass
@@ -1305,7 +1305,7 @@ def escuchar_comandos() -> None:
                     chat_id_priv = msg.get("chat", {}).get("id")
                     
                     if texto and not texto.startswith("/"):
-                        enviar_mensaje(chat_id_priv, "🔍 *Buscando en la Biblioteca Conocimiento Universal...*", reply_to_message_id=msg_id_priv)
+                        enviar_mensaje(chat_id_priv, "Ã°Å¸â€Â *Buscando en la Biblioteca Conocimiento Universal...*", reply_to_message_id=msg_id_priv)
                         
                         # Guardar auditorA-a
                         import json
@@ -1351,22 +1351,22 @@ def escuchar_comandos() -> None:
                                 conn.close()
                                 
                                 if resultados:
-                                    resp = "📚 **Aquí tienes lo que encontré en la Biblioteca:**\n\n"
+                                    resp = "Ã°Å¸â€œÅ¡ **AquÃƒÂ­ tienes lo que encontrÃƒÂ© en la Biblioteca:**\n\n"
                                     for idx, (titulo, seg, txt_frag, vid) in enumerate(resultados):
                                         m = seg // 60
                                         s = seg % 60
                                         url = f"https://youtu.be/{vid}?t={seg}"
                                         resp += f"**{idx+1}. {titulo}**\n"
-                                        resp += f"⏱️ *Minuto:* [{m:02d}:{s:02d}]({url})\n"
-                                        resp += f"💬 \"{txt_frag[:100]}...\"\n\n"
+                                        resp += f"Ã¢ÂÂ±Ã¯Â¸Â *Minuto:* [{m:02d}:{s:02d}]({url})\n"
+                                        resp += f"Ã°Å¸â€™Â¬ \"{txt_frag[:100]}...\"\n\n"
                                     
                                     enviar_mensaje(chat_id_priv, resp)
                                 else:
-                                    enviar_mensaje(chat_id_priv, "😔 No encontré ninguna enseñanza exacta con esas palabras. Intenta usar otras palabras clave.")
+                                    enviar_mensaje(chat_id_priv, "Ã°Å¸Ëœâ€ No encontrÃƒÂ© ninguna enseÃƒÂ±anza exacta con esas palabras. Intenta usar otras palabras clave.")
                             except Exception as e:
-                                enviar_mensaje(chat_id_priv, f"⚠️ Error buscando: {e}")
+                                enviar_mensaje(chat_id_priv, f"Ã¢Å¡Â Ã¯Â¸Â Error buscando: {e}")
                         else:
-                            enviar_mensaje(chat_id_priv, "⏳ La Biblioteca Aon se estA¡ construyendo. Intenta mAs tarde.")
+                            enviar_mensaje(chat_id_priv, "Ã¢ÂÂ³ La Biblioteca Aon se estAÃ‚Â¡ construyendo. Intenta mAs tarde.")
                     continue
                 # ------------------------------------
 
@@ -1394,7 +1394,7 @@ def escuchar_comandos() -> None:
                 from_user = msg.get("from", {})
                 user_id = from_user.get("id")
 
-                # Ignorar completamente bots (excepto anónimo oficial) para evitar bucles
+                # Ignorar completamente bots (excepto anÃƒÂ³nimo oficial) para evitar bucles
                 if from_user.get("is_bot") and user_id != 1087968824 and from_user.get("username") != "GroupAnonymousBot":
                     continue
                 if BOT_ID and user_id == BOT_ID:
@@ -1405,29 +1405,29 @@ def escuchar_comandos() -> None:
                 msg_id = msg["message_id"]
                 nombre = f"{from_user.get('first_name', '')} {from_user.get('last_name', '')}".strip()
 
-                # Ignorar mensajes automáticos de bot o sistema para prevenir ecos y bucles
-                if any(texto.startswith(prefix) for prefix in ("✅", "📢", "🕊️", "▶️", "🔍", "📋", "🧘✨", "🎙️", "ℹ️", "⚠️", "⛔", "[", "🔴", "⚪")):
+                # Ignorar mensajes automÃƒÂ¡ticos de bot o sistema para prevenir ecos y bucles
+                if any(texto.startswith(prefix) for prefix in ("Ã¢Å“â€¦", "Ã°Å¸â€œÂ¢", "Ã°Å¸â€¢Å Ã¯Â¸Â", "Ã¢â€“Â¶Ã¯Â¸Â", "Ã°Å¸â€Â", "Ã°Å¸â€œâ€¹", "Ã°Å¸Â§ËœÃ¢Å“Â¨", "Ã°Å¸Å½â„¢Ã¯Â¸Â", "Ã¢â€žÂ¹Ã¯Â¸Â", "Ã¢Å¡Â Ã¯Â¸Â", "Ã¢â€ºâ€", "[", "Ã°Å¸â€Â´", "Ã¢Å¡Âª")):
                     continue
 
                 texto_upper = texto.upper()
                 if any(k in texto_upper for k in [
                     "DESDE GOOGLE DRIVE", "OBTENIDOS DESDE", "BUSCANDO AUDIO PARA",
-                    "TAREA DEL DÍA", "TAREA DEL DIA", "LISTA DE REPRODUCCIÓN",
-                    "REPRODUCIENDO MEDITACIÓN", "INICIANDO REPRODUCCIÓN", "PROGRAMADOS PARA REPRODUCIRSE"
+                    "TAREA DEL DÃƒÂA", "TAREA DEL DIA", "LISTA DE REPRODUCCIÃƒâ€œN",
+                    "REPRODUCIENDO MEDITACIÃƒâ€œN", "INICIANDO REPRODUCCIÃƒâ€œN", "PROGRAMADOS PARA REPRODUCIRSE"
                 ]):
                     continue
 
-                # Detectar si se subió un audio/documento o se declaró tarea por texto
+                # Detectar si se subiÃƒÂ³ un audio/documento o se declarÃƒÂ³ tarea por texto
                 audio_obj = msg.get("audio") or msg.get("voice") or msg.get("document")
                 es_tarea_declarada = any(k in texto_upper for k in [
                     "MEDITACION DE TAREA", "TAREA DE MEDITACION",
                     "MENSAJE DE TAREA", "TAREA DE MENSAJE",
-                    "TAREA PARA MAÑANA", "TAREA PARA MANANA", "TAREA PARA HOY",
-                    "TAREA DEL DÍA", "TAREA DEL DIA",
+                    "TAREA PARA MAÃƒâ€˜ANA", "TAREA PARA MANANA", "TAREA PARA HOY",
+                    "TAREA DEL DÃƒÂA", "TAREA DEL DIA",
                     "MEDITACION DE HOY", "MENSAJE DE HOY"
                 ]) or (
-                    any(t_pal in texto_upper for t_pal in ["TAREA", "MEDITACION", "MEDITACIÓN", "MENSAJE"])
-                    and any(w in texto_upper for w in ["MAÑANA", "MANANA", "PARA HOY", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO", "LUNES", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE", "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE"])
+                    any(t_pal in texto_upper for t_pal in ["TAREA", "MEDITACION", "MEDITACIÃƒâ€œN", "MENSAJE"])
+                    and any(w in texto_upper for w in ["MAÃƒâ€˜ANA", "MANANA", "PARA HOY", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO", "LUNES", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE", "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE"])
                     and re.search(r"\b\d{1,4}\b", texto_upper)
                 )
 
@@ -1443,12 +1443,12 @@ def escuchar_comandos() -> None:
                         num = info_cat["numero"]
                         tipo_audio = info_cat.get("tipo", "MEDITACION")
 
-                        # Si se envió directamente en privado con archivo físico (solo administradores)
+                        # Si se enviÃƒÂ³ directamente en privado con archivo fÃƒÂ­sico (solo administradores)
                         if chat_id > 0 and f_id:
                             if not es_mensaje_de_admin(msg, chat_id):
                                 enviar_mensaje(
                                     chat_id,
-                                    "⛔ Solo los administradores pueden registrar audios oficiales en el catálogo.",
+                                    "Ã¢â€ºâ€ Solo los administradores pueden registrar audios oficiales en el catÃƒÂ¡logo.",
                                     reply_to_message_id=msg_id
                                 )
                                 continue
@@ -1457,19 +1457,19 @@ def escuchar_comandos() -> None:
                             guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id)
                             enviar_mensaje(
                                 chat_id,
-                                f"✅ **¡Audio guardado exitosamente!**\n\n"
-                                f"🧘 **{tipo_audio.title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                f"👤 **Guía:** {info_cat['maestro']}\n"
-                                f"🗓️ **Grabación:** {info_cat['fecha']}\n\n"
-                                f"El bot ha registrado este archivo y ahora se lo entregará directamente a cualquier usuario que lo solicite con `/meditacion` o el botón de audio.",
+                                f"Ã¢Å“â€¦ **Ã‚Â¡Audio guardado exitosamente!**\n\n"
+                                f"Ã°Å¸Â§Ëœ **{tipo_audio.title()} #{info_cat['numero']}:** Ã‚Â«{info_cat['titulo']}Ã‚Â»\n"
+                                f"Ã°Å¸â€˜Â¤ **GuÃƒÂ­a:** {info_cat['maestro']}\n"
+                                f"Ã°Å¸â€”â€œÃ¯Â¸Â **GrabaciÃƒÂ³n:** {info_cat['fecha']}\n\n"
+                                f"El bot ha registrado este archivo y ahora se lo entregarÃƒÂ¡ directamente a cualquier usuario que lo solicite con `/meditacion` o el botÃƒÂ³n de audio.",
                                 reply_to_message_id=msg_id
                             )
 
-                        # Si es declaración de tarea (en el grupo o en privado por admin)
+                        # Si es declaraciÃƒÂ³n de tarea (en el grupo o en privado por admin)
                         if es_tarea_declarada or (CHAT_ID and str(chat_id) == str(CHAT_ID) and audio_obj):
                             if not es_mensaje_de_admin(msg, chat_id):
                                 # Si un usuario no administrador menciona la tarea, solo entregarle la tarea actual que ya fue fijada por los admins
-                                log_debug(f"Usuario no admin {user_id} intentó programar tarea. Bloqueado.")
+                                log_debug(f"Usuario no admin {user_id} intentÃƒÂ³ programar tarea. Bloqueado.")
                                 ruta_meta_actual = os.path.join("data", "meditaciones", "meta_hoy.json")
                                 info_cat_act = None
                                 if os.path.exists(ruta_meta_actual):
@@ -1481,7 +1481,7 @@ def escuchar_comandos() -> None:
                                 if info_cat_act:
                                     entregar_audio_meditacion(chat_id, info_cat_act, msg_id_reply=msg_id, user_id_privado=user_id)
                                 else:
-                                    enviar_mensaje(chat_id, "ℹ️ Solo los administradores pueden programar la tarea del día.", reply_to_message_id=msg_id)
+                                    enviar_mensaje(chat_id, "Ã¢â€žÂ¹Ã¯Â¸Â Solo los administradores pueden programar la tarea del dÃƒÂ­a.", reply_to_message_id=msg_id)
                                 continue
 
                             fecha_admin = extraer_fecha_de_texto(texto)
@@ -1494,13 +1494,13 @@ def escuchar_comandos() -> None:
                                 n_proc = it_proc.get("numero")
                                 fid_proc = f_id if (len(lista_a_procesar) == 1 and f_id) else it_proc.get("file_id")
 
-                                # Si no vino con audio físico, buscar y descargar automáticamente de Google Drive
+                                # Si no vino con audio fÃƒÂ­sico, buscar y descargar automÃƒÂ¡ticamente de Google Drive
                                 if not fid_proc and n_proc:
-                                    enviar_mensaje(chat_id, f"🔍 Buscando audio para {t_proc.title()} #{n_proc}...", reply_to_message_id=msg_id)
+                                    enviar_mensaje(chat_id, f"Ã°Å¸â€Â Buscando audio para {t_proc.title()} #{n_proc}...", reply_to_message_id=msg_id)
                                     log_debug(f"Buscando audio para {t_proc} #{n_proc}...")
                                     ruta_audio_desc = obtener_o_descargar_audio(t_proc, int(n_proc))
                                     if ruta_audio_desc:
-                                        cap_audio = f"🧘 **{t_proc.title()} #{n_proc}:** «{it_proc.get('titulo', '')}»\n👤 **Guía:** {it_proc.get('maestro', 'Alaniso')}\n🗓️ **Grabación:** {it_proc.get('fecha', '')}"
+                                        cap_audio = f"Ã°Å¸Â§Ëœ **{t_proc.title()} #{n_proc}:** Ã‚Â«{it_proc.get('titulo', '')}Ã‚Â»\nÃ°Å¸â€˜Â¤ **GuÃƒÂ­a:** {it_proc.get('maestro', 'Alaniso')}\nÃ°Å¸â€”â€œÃ¯Â¸Â **GrabaciÃƒÂ³n:** {it_proc.get('fecha', '')}"
                                         ok_a, m_id_a, f_id_a = enviar_audio(
                                             chat_id,
                                             ruta_audio_desc,
@@ -1537,13 +1537,13 @@ def escuchar_comandos() -> None:
                             if m_id:
                                 _TAREA_FLOTANTE.update({"msg_id": m_id, "contador": 0, "texto": anuncio, "reply_markup": teclado_actual, "chat_id": chat_id})
 
-                            # 3. Si la orden se dio en privado Y CHAT_ID del grupo está configurado, publicar también en el grupo
+                            # 3. Si la orden se dio en privado Y CHAT_ID del grupo estÃƒÂ¡ configurado, publicar tambiÃƒÂ©n en el grupo
                             if chat_id > 0 and CHAT_ID and str(chat_id) != str(CHAT_ID):
                                 log_debug(f"Publicando copia de la tarea en el grupo {CHAT_ID}...")
                                 teclado_grupo = armar_teclado_audio(CHAT_ID, msg_id_audio_final, numero_tarea=num, tipo_tarea=tipo_audio, audios_lista=audios_procesados)
                                 enviar_mensaje(CHAT_ID, anuncio, reply_markup=teclado_grupo)
 
-                            # 4. Enviar notificación privada a miembros registrados
+                            # 4. Enviar notificaciÃƒÂ³n privada a miembros registrados
                             ahora_col = datetime.now(ZoneInfo("America/Bogota"))
                             if not fecha_admin:
                                 if ahora_col.hour > 20 or (ahora_col.hour == 20 and ahora_col.minute >= 32):
@@ -1554,30 +1554,30 @@ def escuchar_comandos() -> None:
                                 fecha_priv = fecha_admin
 
                             es_hoy_priv = fecha_priv == ahora_col.strftime("%d/%m/%Y")
-                            tiempo_saludo = "hoy" if es_hoy_priv else "mañana"
+                            tiempo_saludo = "hoy" if es_hoy_priv else "maÃƒÂ±ana"
                             usuarios = db.get("usuarios", {})
                             for u_id, datos in usuarios.items():
                                 if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
                                     continue
                                 if len(audios_procesados) > 1:
-                                    txt_items_p = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in audios_procesados)
+                                    txt_items_p = "\n".join(f"Ã¢â‚¬Â¢ **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** Ã‚Â«{it.get('titulo')}Ã‚Â»" for it in audios_procesados)
                                     txt_priv = (
-                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                        f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
+                                        f"Ã°Å¸â€¢Å Ã¯Â¸Â **TAREA DEL DÃƒÂA {fecha_priv}** Ã°Å¸â€¢Å Ã¯Â¸Â\n"
+                                        f"Hola **{datos.get('nombre', 'CompaÃƒÂ±ero')}**, {tiempo_saludo} trabajaremos con:\n\n"
                                         f"{txt_items_p}\n\n"
-                                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                        f"Ã¢ÂÂ° Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                                     )
                                 else:
                                     txt_priv = (
-                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                        f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
-                                        f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                        f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
-                                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                        f"Ã°Å¸â€¢Å Ã¯Â¸Â **TAREA DEL DÃƒÂA {fecha_priv}** Ã°Å¸â€¢Å Ã¯Â¸Â\n"
+                                        f"Hola **{datos.get('nombre', 'CompaÃƒÂ±ero')}**, {tiempo_saludo} trabajaremos con:\n\n"
+                                        f"Ã°Å¸Â§Ëœ **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** Ã‚Â«{info_cat['titulo']}Ã‚Â»\n"
+                                        f"Ã°Å¸â€˜Â¤ **GuÃƒÂ­a:** {info_cat['maestro']} | Ã°Å¸â€”â€œÃ¯Â¸Â **GrabaciÃƒÂ³n:** {info_cat['fecha']}\n\n"
+                                        f"Ã¢ÂÂ° Te esperamos puntual a las 7:56 PM para la apertura de la sala."
                                     )
                                 enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual)
 
-                # Petición de audio en lenguaje natural (ej: "¿Tienes el mensaje 989?", "meditación 21")
+                # PeticiÃƒÂ³n de audio en lenguaje natural (ej: "Ã‚Â¿Tienes el mensaje 989?", "meditaciÃƒÂ³n 21")
                 if not es_tarea_declarada and not audio_obj and es_solicitud_de_audio(texto, chat_id):
                     info_cat = identificar_audio_catalogo(texto=texto)
                     if not info_cat:
@@ -1617,12 +1617,12 @@ def escuchar_comandos() -> None:
 
                 if es_orden_limpieza:
                     if not es_mensaje_de_admin(msg, chat_id):
-                        enviar_mensaje(chat_id, "⛔ Solo los administradores pueden solicitar la limpieza de la sala.", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã¢â€ºâ€ Solo los administradores pueden solicitar la limpieza de la sala.", reply_to_message_id=msg_id)
                         continue
 
                     # Eliminar la orden escrita por el admin para no dejar rastro
                     eliminar_mensaje(chat_id, msg_id)
-                    m_aviso = enviar_mensaje(chat_id, "🧹 **Iniciando limpieza:** Eliminando notificaciones y ventanas del bot en la sala...")
+                    m_aviso = enviar_mensaje(chat_id, "Ã°Å¸Â§Â¹ **Iniciando limpieza:** Eliminando notificaciones y ventanas del bot en la sala...")
                     cant = limpiar_sala_notificaciones(chat_id)
                     if m_aviso:
                         time.sleep(3)
@@ -1666,10 +1666,10 @@ def escuchar_comandos() -> None:
                         busqueda = f"{prefijo} {param_texto}" if not any(w in param_texto.lower() for w in ["meditacion", "mensaje"]) else param_texto
                         info_cat = identificar_audio_catalogo(texto=busqueda)
                         if not info_cat:
-                            enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
+                            enviar_mensaje(chat_id, f"Ã¢â€žÂ¹Ã¯Â¸Â No se encontrÃƒÂ³ ninguna meditaciÃƒÂ³n o mensaje correspondiente a Ã‚Â«{param_texto}Ã‚Â» en el catÃƒÂ¡logo.", reply_to_message_id=msg_id)
                             continue
                     else:
-                        # Obtener meditación activa del día
+                        # Obtener meditaciÃƒÂ³n activa del dÃƒÂ­a
                         ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
                         if os.path.exists(ruta_meta):
                             try:
@@ -1689,7 +1689,7 @@ def escuchar_comandos() -> None:
                     entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
                 elif cmd in ("/progreso",):
                     if not es_mensaje_de_admin(msg, chat_id):
-                        enviar_mensaje(chat_id, "🚫 Solo admins.", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã°Å¸Å¡Â« Solo admins.", reply_to_message_id=msg_id)
                         continue
                     estado_path = os.path.join("data", "estado_descarga.json")
                     if os.path.exists(estado_path):
@@ -1697,41 +1697,41 @@ def escuchar_comandos() -> None:
                         try:
                             with open(estado_path, "r", encoding="utf-8") as f_est:
                                 st = json.load(f_est)
-                            barra = "█" * int(st['porcentaje'] / 5) + "░" * (20 - int(st['porcentaje'] / 5))
-                            msg_prog = f"📊 **Progreso Biblioteca Universal**\n\n"
+                            barra = "Ã¢â€“Ë†" * int(st['porcentaje'] / 5) + "Ã¢â€“â€˜" * (20 - int(st['porcentaje'] / 5))
+                            msg_prog = f"Ã°Å¸â€œÅ  **Progreso Biblioteca Universal**\n\n"
                             msg_prog += f"[{barra}] {st['porcentaje']}%\n\n"
-                            msg_prog += f"✅ **Completados:** {st['completados']} / {st['total']}\n"
-                            msg_prog += f"⏳ **Tiempo restante:** {st['tiempo_estimado_restante']}\n"
-                            msg_prog += f"⚠️ **Imprevistos (Errores):** {st['errores']}\n"
-                            msg_prog += f"🔄 **Última actualización:** {st['ultima_actualizacion']}"
+                            msg_prog += f"Ã¢Å“â€¦ **Completados:** {st['completados']} / {st['total']}\n"
+                            msg_prog += f"Ã¢ÂÂ³ **Tiempo restante:** {st['tiempo_estimado_restante']}\n"
+                            msg_prog += f"Ã¢Å¡Â Ã¯Â¸Â **Imprevistos (Errores):** {st['errores']}\n"
+                            msg_prog += f"Ã°Å¸â€â€ž **ÃƒÅ¡ltima actualizaciÃƒÂ³n:** {st['ultima_actualizacion']}"
                             enviar_mensaje(chat_id, msg_prog, reply_to_message_id=msg_id)
                         except:
-                            enviar_mensaje(chat_id, "⚠️ Error leyendo el estado de la descarga.", reply_to_message_id=msg_id)
+                            enviar_mensaje(chat_id, "Ã¢Å¡Â Ã¯Â¸Â Error leyendo el estado de la descarga.", reply_to_message_id=msg_id)
                     else:
-                        enviar_mensaje(chat_id, "⏳ El escáner aún no ha generado el archivo de progreso. Posiblemente siga en la Fase 1 (Inventario).", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã¢ÂÂ³ El escÃƒÂ¡ner aÃƒÂºn no ha generado el archivo de progreso. Posiblemente siga en la Fase 1 (Inventario).", reply_to_message_id=msg_id)
                     continue
                 elif cmd == "/panel":
                     if not es_mensaje_de_admin(msg, chat_id):
-                        enviar_mensaje(chat_id, "🚫 Solo los administradores pueden usar el panel de control.", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã°Å¸Å¡Â« Solo los administradores pueden usar el panel de control.", reply_to_message_id=msg_id)
                         continue
                     teclado_panel = {
                         "inline_keyboard": [
-                            [{"text": "▶️ Play", "callback_data": "panel_play"}, {"text": "⏸️ Pausa", "callback_data": "panel_pausa"}, {"text": "⏭️ Siguiente", "callback_data": "panel_nextaudio"}],
-                            [{"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}],
-                            [{"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}, {"text": "⏹️ Fin Grabación", "callback_data": "panel_stoprec"}]
+                            [{"text": "Ã¢â€“Â¶Ã¯Â¸Â Play", "callback_data": "panel_play"}, {"text": "Ã¢ÂÂ¸Ã¯Â¸Â Pausa", "callback_data": "panel_pausa"}, {"text": "Ã¢ÂÂ­Ã¯Â¸Â Siguiente", "callback_data": "panel_nextaudio"}],
+                            [{"text": "Ã°Å¸Å½Â¤ Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "Ã°Å¸â€â€œ Abrir Micros", "callback_data": "panel_desmutear"}],
+                            [{"text": "Ã°Å¸Â§Â¹ Limpiar Sala", "callback_data": "panel_limpiar"}, {"text": "Ã¢ÂÂ¹Ã¯Â¸Â Fin GrabaciÃƒÂ³n", "callback_data": "panel_stoprec"}]
                         ]
                     }
-                    enviar_mensaje(chat_id, "🎛 **PANEL DE CONTROL DE SALA**
+                    enviar_mensaje(chat_id, "Ã°Å¸Å½â€º **PANEL DE CONTROL DE SALA**
 *(Solo funciona durante la llamada)*
 Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)
                     eliminar_mensaje(chat_id, msg_id)
                 elif cmd in ("/aviso", "/recordatorio", "/preparacion", "/aviso30min"):
                     if not es_mensaje_de_admin(msg, chat_id):
-                        enviar_mensaje(chat_id, "⛔ Solo los administradores pueden enviar el aviso de preparación.", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã¢â€ºâ€ Solo los administradores pueden enviar el aviso de preparaciÃƒÂ³n.", reply_to_message_id=msg_id)
                         continue
                     enviar_aviso_preparacion_sala(target_chat_id=chat_id, forzar=True)
                     if chat_id > 0:
-                        enviar_mensaje(chat_id, "✅ Aviso de preparación enviado exitosamente.", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã¢Å“â€¦ Aviso de preparaciÃƒÂ³n enviado exitosamente.", reply_to_message_id=msg_id)
                     continue
                 elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea", "/guardaraudio", "/setaudio"):
                     if not es_mensaje_de_admin(msg, chat_id):
@@ -1747,9 +1747,9 @@ Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclad
                             if info_act:
                                 entregar_audio_meditacion(chat_id, info_act, msg_id_reply=msg_id, user_id_privado=user_id)
                             else:
-                                enviar_mensaje(chat_id, "ℹ️ Aún no hay una tarea programada para hoy por los administradores.", reply_to_message_id=msg_id)
+                                enviar_mensaje(chat_id, "Ã¢â€žÂ¹Ã¯Â¸Â AÃƒÂºn no hay una tarea programada para hoy por los administradores.", reply_to_message_id=msg_id)
                         else:
-                            enviar_mensaje(chat_id, "⛔ Solo los administradores pueden programar o anunciar la tarea del día.", reply_to_message_id=msg_id)
+                            enviar_mensaje(chat_id, "Ã¢â€ºâ€ Solo los administradores pueden programar o anunciar la tarea del dÃƒÂ­a.", reply_to_message_id=msg_id)
                         continue
 
                     param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
@@ -1757,7 +1757,7 @@ Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclad
                     if not param_texto and reply_m:
                         param_texto = (reply_m.get("text") or reply_m.get("caption") or "").strip()
                     if not param_texto:
-                        enviar_mensaje(chat_id, "ℹ️ Uso: `/tarea [número o nombre]` (ej: `/tarea 20` o responde a un audio con `/tarea`).", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã¢â€žÂ¹Ã¯Â¸Â Uso: `/tarea [nÃƒÂºmero o nombre]` (ej: `/tarea 20` o responde a un audio con `/tarea`).", reply_to_message_id=msg_id)
                     else:
                         info_cat = identificar_audio_catalogo(texto=param_texto)
                         if info_cat:
@@ -1772,7 +1772,7 @@ Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclad
                             guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id_audio)
 
                             if cmd in ("/guardaraudio", "/setaudio"):
-                                enviar_mensaje(chat_id, f"✅ Audio vinculado exitosamente a **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}**: «{info_cat['titulo']}».", reply_to_message_id=msg_id)
+                                enviar_mensaje(chat_id, f"Ã¢Å“â€¦ Audio vinculado exitosamente a **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}**: Ã‚Â«{info_cat['titulo']}Ã‚Â».", reply_to_message_id=msg_id)
                                 continue
 
                             try:
@@ -1794,24 +1794,24 @@ Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclad
                                 if str(u_id) == str(chat_id):
                                     continue
                                 txt_priv = (
-                                    f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
-                                    f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
-                                    f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
-                                    f"👤 **Guía:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
-                                    f"¡Te esperamos puntual esta noche a las 7:56 PM!"
+                                    f"Ã°Å¸â€¢Å Ã¯Â¸Â **TAREA DEL DÃƒÂA {fecha_priv}** Ã°Å¸â€¢Å Ã¯Â¸Â\n"
+                                    f"Hola **{datos.get('nombre', 'CompaÃƒÂ±ero')}**, hoy en la reuniÃƒÂ³n de las 7:56 PM trabajaremos:\n\n"
+                                    f"Ã°Å¸Â§Ëœ **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** Ã‚Â«{info_cat['titulo']}Ã‚Â»\n"
+                                    f"Ã°Å¸â€˜Â¤ **GuÃƒÂ­a:** {info_cat['maestro']} | Ã°Å¸â€”â€œÃ¯Â¸Â **Fecha:** {info_cat['fecha']}\n\n"
+                                    f"Ã‚Â¡Te esperamos puntual esta noche a las 7:56 PM!"
                                 )
                                 enviar_mensaje(u_id, txt_priv, reply_markup=teclado)
                         else:
-                            enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
+                            enviar_mensaje(chat_id, f"Ã¢â€žÂ¹Ã¯Â¸Â No se encontrÃƒÂ³ ninguna meditaciÃƒÂ³n o mensaje correspondiente a Ã‚Â«{param_texto}Ã‚Â» en el catÃƒÂ¡logo.", reply_to_message_id=msg_id)
                 elif cmd in ("/turno", "/pedirturno", "/ceder", "/turnos", "/mano"):
                     resp = (
-                        "🎙️ **Moderación y Turnos de Palabra:**\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "Ã°Å¸Å½â„¢Ã¯Â¸Â **ModeraciÃƒÂ³n y Turnos de Palabra:**\n"
+                        "Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n"
                         "La lista de turnos se gestiona en tiempo real dentro del grupo durante la llamada diaria (7:56 PM a 10:30 PM).\n\n"
-                        "✋ **Para pedir la palabra:** Escribe `/turno` en el grupo o levanta la mano ✋ en la sala de voz.\n"
-                        "🤝 **Para ceder la palabra:** Escribe `/ceder` en el grupo.\n"
-                        "📋 **Para ver la cola:** Escribe `/turnos` en el grupo.\n"
-                        "🔇 **Protección anti-ruido:** Si tu micrófono queda abierto sin hablar por 5 segundos, el sistema lo silenciará automáticamente para proteger la sala."
+                        "Ã¢Å“â€¹ **Para pedir la palabra:** Escribe `/turno` en el grupo o levanta la mano Ã¢Å“â€¹ en la sala de voz.\n"
+                        "Ã°Å¸Â¤Â **Para ceder la palabra:** Escribe `/ceder` en el grupo.\n"
+                        "Ã°Å¸â€œâ€¹ **Para ver la cola:** Escribe `/turnos` en el grupo.\n"
+                        "Ã°Å¸â€â€¡ **ProtecciÃƒÂ³n anti-ruido:** Si tu micrÃƒÂ³fono queda abierto sin hablar por 5 segundos, el sistema lo silenciarÃƒÂ¡ automÃƒÂ¡ticamente para proteger la sala."
                     )
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/buscar",):
@@ -1822,26 +1822,26 @@ Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclad
                     fecha_req = partes[1].strip() if len(partes) > 1 else None
                     minuta = obtener_minuta(fecha_req)
                     if minuta:
-                        resp = f"📝 **MINUTA DE LA REUNIÓN ({minuta['fecha']})**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{minuta['resumen']}"
+                        resp = f"Ã°Å¸â€œÂ **MINUTA DE LA REUNIÃƒâ€œN ({minuta['fecha']})**\nÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n{minuta['resumen']}"
                         enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                     else:
-                        enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna minuta registrada para {fecha_req or 'la última fecha'}.", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, f"Ã¢â€žÂ¹Ã¯Â¸Â No se encontrÃƒÂ³ ninguna minuta registrada para {fecha_req or 'la ÃƒÂºltima fecha'}.", reply_to_message_id=msg_id)
                 elif cmd in ("/acta",):
                     fecha_req = partes[1].strip() if len(partes) > 1 else None
                     minuta = obtener_minuta(fecha_req)
                     if minuta and minuta.get("ruta_pdf") and os.path.exists(minuta["ruta_pdf"]):
-                        enviar_documento(chat_id, minuta["ruta_pdf"], caption=f"📄 **Acta Oficial de la Reunión ({minuta['fecha']})**")
+                        enviar_documento(chat_id, minuta["ruta_pdf"], caption=f"Ã°Å¸â€œâ€ž **Acta Oficial de la ReuniÃƒÂ³n ({minuta['fecha']})**")
                     else:
-                        enviar_mensaje(chat_id, "ℹ️ No hay un documento PDF de acta disponible para esa fecha.", reply_to_message_id=msg_id)
+                        enviar_mensaje(chat_id, "Ã¢â€žÂ¹Ã¯Â¸Â No hay un documento PDF de acta disponible para esa fecha.", reply_to_message_id=msg_id)
                 elif cmd in ("/oracion",) or (cmd == "/start" and param == "oracion"):
                     resp = (
-                        "🕊️ **ORACIÓN Y RECOGIMIENTO COMUNITARIO**\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "\"En este momento de quietud y gratitud, acallamos nuestra mente y abrimos el corazón.\n\n"
-                        "Agradecemos por este día, por cada respiración, por los aprendizajes recibidos y por la presencia de cada persona en esta comunidad.\n\n"
+                        "Ã°Å¸â€¢Å Ã¯Â¸Â **ORACIÃƒâ€œN Y RECOGIMIENTO COMUNITARIO**\n"
+                        "Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â\n"
+                        "\"En este momento de quietud y gratitud, acallamos nuestra mente y abrimos el corazÃƒÂ³n.\n\n"
+                        "Agradecemos por este dÃƒÂ­a, por cada respiraciÃƒÂ³n, por los aprendizajes recibidos y por la presencia de cada persona en esta comunidad.\n\n"
                         "Pedimos paz profunda en nuestro interior, claridad en los pensamientos, serenidad en las acciones y bienestar para nuestras familias.\n\n"
-                        "Guardamos silencio y respiramos en calma, presentes en el aquí y el ahora.\"\n\n"
-                        "🙏 *Mantengamos silencio en la sala para cultivar la paz interior de todos.*"
+                        "Guardamos silencio y respiramos en calma, presentes en el aquÃƒÂ­ y el ahora.\"\n\n"
+                        "Ã°Å¸â„¢Â *Mantengamos silencio en la sala para cultivar la paz interior de todos.*"
                     )
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/reglas", "/ayuda") or (cmd == "/start" and param == "reglas") or cmd == "/start":
