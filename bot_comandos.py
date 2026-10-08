@@ -1580,7 +1580,8 @@ def escuchar_comandos() -> None:
 
                             es_hoy_priv = fecha_priv == ahora_col.strftime("%d/%m/%Y")
                             tiempo_saludo = "hoy" if es_hoy_priv else "mañana"
-                            usuarios = db.get("usuarios", {})
+                            db_pts = cargar_puntos()
+                            usuarios = db_pts.get("usuarios", {})
                             for u_id, datos in usuarios.items():
                                 if (CHAT_ID and str(u_id) == str(CHAT_ID)) or str(u_id) == str(chat_id):
                                     continue
