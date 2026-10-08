@@ -555,6 +555,21 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
             return m_id
     except Exception as e:
         print(f"Error enviando mensaje a {chat_id}:", e)
+        import sys; sys.stdout.flush()
+        if "parse_mode" in payload:
+            del payload["parse_mode"]
+            datos = json.dumps(payload).encode()
+            req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    res_data = json.loads(r.read().decode())
+                    m_id = res_data.get("result", {}).get("message_id")
+                    if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                        registrar_msg_bot(m_id)
+                    return m_id
+            except Exception as e2:
+                print(f"Error re-enviando sin formato a {chat_id}:", e2)
+                sys.stdout.flush()
     return None
 
 
