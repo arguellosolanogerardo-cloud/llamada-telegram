@@ -1128,6 +1128,12 @@ async def main() -> None:
             return
 
         input_call = full_chat.call
+        try:
+            await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+            print("🔓 Configuración de sala: join_muted=False (micrófonos libres al entrar).")
+        except Exception as e_tg:
+            print("Nota configurando join_muted=False:", e_tg)
+
         print(f"Iniciando monitoreo de la sala (Máx: {DURACION_MAXIMA_MINUTOS} min)...")
 
         # Estado del sistema de moderación de voz y turnos
@@ -2933,33 +2939,20 @@ async def main() -> None:
                                 print(f"Nota silenciando en meditación a {nombre}:", e)
                     else:
                         if not p_muted:
-                            # Micrófono abierto
+                            # Micrófono abierto: permitir hablar libremente sin cortes abruptos a los 2 segundos
+                            if uid not in oradores_activos:
+                                oradores_activos.add(uid)
+                                hubo_cambio_turnos = True
+
                             if hablo_ahora:
                                 segundos_inactividad_mic[uid] = 0
                                 avisados_auto_mute.discard(uid)
-                                if uid not in oradores_activos:
-                                    oradores_activos.add(uid)
-                                    hubo_cambio_turnos = True
-
-                                # Regla: Máximo MAX_ORADORES_SIMULTANEOS (2) personas a la vez
-                                if len(oradores_activos) > MAX_ORADORES_SIMULTANEOS and uid not in list(oradores_activos)[:MAX_ORADORES_SIMULTANEOS]:
-                                    oradores_activos.discard(uid)
-                                    try:
-                                        input_peer = await client.get_input_entity(uid)
-                                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                        lanzar_tarea(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
-                                        if not any(t["id"] == uid for t in cola_turnos):
-                                            cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
-                                        hubo_cambio_turnos = True
-                                        avisar_con_bot(f"⏳fono se desbloqueará en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s y te hemos añadido a la lista de turnos para no interrumpir.", es_efimero=True)
-                                        print(f"Límite de oradores alcanzado. {nombre} silenciado temporalmente ({DURACION_BLOQUEO_MUTE_SEGUNDOS}s) y añadido a la cola.")
-                                    except Exception as e:
-                                        print(f"Nota limitando oradores simultáneos para {nombre}:", e)
                             else:
-                                # Micrófono abierto pero NO está hablando (olvido, ancianos, ruido de fondo)
+                                # Micrófono abierto pero en silencio prolongado
                                 seg_inac = segundos_inactividad_mic.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
                                 segundos_inactividad_mic[uid] = seg_inac
 
+                                # Solo silenciar tras 60s continuos de silencio absoluto (evitar ruidos de fondo por olvido)
                                 if seg_inac >= SEGUNDOS_INACTIVIDAD_MUTE:
                                     try:
                                         input_peer = await client.get_input_entity(uid)
