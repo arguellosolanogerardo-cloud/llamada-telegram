@@ -1152,7 +1152,7 @@ def escuchar_comandos() -> None:
                         url_yt = f"https://www.youtube.com/watch?v={vid}"
 
                     
-                        import urllib.request
+#                         import urllib.request
 
                     
                         try:
@@ -1267,8 +1267,8 @@ def escuchar_comandos() -> None:
 
                     
                     elif cb_data.startswith("panel_"):
-                        import urllib.request
-                        import time
+#                         import urllib.request
+#                         import time
                         accion = cb_data.split("_")[1]
                         comando = ""
                         if accion == "play": comando = "/reproducir"
@@ -1375,8 +1375,8 @@ def escuchar_comandos() -> None:
                 if chat_id_msg and _TAREA_FLOTANTE["msg_id"] and chat_id_msg == _TAREA_FLOTANTE["chat_id"]:
                     from_id = msg.get("from", {}).get("id")
                     if not BOT_ID or from_id != BOT_ID:
-                        from zoneinfo import ZoneInfo
-                        from datetime import datetime
+#                         from zoneinfo import ZoneInfo
+#                         from datetime import datetime
                         ahora_flot = datetime.now(ZoneInfo("America/Bogota"))
                         minutos_flot = ahora_flot.hour * 60 + ahora_flot.minute
                         # Solo flota hasta las 7:26 PM (19*60 + 26 = 1166)
