@@ -1,0 +1,28 @@
+name: Aviso Preparacion 730PM
+
+on:
+  schedule:
+    # 00:26 UTC es 19:26 en Colombia
+    - cron: '26 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  enviar_aviso:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Enviar Aviso Telegram
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GRUPO_CHAT_ID: "-1002235941847"
+        run: python enviar_aviso_action.py
