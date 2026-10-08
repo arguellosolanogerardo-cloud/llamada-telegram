@@ -2380,13 +2380,13 @@ async def main() -> None:
 
                                 guardar_cola_hoy(cola_reproduccion)
                                 txt_cola = formatear_cola_audios(cola_reproduccion)
-                                await event.reply(f"✅ **Audios obtenidos automáticamente desde Google Drive (Hoy):**\n\n{txt_cola}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.")
-                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola}")
+                                # await event.reply(f"✅ **Audios obtenidos automáticamente desde Google Drive (Hoy):**\n\n{txt_cola}\n\nProgramados para reproducirse {txt_horario} en la sala de voz.")
+                                # avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola}")
                             else:
                                 guardar_cola_manana(descargados)
                                 txt_cola_manana = formatear_cola_audios(descargados)
-                                await event.reply(f"⏳n de la sala de hoy se mantiene intacta).*")
-                                avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola_manana}")
+                                # await event.reply(f"⏳n de la sala de hoy se mantiene intacta).*")
+                                # avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola_manana}")
 
         # Escuchar comandos por lenguaje natural de administradores en el grupo
         @client.on(events.NewMessage(chats=entidad))
