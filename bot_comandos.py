@@ -1209,7 +1209,7 @@ def escuchar_comandos() -> None:
                                 except: pass
 
                     
-                        import threading
+# import threading
 
                     
                         threading.Thread(target=descargar_y_enviar, args=(update["callback_query"]["from"].get("id"),)).start()
