@@ -20,11 +20,21 @@ import urllib.request
 import urllib.parse
 import threading
 import requests
+import sqlite3
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
+# Ensure stdout can handle Unicode emojis on Windows terminals
+import sys
+if sys.stdout.encoding.lower() != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, identificar_todos_los_audios, formatear_cola_audios
 from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
@@ -234,7 +244,6 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.wfile.write(diag_txt.encode("utf-8"))
             return
         if self.path == "/diag":
-            import urllib.request, json
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
             try:
                 req = urllib.request.Request(url)
@@ -1212,41 +1221,14 @@ def escuchar_comandos() -> None:
 
                     
                         def descargar_y_enviar(user_id):
-
-                    
-                            import subprocess
-
-                    
-                            import os
-
-                    
                             tmp_path = os.path.join("data", f"tmp_{vid}.mp3")
-
-                    
                             cmd = ["python", "-m", "yt_dlp", "-x", "--audio-format", "mp3", "--audio-quality", "5", "-o", tmp_path, url_yt]
-
-                    
                             subprocess.run(cmd)
-
-                    
                             if os.path.exists(tmp_path):
-
-                    
                                 try:
-
-                    
                                     url_doc = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
-
-                    
-                                    import requests
-
-                    
                                     with open(tmp_path, "rb") as f_aud:
-
-                    
                                         requests.post(url_doc, data={"chat_id": user_id, "caption": "🎧 Aquí tienes el audio solicitado."}, files={"document": f_aud})
-
-                    
                                     os.remove(tmp_path)
 
                     
