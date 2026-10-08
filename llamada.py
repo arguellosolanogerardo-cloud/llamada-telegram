@@ -79,7 +79,7 @@ INTERVALO_SONDEO_SEGUNDOS = int(os.environ.get("INTERVALO_SONDEO_SEGUNDOS", "2")
 MIN_MINUTOS_ASISTENCIA = int(os.environ.get("MIN_MINUTOS_ASISTENCIA", "10"))
 AUTO_CIERRE_MIN_USUARIOS = int(os.environ.get("AUTO_CIERRE_MIN_USUARIOS", "2"))
 AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "45"))
-SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "60"))  # 15s de silencio antes de cortar mic
+SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "30"))  # 30s de silencio antes de auto-cerrar mic por olvido
 DURACION_BLOQUEO_MUTE_SEGUNDOS = int(os.environ.get("DURACION_BLOQUEO_MUTE_SEGUNDOS", "5"))  # Solo 5s de bloqueo antes de auto-desbloquear
 MAX_ORADORES_SIMULTANEOS = int(os.environ.get("MAX_ORADORES_SIMULTANEOS", "2"))   # Máx 2 personas hablando
 
@@ -2993,7 +2993,7 @@ async def main() -> None:
                                 seg_inac = segundos_inactividad_mic.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
                                 segundos_inactividad_mic[uid] = seg_inac
 
-                                # Solo silenciar tras 60s continuos de silencio absoluto (evitar ruidos de fondo por olvido)
+                                # Solo silenciar tras 30s continuos de silencio absoluto (evitar ruidos de fondo por olvido)
                                 if seg_inac >= SEGUNDOS_INACTIVIDAD_MUTE:
                                     try:
                                         input_peer = await client.get_input_entity(uid)
@@ -3004,7 +3004,7 @@ async def main() -> None:
                                         hubo_cambio_turnos = True
                                         if uid not in avisados_auto_mute:
                                             avisados_auto_mute.add(uid)
-                                            avisar_con_bot(f"Hola **{nombre}** 👋, notamos que tu micrófono se quedó abierto en silencio por 60s, así que lo cerramos por ti para cuidar la sala de ruidos de fondo. ¡Siéntete libre de volver a abrirlo cuando gustes participar! 💖", es_efimero=True)
+                                            avisar_con_bot(f"Hola **{nombre}** 👋, notamos que tu micrófono se quedó abierto en silencio por 30s, así que lo cerramos por ti para cuidar la sala de ruidos de fondo. ¡Siéntete libre de volver a abrirlo cuando gustes participar! 💖", es_efimero=True)
                                         print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de inactividad. Desbloqueo programado en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s.")
                                     except Exception as e:
                                         print(f"Nota auto-muteando a {nombre}:", e)
