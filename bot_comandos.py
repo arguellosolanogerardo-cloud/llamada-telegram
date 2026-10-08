@@ -233,6 +233,21 @@ class HealthHandler(BaseHTTPRequestHandler):
             )
             self.wfile.write(diag_txt.encode("utf-8"))
             return
+        if self.path == "/diag":
+            import urllib.request, json
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
+            try:
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    res = json.loads(r.read().decode())
+                texto = f"Token_Start: {BOT_TOKEN[:8] if BOT_TOKEN else 'None'} | Bot: {res}"
+            except Exception as e:
+                texto = f"Token_Start: {BOT_TOKEN[:8] if BOT_TOKEN else 'None'} | Error: {e}"
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(texto.encode("utf-8"))
+            return
         if self.path in ("/aviso", "/aviso_previo", "/recordatorio"):
             m_id = enviar_aviso_preparacion_sala()
             self.send_response(200)
