@@ -1721,9 +1721,7 @@ def escuchar_comandos() -> None:
                             [{"text": "Ã°Å¸Â§Â¹ Limpiar Sala", "callback_data": "panel_limpiar"}, {"text": "Ã¢ÂÂ¹Ã¯Â¸Â Fin GrabaciÃƒÂ³n", "callback_data": "panel_stoprec"}]
                         ]
                     }
-                    enviar_mensaje(chat_id, "Ã°Å¸Å½â€º **PANEL DE CONTROL DE SALA**
-*(Solo funciona durante la llamada)*
-Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)
+                    enviar_mensaje(chat_id, "ðŸŽ› **PANEL DE CONTROL DE SALA**\n*(Solo funciona durante la llamada)*\nPresiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)
                     eliminar_mensaje(chat_id, msg_id)
                 elif cmd in ("/aviso", "/recordatorio", "/preparacion", "/aviso30min"):
                     if not es_mensaje_de_admin(msg, chat_id):
