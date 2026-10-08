@@ -1382,7 +1382,7 @@ def escuchar_comandos() -> None:
                         # Solo flota hasta las 7:26 PM (19*60 + 26 = 1166)
                         if minutos_flot < 1166:
                             _TAREA_FLOTANTE["contador"] += 1
-                            if _TAREA_FLOTANTE["contador"] >= 8:
+                            if False:
                                 eliminar_mensaje(chat_id_msg, _TAREA_FLOTANTE["msg_id"])
                                 nuevo_id = enviar_mensaje(chat_id_msg, _TAREA_FLOTANTE["texto"], reply_markup=_TAREA_FLOTANTE["reply_markup"])
                                 if nuevo_id:
