@@ -364,31 +364,96 @@ def generar_sonido_campana_gong(ruta_salida: str = os.path.join(CARPETA_MEDITACI
         return ruta_salida
 
 
+def obtener_duracion_segundos(ruta_audio: str) -> float:
+    """Obtiene la duración en segundos de un archivo de audio usando ffprobe."""
+    if not ruta_audio or not os.path.exists(ruta_audio):
+        return 3.5
+    try:
+        fbin = shutil.which("ffprobe") or "ffprobe"
+        cmd = [
+            fbin, "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            ruta_audio
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0 and res.stdout.strip():
+            return float(res.stdout.strip())
+    except Exception:
+        pass
+    return 3.5
+
+
+def obtener_sonido_campana_inicio() -> str:
+    """Busca el archivo de sonido para el inicio de la meditación o genera uno por defecto."""
+    candidatos = [
+        "sonido inicio meditacion.flac",
+        "sonido inicio meditacion.wav",
+        "sonido inicio meditacion.mp3",
+        os.path.join("data", "sonido inicio meditacion.flac"),
+        os.path.join("data", "sonido inicio meditacion.wav"),
+        os.path.join("data", "sonido inicio meditacion.mp3"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.flac"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.wav"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.mp3"),
+    ]
+    for c in candidatos:
+        if os.path.exists(c) and os.path.getsize(c) > 1000:
+            return os.path.abspath(c)
+    return generar_sonido_campana_gong()
+
+
+def obtener_sonido_campana_salida() -> str:
+    """Busca el archivo de sonido para el final de la meditación o genera uno por defecto."""
+    candidatos = [
+        "sonido salida meditacion.wav",
+        "sonido salida meditacion.flac",
+        "sonido salida meditacion.mp3",
+        os.path.join("data", "sonido salida meditacion.wav"),
+        os.path.join("data", "sonido salida meditacion.flac"),
+        os.path.join("data", "sonido salida meditacion.mp3"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido salida meditacion.wav"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido salida meditacion.flac"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido salida meditacion.mp3"),
+    ]
+    for c in candidatos:
+        if os.path.exists(c) and os.path.getsize(c) > 1000:
+            return os.path.abspath(c)
+    return generar_sonido_campana_gong()
+
+
 def agregar_gongs_al_audio(ruta_audio: str) -> str:
-    """Inserta campana de cuenco tibetano al inicio y al final de la meditación."""
+    """Inserta sonido de inicio y salida antes y después de la meditación."""
     if not os.path.exists(ruta_audio):
         return ruta_audio
     ruta_con_gong = os.path.join(CARPETA_MEDITACIONES, "meditacion_con_gong.mp3")
+    s_inicio = obtener_sonido_campana_inicio()
+    s_salida = obtener_sonido_campana_salida()
     try:
+        mtime_max = max(
+            os.path.getmtime(ruta_audio),
+            os.path.getmtime(s_inicio) if os.path.exists(s_inicio) else 0,
+            os.path.getmtime(s_salida) if os.path.exists(s_salida) else 0
+        )
         # Reutilizar si ya fue generado para no retrasar la reproducción con FFmpeg
-        if os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 1000 and os.path.getmtime(ruta_con_gong) >= os.path.getmtime(ruta_audio):
+        if os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 1000 and os.path.getmtime(ruta_con_gong) >= mtime_max:
             return ruta_con_gong
     except Exception:
         pass
-    campana = generar_sonido_campana_gong()
     try:
         fbin = shutil.which("ffmpeg") or "ffmpeg"
         cmd = [
             fbin, "-y",
-            "-i", campana,
+            "-i", s_inicio,
             "-i", ruta_audio,
-            "-i", campana,
+            "-i", s_salida,
             "-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1[out]",
             "-map", "[out]",
             ruta_con_gong
         ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
         if res.returncode == 0 and os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 0:
+            print(f"🎵 Audio ensamblado con sonidos: Inicio ({os.path.basename(s_inicio)}) + Meditación + Salida ({os.path.basename(s_salida)})")
             return ruta_con_gong
     except Exception as e:
         print("Nota combinando gong con audio:", e)
@@ -1388,7 +1453,7 @@ async def main() -> None:
             "cambiando": False,  # True mientras se cambia de stream (evita falso "StreamEnded")
         }
         lock_eq = asyncio.Lock()
-        DURACION_GONG_SEG = 3.5  # la campana inicial que añade agregar_gongs_al_audio
+        DURACION_GONG_SEG = obtener_duracion_segundos(obtener_sonido_campana_inicio())  # duración real del audio de inicio (s)
 
         def eq_efectivo():
             if not MEJORA_AUDIO:
