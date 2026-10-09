@@ -2,3 +2,4 @@ telethon
 requests
 pillow
 edge-tts
+yt-dlp

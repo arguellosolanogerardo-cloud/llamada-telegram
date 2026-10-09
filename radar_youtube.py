@@ -96,11 +96,30 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
     anunciados = 0
 
     for canal in CANALES_RADAR:
-        url = f"https://www.youtube.com/feeds/videos.xml?channel_id={canal['id']}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        }
+        xml_texto = ""
+        for reintento in range(2):
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    xml_texto = resp.read().decode('utf-8', errors='ignore')
+                    break
+            except urllib.error.HTTPError as he:
+                if reintento == 1:
+                    # Silenciar spam en logs tras reintentar
+                    pass
+                time.sleep(2)
+            except Exception:
+                time.sleep(2)
+
+        if not xml_texto:
+            continue
+
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                xml_texto = resp.read().decode('utf-8', errors='ignore')
 
             entradas = extraer_entradas_xml(xml_texto)
             for datos in entradas:
