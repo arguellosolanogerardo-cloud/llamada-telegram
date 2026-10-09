@@ -1238,6 +1238,13 @@ def escuchar_comandos() -> None:
 
     threading.Thread(target=hilo_recordatorio_726, daemon=True).start()
 
+    # Iniciar radar de canales de YouTube (ALANISO 2012 y Maestro Mario Carrillo)
+    try:
+        from radar_youtube import iniciar_radar
+        iniciar_radar(enviar_mensaje, CHAT_ID)
+    except Exception as e_rad:
+        print("⚠️ No se pudo iniciar el radar de YouTube:", e_rad)
+
     # ── Evitar HTTP 409 Conflict ─────────────────────────────────────────────
     # Llamar deleteWebhook para liberar el token de cualquier webhook activo
     # antes de iniciar el long-polling.  Si otra instancia está corriendo,
@@ -1360,50 +1367,54 @@ def escuchar_comandos() -> None:
 
                     
                     elif cb_data.startswith("yttarea_"):
-
-                    
                         vid = cb_data.split("_")[1]
-
-                    
                         url_yt = f"https://www.youtube.com/watch?v={vid}"
-
-                    
                         user_id_cb = update["callback_query"]["from"].get("id")
+                        admins_set = obtener_admin_ids(chat_id_cb)
 
-                    
                         if user_id_cb not in admins_set:
-
-                    
                             try:
-
-                    
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-
-                    
                                 urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "🚫 Solo administradores.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
-
-                    
-                            except: pass
-
-                    
+                            except Exception:
+                                pass
                         else:
-
-                    
                             try:
-
-                    
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "✅ Programando audio para la sala..."}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                            except Exception:
+                                pass
 
-                    
-                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "✅ Programando audio para esta noche..."}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                            def procesar_programacion_yt():
+                                try:
+                                    from radar_youtube import CANALES_RADAR, extraer_entradas_xml
+                                    tit_found = ""
+                                    for c_r in CANALES_RADAR:
+                                        u_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={c_r['id']}"
+                                        r_rss = urllib.request.Request(u_rss, headers={'User-Agent': 'Mozilla/5.0'})
+                                        xml_rss = urllib.request.urlopen(r_rss, timeout=10).read().decode('utf-8', errors='ignore')
+                                        for ent in extraer_entradas_xml(xml_rss):
+                                            if ent["video_id"] == vid:
+                                                tit_found = ent["titulo"]
+                                                break
+                                        if tit_found:
+                                            break
 
-                    
-                            except: pass
+                                    info_cat = identificar_audio_catalogo(texto=tit_found or vid)
+                                    if info_cat:
+                                        guardar_audio_registrado(info_cat)
+                                        os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+                                        with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
+                                            json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+                                        anuncio = generar_anuncio_tarea(info_cat)
+                                        teclado_t = armar_teclado_audio(chat_id_cb, numero_tarea=info_cat.get('numero'), tipo_tarea=info_cat.get('tipo'))
+                                        enviar_mensaje(chat_id_cb, anuncio, reply_markup=teclado_t)
+                                    else:
+                                        enviar_mensaje(chat_id_cb, f"ℹ️ Audio detectado: «{tit_found or vid}».\nPuedes programarlo con: `/tarea {tit_found or vid}`")
+                                except Exception as e_proc:
+                                    print("Error procesando yttarea:", e_proc)
 
-                    
-                            enviar_mensaje(chat_id_cb, f"/tarea {url_yt}")
-
-                    
+                            threading.Thread(target=procesar_programacion_yt, daemon=True).start()
                         continue
 
                     
@@ -1883,6 +1894,18 @@ def escuchar_comandos() -> None:
                             enviar_mensaje(chat_id, "⚠️ Error leyendo el estado de la descarga.", reply_to_message_id=msg_id)
                     else:
                         enviar_mensaje(chat_id, "⏳ El escáner aún no ha generado el archivo de progreso. Posiblemente siga en la Fase 1 (Inventario).", reply_to_message_id=msg_id)
+                elif cmd in ("/radar", "/canales", "/videos"):
+                    if not es_mensaje_de_admin(msg, chat_id):
+                        enviar_mensaje(chat_id, "⛔ Solo administradores pueden consultar el radar de canales.", reply_to_message_id=msg_id)
+                        continue
+                    enviar_mensaje(chat_id, "📡 **Escaneando canales de YouTube en este instante...**\n• ALANISO 2012 (@ALANISO-2012)\n• Maestro Mario Carrillo (@mariocarrillo7919)", reply_to_message_id=msg_id)
+                    try:
+                        from radar_youtube import chequear_canales
+                        cant = chequear_canales(enviar_mensaje, chat_id)
+                        if cant == 0:
+                            enviar_mensaje(chat_id, "✅ Los canales de YouTube están al día. No hay videos nuevos pendientes de anunciar.", reply_to_message_id=msg_id)
+                    except Exception as e_rad_cmd:
+                        enviar_mensaje(chat_id, f"⚠️ Error escaneando canales: {e_rad_cmd}", reply_to_message_id=msg_id)
                     continue
                 elif cmd == "/panel":
                     if not es_mensaje_de_admin(msg, chat_id):
