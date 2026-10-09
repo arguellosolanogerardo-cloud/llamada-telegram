@@ -1703,10 +1703,12 @@ async def main() -> None:
 
         async def anunciar_turno_por_voz(nombre_destinatario: str):
             """Emite la voz de Toby (Opción 6: Niño Robot) en vivo en la sala anunciando el turno."""
-            if not tgcalls or reproduciendo_meditacion:
+            if not tgcalls:
                 return
             try:
                 import edge_tts
+                from telethon.tl.types import InputPeerSelf
+
                 nom_limpio = str(nombre_destinatario or "").split()[0][:20] or "Compañero"
                 texto_tts = f"¡Turno de palabra para {nom_limpio}, adelante te escuchamos!"
                 ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_turno_{int(time.time()*1000)}.mp3")
@@ -1735,7 +1737,22 @@ async def main() -> None:
                             tgcalls._app._bind_client._cache.set_cache(destino, input_call)
                         except Exception:
                             pass
+
+                    # Desmutear robot en Telegram y en WebRTC para garantizar que la voz se escuche
+                    try:
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
+                    except Exception:
+                        pass
+
                     await tgcalls.play(destino, stream_play)
+
+                    try:
+                        await tgcalls.unmute(destino)
+                        await tgcalls.resume(destino)
+                        await tgcalls.change_volume_call(destino, 200)
+                    except Exception:
+                        pass
+
                     print(f"🤖🎙️ Toby anunció por voz en la sala: Turno para {nom_limpio}")
             except Exception as e_voz:
                 print("Nota emitiendo voz de Toby:", e_voz)
@@ -1918,7 +1935,7 @@ async def main() -> None:
             partes_cmd = event.raw_text.strip().split()
             cmd = partes_cmd[0].lower().split("@")[0]
             if cmd in ("/reproducir", "/play"):
-                nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual
+                nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, reproduciendo_meditacion
                 if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
                 if cola_reproduccion and indice_pista_actual >= len(cola_reproduccion):
@@ -1987,6 +2004,7 @@ async def main() -> None:
                 await responder_admin("🔓 **Todos los micrófonos han sido desbloqueados.**\nLos participantes ahora pueden activar su micrófono libremente cuando deseen hablar.")
                 avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes. Pueden activar su micrófono para compartir.", es_efimero=True)
             elif cmd in ("/siguiente", "/next"):
+                reproduciendo_meditacion = False
                 if not cola_turnos:
                     await responder_admin("ℹ️ No hay participantes esperando en la lista de turnos.")
                     return
@@ -2434,22 +2452,36 @@ async def main() -> None:
                                 # await event.reply(f"⏳n de la sala de hoy se mantiene intacta).*")
                                 # avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola_manana}")
 
-        # Escuchar comandos por lenguaje natural de administradores en el grupo
-        @client.on(events.NewMessage(chats=entidad))
+        # Escuchar comando /soyadmin
         @client.on(events.NewMessage(chats=entidad, pattern=r'(?i)^/soyadmin'))
         async def cmd_soyadmin(event):
             uid = event.sender_id
+            r = None
             try:
                 perm = await client.get_permissions(entidad, uid)
-                if getattr(perm, 'is_admin', False) or getattr(perm, 'is_creator', False):
+                es_admin = getattr(perm, 'is_admin', False) or getattr(perm, 'is_creator', False) or getattr(perm, 'manage_call', False) or (uid in admin_ids)
+                if es_admin:
                     admin_ids.add(uid)
-                    await event.reply("✅ Listo. He forzado la actualización de tus permisos. Tu micrófono ya no se bloqueará.")
+                    try:
+                        input_peer = await client.get_input_entity(uid)
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                    except Exception:
+                        pass
+                    r = await event.reply("✅ Listo. He forzado la actualización de tus permisos. Tu micrófono ya no se bloqueará.")
                 else:
-                    await event.reply("❌ Telegram dice que no eres administrador.")
+                    r = await event.reply("❌ Telegram dice que no eres administrador.")
             except Exception as e:
-                await event.reply(f"⚠️ Error al verificar permisos: {e}")
-                # Fallback: if they can see admin commands, maybe just add them anyway?
-                # No, that's insecure.
+                r = await event.reply(f"⚠️ Error al verificar permisos: {e}")
+
+            # Auto-eliminar comando y respuesta a los 5 segundos (Opción 2)
+            async def auto_eliminar_soyadmin():
+                await asyncio.sleep(5)
+                a_borrar = [m for m in (event.id, getattr(r, 'id', None)) if m]
+                try:
+                    await client.delete_messages(entidad, a_borrar)
+                except Exception:
+                    pass
+            lanzar_tarea(auto_eliminar_soyadmin())
 
         @client.on(events.NewMessage(chats=entidad))
         async def comandos_naturales_admin(event):
@@ -2477,7 +2509,7 @@ async def main() -> None:
 
             # Reproducir meditación por lenguaje natural de administración
             if any(p in texto_raw for p in ["reproducir meditacion", "reproducir meditación", "reproduce la meditacion", "reproduce la meditación", "poner meditacion", "poner meditación", "pon la meditacion", "pon la meditación", "iniciar meditacion", "iniciar meditación", "reproducir audio", "reproduce el audio"]):
-                nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, ultimo_error_reproduccion
+                nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, ultimo_error_reproduccion, reproduciendo_meditacion
                 if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
                 if cola_reproduccion and indice_pista_actual >= len(cola_reproduccion):
@@ -2513,7 +2545,6 @@ async def main() -> None:
             elif any(p in texto_raw for p in ["detener meditacion", "parar meditacion", "detener meditación", "parar meditación", "parar audio", "detener audio"]):
                 if tgcalls:
                     try:
-                        nonlocal reproduciendo_meditacion
                         await tgcalls.leave_call(destino)
                         reproduciendo_meditacion = False
                         await desbloquear_todos_los_participantes()
@@ -2540,6 +2571,7 @@ async def main() -> None:
                 avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes.", es_efimero=True)
             # Siguiente orador
             elif any(p in texto_raw for p in ["siguiente turno", "siguiente orador", "siguiente persona", "pasar al siguiente"]):
+                reproduciendo_meditacion = False
                 if not cola_turnos:
                     await responder_nat("ℹ️ No hay participantes en espera en la lista de turnos.")
                 else:
@@ -2961,7 +2993,10 @@ async def main() -> None:
                         # ADMINISTRADORES HUMANOS: NUNCA SILENCIADOS (siempre tienen micrófono libre)
                         if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
                             try:
-                                input_peer = await client.get_input_entity(p.peer)
+                                try:
+                                    input_peer = await client.get_input_entity(p.peer)
+                                except Exception:
+                                    input_peer = await client.get_input_entity(uid)
                                 await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
                                 print(f"🔓 Candado de silencio retirado para administrador {nombre} ({uid}).")
                             except Exception:
