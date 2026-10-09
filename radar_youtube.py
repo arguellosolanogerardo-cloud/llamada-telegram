@@ -96,6 +96,7 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
     anunciados = 0
 
     for canal in CANALES_RADAR:
+        url = f"https://www.youtube.com/feeds/videos.xml?channel_id={canal['id']}"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -113,7 +114,9 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
                     # Silenciar spam en logs tras reintentar
                     pass
                 time.sleep(2)
-            except Exception:
+            except Exception as e_req:
+                if reintento == 1:
+                    print(f"⚠️ Error al conectar a {canal['nombre']}: {e_req}")
                 time.sleep(2)
 
         if not xml_texto:
