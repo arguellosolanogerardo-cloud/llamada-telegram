@@ -135,9 +135,9 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
                 segundos_antiguedad = (ahora_utc - dt_pub).total_seconds() if dt_pub else 999999
                 es_reciente = segundos_antiguedad < 86400  # publicado en las últimas 24h
 
-                # En primera ejecución o reinicio del bot: ignorar anuncios de videos pasados (incluso de las últimas 24h)
-                # para evitar volver a publicar los 2 videos al hacer git push / despliegue.
-                if es_primera_vez:
+                # Ignorar videos publicados hace más de 15 minutos al arrancar/reiniciar el bot
+                # (evita enviar notificaciones de videos de hace varias horas tras hacer git push)
+                if es_primera_vez or segundos_antiguedad > 900:
                     nuevos_vistos.append(vid)
                     continue
 
