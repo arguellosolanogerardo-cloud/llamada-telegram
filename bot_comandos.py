@@ -1497,8 +1497,17 @@ def escuchar_comandos() -> None:
 
                     
                     elif cb_data.startswith("panel_"):
-#                         import urllib.request
-#                         import time
+                        user_id_cb = update["callback_query"]["from"].get("id")
+                        admins_set = obtener_admin_ids(chat_id_cb)
+
+                        if user_id_cb not in admins_set:
+                            try:
+                                url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "⛔ Solo los administradores pueden utilizar el panel de control de la sala.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                            except Exception:
+                                pass
+                            continue
+
                         accion = cb_data.split("_")[1]
                         comando = ""
                         if accion == "play": comando = "/reproducir"
@@ -1521,7 +1530,7 @@ def escuchar_comandos() -> None:
                             urllib.request.urlopen(req_ans, timeout=10)
                         except Exception:
                             pass
-                    continue
+                        continue
                 
                 msg = update.get("message")
                 if not msg:
