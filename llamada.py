@@ -1418,7 +1418,7 @@ async def main() -> None:
                         ruta_pre_raw = ruta_grabacion_pre.rsplit(".", 1)[0] + ".raw"
                         stream_rec_pre = Stream(
                             speaker=AudioStream(
-                                media_source=MediaSource.FILE,
+                                media_source=MediaSource.SHELL,
                                 path=os.path.abspath(ruta_pre_raw),
                                 parameters=AudioParameters(48000, 2)
                             )
@@ -1709,6 +1709,32 @@ async def main() -> None:
                         except Exception:
                             pass
                 print("Todos los administradores confirmados con permiso de voz libre y desbloqueado.")
+
+                # 8. Silenciar TODOS los no-admins durante la meditación (incluyendo los que no hablaron antes)
+                try:
+                    parts_med, _, _ = await obtener_todos_participantes_llamada(client, input_call)
+                    silenciados_med = 0
+                    for p in parts_med:
+                        if getattr(p, "left", False):
+                            continue
+                        p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
+                        if not p_uid or p_uid == me.id or p_uid in admin_ids:
+                            continue
+                        try:
+                            input_peer = await client.get_input_entity(p.peer)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                            silenciados_med += 1
+                        except Exception:
+                            pass
+                    # Asegurar que nuevos participantes entren silenciados durante la meditación
+                    try:
+                        await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
+                    except Exception:
+                        pass
+                    print(f"🔇 Meditación: {silenciados_med} participantes silenciados. Solo admins pueden hablar.")
+                except Exception as e:
+                    print("Nota silenciando participantes para meditación:", e)
+
                 iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
@@ -2760,18 +2786,30 @@ async def main() -> None:
                     except Exception as e:
                         print("Nota pausando grabación en oración:", e)
 
-                # Silenciar micrófonos de oradores regulares para garantizar respeto en oración (No afecta a administradores)
+                # Silenciar micrófonos de TODOS los no-admins en la sala para garantizar silencio en oración
                 try:
-                    for uid_orador in list(oradores_activos):
-                        if uid_orador in admin_ids or uid_orador == me.id:
+                    # 1. Obtener lista completa de participantes activos en la llamada
+                    parts_oracion, _, _ = await obtener_todos_participantes_llamada(client, input_call)
+                    silenciados_oracion = 0
+                    for p in parts_oracion:
+                        if getattr(p, "left", False):
+                            continue
+                        p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
+                        if not p_uid or p_uid == me.id or p_uid in admin_ids:
                             continue
                         try:
-                            input_peer = await client.get_input_entity(uid_orador)
+                            input_peer = await client.get_input_entity(p.peer)
                             await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                            silenciados_oracion += 1
                         except Exception:
                             pass
+                    # 2. Bloquear micrófono global: nuevos participantes entran silenciados
+                    try:
+                        await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
+                    except Exception:
+                        pass
                     oradores_activos = {u for u in oradores_activos if u in admin_ids}
-                    # Garantizar que todos los administradores tengan el micrófono habilitado
+                    # 3. Garantizar que todos los administradores tengan el micrófono habilitado
                     for aid in admin_ids:
                         if aid != me.id:
                             try:
@@ -2779,6 +2817,7 @@ async def main() -> None:
                                 await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
                             except Exception:
                                 pass
+                    print(f"🔇 Oración: {silenciados_oracion} participantes silenciados. Administradores con voz libre.")
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 except Exception as e:
                     print("Nota silenciando micrófonos para oración:", e)
