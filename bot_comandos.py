@@ -1381,18 +1381,18 @@ def escuchar_comandos() -> None:
                 except Exception:
                     pass
 
-            # ── Deduplicar: ignorar si ya procesamos este update_id ──────
-            if _uid in _updates_procesados:
-                print(f"⚠️ Update {_uid} ya procesado (instancia duplicada), ignorando.")
-                continue
-            _updates_procesados.add(_uid)
-            # Mantener el set acotado a los últimos 500 para no crecer indefinidamente
-            if len(_updates_procesados) > 500:
-                _updates_procesados.discard(min(_updates_procesados))
+                # ── Deduplicar: ignorar si ya procesamos este update_id ──────
+                if _uid in _updates_procesados:
+                    print(f"⚠️ Update {_uid} ya procesado (instancia duplicada), ignorando.")
+                    continue
+                _updates_procesados.add(_uid)
+                # Mantener el set acotado a los últimos 500 para no crecer indefinidamente
+                if len(_updates_procesados) > 500:
+                    _updates_procesados.discard(min(_updates_procesados))
 
-            print("Recibido update:", _uid)
+                print("Recibido update:", _uid)
 
-            if "callback_query" in update:
+                if "callback_query" in update:
 #                     import json
                     cb = update["callback_query"]
                     cb_from = cb.get("from", {})

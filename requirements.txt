@@ -3,3 +3,4 @@ requests
 pillow
 edge-tts
 yt-dlp
+apscheduler==3.10.4
