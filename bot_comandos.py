@@ -55,6 +55,7 @@ URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/
 
 COLA_LOGS = []
 _TAREA_FLOTANTE = {"msg_id": None, "contador": 0, "texto": "", "reply_markup": None, "chat_id": None}
+_CACHE_RESPUESTAS_BIBLIO = {}
 
 
 def cargar_usuarios_sin_privado() -> set:
@@ -1239,7 +1240,18 @@ def responder_consulta_biblioteca(chat_id: int | str, texto: str, msg_id_reply: 
                 resp += f"**{idx+1}. {titulo}**\n"
                 resp += f"⏱️ *Minuto:* [{m:02d}:{s:02d}]({url})\n"
                 resp += f"💬 \"{txt_frag[:120]}...\"\n\n"
-            enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id_reply)
+            reply_markup = None
+            if str(chat_id).startswith("-"):
+                reply_markup = {
+                    "inline_keyboard": [
+                        [{"text": "📩 Enviar a mi Telegram Privado", "callback_data": "biblio_priv"}]
+                    ]
+                }
+            m_id = enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id_reply, reply_markup=reply_markup)
+            if m_id:
+                _CACHE_RESPUESTAS_BIBLIO[str(m_id)] = resp
+                if len(_CACHE_RESPUESTAS_BIBLIO) > 200:
+                    _CACHE_RESPUESTAS_BIBLIO.pop(next(iter(_CACHE_RESPUESTAS_BIBLIO)), None)
         else:
             enviar_mensaje(chat_id, "😔 No encontré ninguna enseñanza exacta con esas palabras en la Biblioteca. Intenta con otros términos clave.", reply_to_message_id=msg_id_reply)
     except Exception as e:
@@ -1545,6 +1557,45 @@ def escuchar_comandos() -> None:
                             urllib.request.urlopen(req_ans, timeout=10)
                         except Exception:
                             pass
+                        continue
+
+                    elif cb_data == "biblio_priv" or cb_data.startswith("biblio_priv"):
+                        user_id_cb = cb_from.get("id")
+                        msg_id_cb = msg_cb.get("message_id")
+                        texto_a_enviar = _CACHE_RESPUESTAS_BIBLIO.get(str(msg_id_cb)) or msg_cb.get("text", "")
+                        
+                        if user_id_cb and texto_a_enviar:
+                            m_id_priv = enviar_mensaje(user_id_cb, texto_a_enviar)
+                            if m_id_priv:
+                                try:
+                                    url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                                    req_ans = urllib.request.Request(
+                                        url_ans,
+                                        data=json.dumps({
+                                            "callback_query_id": cb_id,
+                                            "text": "✅ ¡Listo! Te envié la información a tu Telegram privado."
+                                        }).encode(),
+                                        headers={"Content-Type": "application/json"}
+                                    )
+                                    urllib.request.urlopen(req_ans, timeout=10)
+                                except Exception:
+                                    pass
+                            else:
+                                bot_info = obtener_info_bot() or "el bot"
+                                try:
+                                    url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                                    req_ans = urllib.request.Request(
+                                        url_ans,
+                                        data=json.dumps({
+                                            "callback_query_id": cb_id,
+                                            "text": f"⚠️ Para que pueda escribirte al privado, primero abre el chat con @{bot_info} y presiona 'INICIAR'.",
+                                            "show_alert": True
+                                        }).encode(),
+                                        headers={"Content-Type": "application/json"}
+                                    )
+                                    urllib.request.urlopen(req_ans, timeout=10)
+                                except Exception:
+                                    pass
                         continue
                 msg = update.get("message")
                 if not msg:
