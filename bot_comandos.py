@@ -1452,9 +1452,10 @@ def escuchar_comandos() -> None:
                         if user_id_cb not in admins_set:
                             try:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "🚫 Solo administradores.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "⛔ Solo los administradores pueden fijar o reprogramar la tarea del día.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
                             except Exception:
                                 pass
+                            continue
                         else:
                             try:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
