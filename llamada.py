@@ -2405,11 +2405,27 @@ async def main() -> None:
 
             elif cmd_q in ("/encolar", "/agregar"):
                 if not arg_q:
-                    await resp_q("ℹ️ Uso: `/encolar [número]` (Ejemplo: `/encolar 15` o `/encolar mensaje 606`).")
+                    await resp_q("ℹ️ Uso: `/encolar [audio] a las [hora]` (Ejemplo: `/encolar 15 a las 9:15pm` o `/encolar mensaje 606`).")
                     return
-                items_encontrados = identificar_todos_los_audios(arg_q)
+                # Extraer posible hora programada (ej. "a las 9:15pm", "a las 21:15", "9:15 pm")
+                hora_prog = None
+                m_hora = re.search(r"(?:a\s+las\s+)?(\d{1,2}):(\d{2})\s*(am|pm)?", arg_q, re.IGNORECASE)
+                texto_busqueda = arg_q
+                if m_hora:
+                    h = int(m_hora.group(1))
+                    m = int(m_hora.group(2))
+                    ampm = (m_hora.group(3) or "").lower()
+                    if ampm == "pm" and h < 12:
+                        h += 12
+                    elif ampm == "am" and h == 12:
+                        h = 0
+                    hora_prog = f"{h:02d}:{m:02d}"
+                    texto_busqueda = arg_q[:m_hora.start()].strip() + " " + arg_q[m_hora.end():].strip()
+                    texto_busqueda = texto_busqueda.strip()
+
+                items_encontrados = identificar_todos_los_audios(texto_busqueda if texto_busqueda else arg_q)
                 if not items_encontrados:
-                    await resp_q(f"⏳ ningún audio en el catálogo para: «{arg_q}».")
+                    await resp_q(f"⚠️ No se encontró ningún audio en el catálogo para: «{arg_q}».")
                     return
                 anadidos = []
                 for it in items_encontrados:
@@ -2424,7 +2440,8 @@ async def main() -> None:
                             item_c = {
                                 "ruta": r_drive,
                                 "info": it,
-                                "titulo": it.get("titulo", f"{t} #{n}")
+                                "titulo": it.get("titulo", f"{t} #{n}"),
+                                "hora_programada": hora_prog
                             }
                             cola_reproduccion.append(item_c)
                             anadidos.append(it)
@@ -2436,7 +2453,8 @@ async def main() -> None:
                         info_catalogo_hoy = cola_reproduccion[0].get("info")
                     guardar_cola_hoy(cola_reproduccion)
                     txt_anadidos = "\n".join(f"• **{x.get('tipo', 'Audio').capitalize()} #{x.get('numero')}:** «{x.get('titulo', '')}»" for x in anadidos)
-                    await resp_q(f"▶️ **Pistas añadidas a la cola de reproducción:**\n{txt_anadidos}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas**.")
+                    str_h = f" ⏰ **Programado para:** {m_hora.group(0)}" if m_hora else ""
+                    await resp_q(f"▶️ **Pistas añadidas a la cola de reproducción:**\n{txt_anadidos}{str_h}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas**.")
                 else:
                     await resp_q("⚠️ No se pudieron descargar los audios correspondientes desde Google Drive.")
 
@@ -2958,6 +2976,17 @@ async def main() -> None:
                 if cola_reproduccion or (ruta_meditacion and os.path.exists(ruta_meditacion)):
                     reproduccion_iniciada = True
                     await reproducir_meditacion(0)
+
+            # Verificación constante de audios con hora específica programada (ej. /encolar 15 a las 9:15pm)
+            if not reproduciendo_meditacion and cola_reproduccion:
+                hora_actual_str = f"{hora_col:02d}:{min_col:02d}"
+                for idx_p, item_p in enumerate(cola_reproduccion):
+                    h_prog = item_p.get("hora_programada")
+                    if h_prog and h_prog == hora_actual_str:
+                        print(f"⏰ Disparando audio programado para las {h_prog} (pista #{idx_p + 1})")
+                        reproduccion_iniciada = True
+                        await reproducir_meditacion(idx_p)
+                        break
 
             try:
                 call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
