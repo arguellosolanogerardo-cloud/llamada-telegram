@@ -1224,7 +1224,9 @@ def responder_consulta_biblioteca(chat_id: int | str, texto: str, msg_id_reply: 
         conn.close()
 
         if resultados:
-            resp = "📚 **Aquí tienes lo que encontré en la Biblioteca (Transcripciones YouTube):**\n\n"
+            nombre_u = ((from_u or {}).get("first_name") or (from_u or {}).get("username") or "").strip()
+            saludo_u = f"**{nombre_u}** " if nombre_u else ""
+            resp = f"📚 {saludo_u}Aquí tienes lo que encontré en la Biblioteca del Conocimiento Universal dentro de los videos del Maestro Jesus Mario Carrillo y los Guardianes del Universo:\n\n"
             for idx, (titulo, seg, txt_frag, vid) in enumerate(resultados):
                 m = seg // 60
                 s = seg % 60
