@@ -425,6 +425,32 @@ def obtener_sonido_campana_salida() -> str:
     return generar_sonido_campana_gong()
 
 
+def obtener_pitido_inicial_oracion() -> str | None:
+    """Retorna la ruta absoluta del pitido inicial de oración si existe."""
+    candidatos = [
+        "PITIDO INICIAL ORACION.wav",
+        os.path.join("data", "PITIDO INICIAL ORACION.wav"),
+        os.path.join(CARPETA_MEDITACIONES, "PITIDO INICIAL ORACION.wav"),
+    ]
+    for c in candidatos:
+        if os.path.exists(c) and os.path.getsize(c) > 1000:
+            return os.path.abspath(c)
+    return None
+
+
+def obtener_pitido_final_oracion() -> str | None:
+    """Retorna la ruta absoluta del pitido final de oración si existe."""
+    candidatos = [
+        "PITIDO FINAL ORACION.wav",
+        os.path.join("data", "PITIDO FINAL ORACION.wav"),
+        os.path.join(CARPETA_MEDITACIONES, "PITIDO FINAL ORACION.wav"),
+    ]
+    for c in candidatos:
+        if os.path.exists(c) and os.path.getsize(c) > 1000:
+            return os.path.abspath(c)
+    return None
+
+
 def agregar_gongs_al_audio(ruta_audio: str) -> str:
     """Inserta sonido de inicio y salida antes y después de la meditación."""
     if not os.path.exists(ruta_audio):
@@ -1911,6 +1937,64 @@ async def main() -> None:
             except Exception as e_voz:
                 print(f"❌ Error emitiendo voz de Toby para turno: {e_voz}")
 
+        async def reproducir_audio_efimero(ruta_audio: str):
+            """Reproduce un audio corto en la sala de voz (ej: pitidos de oración) liberando el stream previo."""
+            if not tgcalls or not os.path.exists(ruta_audio):
+                print(f"⚠️ Audio efímero no encontrado o tgcalls inactivo: {ruta_audio}")
+                return
+            try:
+                from telethon.tl.types import InputPeerSelf
+                try:
+                    calls_activas = await tgcalls._binding.calls()
+                    if destino in calls_activas or (isinstance(destino, int) and abs(destino) in calls_activas):
+                        await tgcalls.leave_call(destino)
+                        await asyncio.sleep(0.3)
+                except Exception:
+                    pass
+
+                try:
+                    resolved_id = await tgcalls.resolve_chat_id(destino)
+                    if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
+                        tgcalls._app._bind_client._cache.set_cache(resolved_id, input_call)
+                        tgcalls._app._bind_client._cache.set_cache(destino, input_call)
+                except Exception:
+                    pass
+
+                ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_audio)
+                if ruta_pcm and os.path.exists(ruta_pcm):
+                    from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
+                    from ntgcalls import MediaSource
+                    stream_play = Stream(
+                        microphone=AudioStream(
+                            media_source=MediaSource.FILE,
+                            path=os.path.abspath(ruta_pcm),
+                            parameters=AudioParameters(48000, 2)
+                        )
+                    )
+                else:
+                    from pytgcalls.types import MediaStream, AudioQuality
+                    stream_play = MediaStream(ruta_audio, audio_parameters=AudioQuality.HIGH)
+
+                try:
+                    await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
+                except Exception:
+                    pass
+
+                await tgcalls.play(destino, stream_play)
+                try:
+                    await tgcalls.unmute(destino)
+                    await tgcalls.resume(destino)
+                    await tgcalls.change_volume_call(destino, 200)
+                except Exception:
+                    pass
+
+                dur = obtener_duracion_segundos(ruta_audio)
+                if dur > 0:
+                    await asyncio.sleep(dur + 0.3)
+                print(f"🔔 Audio efímero reproducido con éxito: {os.path.basename(ruta_audio)}")
+            except Exception as e_ef:
+                print(f"Nota reproduciendo audio efímero ({os.path.basename(ruta_audio)}):", e_ef)
+
         # Configurar evento de fin de audio en PyTgCalls
         if tgcalls:
             try:
@@ -2920,14 +3004,25 @@ async def main() -> None:
                 )
                 avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion, es_efimero=True)
 
+                # Emitir en vivo el pitido inicial de oración en la sala de voz
+                pitido_ini = obtener_pitido_inicial_oracion()
+                if pitido_ini:
+                    lanzar_tarea(reproducir_audio_efimero(pitido_ini))
+
             # 8:31 PM: Conclusión de los 3 minutos de oración y alerta 1 minuto antes de la meditación
             if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado:
                 aviso_meditacion_enviado = True
                 if aviso_oracion_enviado and not aviso_espera_enviado:
                     aviso_espera_enviado = True
                     oracion_activa_hoy = False
+
+                    # Emitir en vivo el pitido final de oración concluyendo los 3 min
+                    pitido_fin = obtener_pitido_final_oracion()
+                    if pitido_fin:
+                        await reproducir_audio_efimero(pitido_fin)
+
                     await desbloquear_todos_los_participantes()
-                    prefijo = "⏳⏳n.**\n\n"
+                    prefijo = "✨ **Oración en silencio concluida.**\n\n"
                 else:
                     prefijo = ""
 
