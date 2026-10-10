@@ -129,7 +129,7 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
         return (
             f"🕊️ **TAREA DEL DÍA {fecha_str}** 🕊️\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Comunidad, {tiempo_palabra} ({fecha_str}) trabajaremos con las siguientes prácticas en secuencia:\n\n"
+            f"GRUPO LA VERDAD OS HARA LIBRES, {tiempo_palabra} ({fecha_str}) trabajaremos con las siguientes prácticas en secuencia:\n\n"
             f"{txt_items}\n\n"
             f"⏰ **Cronograma para {cronograma_palabra}:**\n"
             f"• **7:56 PM:** Apertura de la sala de voz en Telegram.\n"
@@ -153,7 +153,7 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     return (
         f"🕊️ **TAREA DEL DÍA {fecha_str}** 🕊️\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Comunidad, {tiempo_palabra} ({fecha_str}) trabajaremos con la siguiente práctica:\n\n"
+        f"GRUPO LA VERDAD OS HARA LIBRES, {tiempo_palabra} ({fecha_str}) trabajaremos con la siguiente práctica:\n\n"
         f"🧘 **{tipo} #{num}:** «{titulo}»\n"
         f"👤 **Maestro:** {maestro}\n"
         f"🗓️ **Grabación original:** {fecha_orig}\n\n"
