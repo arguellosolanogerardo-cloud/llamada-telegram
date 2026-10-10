@@ -1167,7 +1167,12 @@ def enviar_documento(chat_id: int | str, ruta_doc: str, caption: str = "") -> No
 def responder_consulta_biblioteca(chat_id: int | str, texto: str, msg_id_reply: int | str = None, from_u: dict = None) -> bool:
     """Busca exclusivamente en la base de datos de transcripciones de YouTube (Biblioteca)."""
     t_limpio = texto.lower()
-    for drop_w in ["biblioteca", "conocimiento", "universal", "toby", "busca", "buscame", "donde", "habla", "sobre", "que dice", "qué dice", "en la", "de la"]:
+    for drop_w in ["biblioteca", "conocimiento", "universal", "toby", "asistente", "busca", "buscame",
+                     "donde", "habla", "sobre", "que dice", "qué dice", "en la", "de la", "del",
+                     "dime", "cuéntame", "cuentame", "explica", "explicame", "explícame",
+                     "pregunta", "encuentra", "hay", "los", "las", "con", "por", "para",
+                     "una", "uno", "que", "qué", "quién", "quien", "cómo", "como", "cuál", "cual",
+                     "enseñanza", "enseñanzas", "video", "videos", "tema"]:
         t_limpio = t_limpio.replace(drop_w, " ")
     palabras = [p for p in t_limpio.strip().split() if len(p) > 2]
     
