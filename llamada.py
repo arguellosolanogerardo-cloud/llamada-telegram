@@ -1423,8 +1423,18 @@ async def main() -> None:
                                 parameters=AudioParameters(48000, 2)
                             )
                         )
-                        await tgcalls.play(destino, stream_rec_pre)
-                        print("Grabación PRE-meditación iniciada correctamente.")
+                        # Intentar primero tgcalls.record() para captura bidireccional (grabación de micrófonos)
+                        grabacion_iniciada_ok = False
+                        try:
+                            await tgcalls.record(destino, stream_rec_pre)
+                            grabacion_iniciada_ok = True
+                            print("Grabación PRE-meditación (bidireccional) iniciada correctamente.")
+                        except Exception as e_rec:
+                            print("Nota registrando con tgcalls.record, intentando play como respaldo:", e_rec)
+
+                        if not grabacion_iniciada_ok:
+                            await tgcalls.play(destino, stream_rec_pre)
+                            print("Grabación PRE-meditación (play respaldo) iniciada correctamente.")
                 except Exception as e:
                     print(f"Error iniciando grabación pre-meditación: {e}")
             except Exception as e:

@@ -1164,6 +1164,83 @@ def enviar_documento(chat_id: int | str, ruta_doc: str, caption: str = "") -> No
         print(f"Error enviando documento a {chat_id}:", e)
 
 
+def responder_consulta_biblioteca(chat_id: int | str, texto: str, msg_id_reply: int | str = None, from_u: dict = None) -> bool:
+    """Busca exclusivamente en la base de datos de transcripciones de YouTube (Biblioteca)."""
+    t_limpio = texto.lower()
+    for drop_w in ["biblioteca", "conocimiento", "universal", "toby", "busca", "buscame", "donde", "habla", "sobre", "que dice", "qué dice", "en la", "de la"]:
+        t_limpio = t_limpio.replace(drop_w, " ")
+    palabras = [p for p in t_limpio.strip().split() if len(p) > 2]
+    
+    if not palabras:
+        enviar_mensaje(chat_id, "📚 Para consultar la **Biblioteca Conocimiento Universal**, escribe qué tema deseas buscar. Ejemplo:\n*«Toby busca en la biblioteca sobre los 144.000»*", reply_to_message_id=msg_id_reply)
+        return True
+
+    enviar_mensaje(chat_id, "🔍 *Buscando en la Biblioteca Conocimiento Universal...*", reply_to_message_id=msg_id_reply)
+
+    # Registrar auditoría
+    try:
+        os.makedirs("data", exist_ok=True)
+        auditoria_path = os.path.join("data", "auditoria_consultas.json")
+        consultas = []
+        if os.path.exists(auditoria_path):
+            try:
+                with open(auditoria_path, "r", encoding="utf-8") as f_aud:
+                    consultas = json.load(f_aud)
+            except Exception:
+                pass
+        consultas.append({
+            "fecha": datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M:%S"),
+            "usuario_id": (from_u or {}).get("id"),
+            "nombre": (from_u or {}).get("first_name", "Usuario"),
+            "pregunta": texto
+        })
+        with open(auditoria_path, "w", encoding="utf-8") as f_aud:
+            json.dump(consultas, f_aud, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
+
+    db_path = os.path.join("data", "biblioteca_conocimiento_universal.db")
+    if not os.path.exists(db_path):
+        enviar_mensaje(chat_id, "⏳ La Biblioteca de transcripciones aún se está construyendo. Intenta más tarde.", reply_to_message_id=msg_id_reply)
+        return True
+
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        conditions = []
+        params = []
+        for p in palabras:
+            if len(p) > 3:
+                conditions.append("t.texto LIKE ?")
+                params.append(f"%{p}%")
+        if not conditions:
+            conditions = ["t.texto LIKE ?"]
+            params = [f"%{' '.join(palabras)}%"]
+
+        query = "SELECT v.titulo, t.inicio_segundos, t.texto, v.video_id FROM transcripciones t INNER JOIN videos v ON t.video_id = v.video_id WHERE "
+        query += " AND ".join(conditions) + " LIMIT 3"
+        c.execute(query, params)
+        resultados = c.fetchall()
+        conn.close()
+
+        if resultados:
+            resp = "📚 **Aquí tienes lo que encontré en la Biblioteca (Transcripciones YouTube):**\n\n"
+            for idx, (titulo, seg, txt_frag, vid) in enumerate(resultados):
+                m = seg // 60
+                s = seg % 60
+                url = f"https://youtu.be/{vid}?t={seg}"
+                resp += f"**{idx+1}. {titulo}**\n"
+                resp += f"⏱️ *Minuto:* [{m:02d}:{s:02d}]({url})\n"
+                resp += f"💬 \"{txt_frag[:120]}...\"\n\n"
+            enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id_reply)
+        else:
+            enviar_mensaje(chat_id, "😔 No encontré ninguna enseñanza exacta con esas palabras en la Biblioteca. Intenta con otros términos clave.", reply_to_message_id=msg_id_reply)
+    except Exception as e:
+        enviar_mensaje(chat_id, f"⚠️ Error consultando la Biblioteca: {e}", reply_to_message_id=msg_id_reply)
+
+    return True
+
+
 def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
     """
     Detecta si un mensaje es una pregunta o petición de un audio del catálogo (meditación o mensaje).
@@ -1449,77 +1526,47 @@ def escuchar_comandos() -> None:
                 if not msg:
                     continue
                 
-                # --- LOGICA BIBLIOTECARIO PRIVADO ---
+                # --- LOGICA EN PRIVADO (AUDIOS DRIVE vs BIBLIOTECA YOUTUBE) ---
                 chat_type = msg.get("chat", {}).get("type")
                 if chat_type == "private":
                     from_u = msg.get("from", {})
                     if from_u.get("id"):
                         marcar_usuario_con_privado(from_u["id"])
-                    texto = msg.get("text", "")
+                    texto_priv = (msg.get("text") or msg.get("caption") or "").strip()
                     msg_id_priv = msg.get("message_id")
                     chat_id_priv = msg.get("chat", {}).get("id")
                     
-                    if texto and not texto.startswith("/"):
-                        enviar_mensaje(chat_id_priv, "🔍 *Buscando en la Biblioteca Conocimiento Universal...*", reply_to_message_id=msg_id_priv)
-                        
-                        # Guardar auditoría
-                        auditoria_path = os.path.join("data", "auditoria_consultas.json")
-                        consultas = []
-                        if os.path.exists(auditoria_path):
-                            try:
-                                with open(auditoria_path, "r", encoding="utf-8") as f_aud:
-                                    consultas = json.load(f_aud)
-                            except: pass
-                        consultas.append({
-                            "fecha": datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M:%S"),
-                            "usuario_id": from_user.get("id"),
-                            "nombre": from_user.get("first_name", "Usuario"),
-                            "pregunta": texto
-                        })
-                        with open(auditoria_path, "w", encoding="utf-8") as f_aud:
-                            json.dump(consultas, f_aud, indent=4, ensure_ascii=False)
-                            
-                        # Buscar en SQLite
-                        db_path = os.path.join("data", "biblioteca_conocimiento_universal.db")
-                        if os.path.exists(db_path):
-                            try:
-                                conn = sqlite3.connect(db_path)
-                                c = conn.cursor()
-                                palabras = texto.lower().replace("buscame", "").replace("donde", "").replace("habla", "").replace("sobre", "").strip().split()
-                                query = "SELECT v.titulo, t.inicio_segundos, t.texto, v.video_id FROM transcripciones t INNER JOIN videos v ON t.video_id = v.video_id WHERE "
-                                conditions = []
-                                params = []
-                                for p in palabras:
-                                    if len(p) > 3:
-                                        conditions.append("t.texto LIKE ?")
-                                        params.append(f"%{p}%")
-                                if not conditions:
-                                    # Fallback
-                                    conditions = ["t.texto LIKE ?"]
-                                    params = [f"%{texto.strip()}%"]
-                                    
-                                query += " AND ".join(conditions) + " LIMIT 3"
-                                c.execute(query, params)
-                                resultados = c.fetchall()
-                                conn.close()
-                                
-                                if resultados:
-                                    resp = "📚 **Aquí tienes lo que encontré en la Biblioteca:**\n\n"
-                                    for idx, (titulo, seg, txt_frag, vid) in enumerate(resultados):
-                                        m = seg // 60
-                                        s = seg % 60
-                                        url = f"https://youtu.be/{vid}?t={seg}"
-                                        resp += f"**{idx+1}. {titulo}**\n"
-                                        resp += f"⏱️ *Minuto:* [{m:02d}:{s:02d}]({url})\n"
-                                        resp += f"💬 \"{txt_frag[:100]}...\"\n\n"
-                                    
-                                    enviar_mensaje(chat_id_priv, resp)
-                                else:
-                                    enviar_mensaje(chat_id_priv, "😔 No encontré ninguna enseñanza exacta con esas palabras. Intenta usar otras palabras clave.")
-                            except Exception as e:
-                                enviar_mensaje(chat_id_priv, f"⚠️ Error buscando: {e}")
-                        else:
-                            enviar_mensaje(chat_id_priv, "⏳ La Biblioteca aún se está construyendo. Intenta más tarde.")
+                    if texto_priv and not texto_priv.startswith("/"):
+                        t_priv_up = texto_priv.upper()
+                        # Caso A: Si pide audio (mensaje o meditación con o sin número) -> Exclusivo Google Drive
+                        if es_solicitud_de_audio(texto_priv, chat_id_priv) or any(w in t_priv_up for w in ["AUDIO", "MEDITACION", "MEDITACIÓN", "MENSAJE"]):
+                            info_cat_priv = identificar_audio_catalogo(texto=texto_priv)
+                            if not info_cat_priv:
+                                m_num_priv = re.search(r"\b(\d{1,4})\b", texto_priv)
+                                if m_num_priv:
+                                    t_req_priv = "MENSAJE" if "MENSAJE" in t_priv_up else "MEDITACION"
+                                    n_req_priv = int(m_num_priv.group(1))
+                                    info_cat_priv = {"numero": n_req_priv, "tipo": t_req_priv, "titulo": f"{t_req_priv.title()} #{n_req_priv}", "maestro": "Comunidad", "fecha": ""}
+                            if info_cat_priv:
+                                entregar_audio_meditacion(chat_id_priv, info_cat_priv, msg_id_reply=msg_id_priv, user_id_privado=chat_id_priv)
+                                continue
+
+                        # Caso B: Si menciona la biblioteca o pregunta sobre ella -> Exclusivo Base de Datos de Transcripciones de YouTube
+                        if "BIBLIOTECA" in t_priv_up or "CONOCIMIENTO UNIVERSAL" in t_priv_up:
+                            responder_consulta_biblioteca(chat_id_priv, texto_priv, msg_id_reply=msg_id_priv, from_u=from_u)
+                            continue
+
+                        # Caso C: Consulta libre en lenguaje natural sin palabra clave específica
+                        # Ofrecemos orientación clara para que elija entre Audio de Drive o Biblioteca de YouTube
+                        txt_guia = (
+                            "👋 ¡Hola! Para brindarte la mejor respuesta:\n\n"
+                            "🎧 **¿Buscas un Audio o Meditación?**\n"
+                            "Escribe por ejemplo: *«audio meditacion 21»* o *«mensaje 989»* y te enviaré el archivo directo de Google Drive.\n\n"
+                            "📚 **¿Buscas en la Biblioteca de Conocimiento Universal (YouTube)?**\n"
+                            "Menciona la palabra **biblioteca**, por ejemplo:\n"
+                            "*«Toby busca en la biblioteca qué se dice sobre los 144.000»*"
+                        )
+                        enviar_mensaje(chat_id_priv, txt_guia, reply_to_message_id=msg_id_priv)
                         continue
                 # ------------------------------------
 
@@ -1655,12 +1702,17 @@ def escuchar_comandos() -> None:
                                     ruta_audio_desc = obtener_o_descargar_audio(t_proc, int(n_proc))
                                     if ruta_audio_desc:
                                         cap_audio = f"🧘 **{t_nombre} #{n_proc}:** «{it_proc.get('titulo', '')}»\n👤 **Maestro:** {it_proc.get('maestro', 'Alaniso')}\n🗓️ **Grabación:** {it_proc.get('fecha', '')}"
+                                        bot_u_tarea = obtener_info_bot()
+                                        clean_t_proc = "mensaje" if "MENSAJE" in str(t_proc).upper() else "meditacion"
+                                        param_aud_proc = f"audio_{clean_t_proc}_{n_proc}"
+                                        teclado_audio_tarea = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u_tarea}?start={param_aud_proc}"}]]} if (int(chat_id) < 0 and bot_u_tarea) else None
                                         ok_a, m_id_a, f_id_a = enviar_audio(
                                             chat_id,
                                             ruta_audio_desc,
                                             caption=cap_audio,
                                             title=f"{t_nombre} #{n_proc} - {it_proc.get('titulo', '')}",
-                                            performer=it_proc.get('maestro', 'Alaniso')
+                                            performer=it_proc.get('maestro', 'Alaniso'),
+                                            reply_markup=teclado_audio_tarea
                                         )
                                         if ok_a:
                                             fid_proc = f_id_a
@@ -1762,7 +1814,7 @@ def escuchar_comandos() -> None:
                                         enviados_priv += 1
                                 log_debug(f"Notificaciones privadas de tarea enviadas a {enviados_priv} miembros con chat activo.")
 
-                # Petición de audio en lenguaje natural (ej: "¿Tienes el mensaje 989?", "meditación 21")
+                # Petición de audio en lenguaje natural (ej: "¿Tienes el mensaje 989?", "meditación 21") -> Exclusivo Google Drive
                 if not es_tarea_declarada and not audio_obj and es_solicitud_de_audio(texto, chat_id):
                     info_cat = identificar_audio_catalogo(texto=texto)
                     if not info_cat:
@@ -1773,6 +1825,13 @@ def escuchar_comandos() -> None:
                             info_cat = {"numero": num_req, "tipo": tipo_req, "titulo": f"{tipo_req.title()} #{num_req}", "maestro": "Comunidad", "fecha": ""}
                     if info_cat:
                         entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
+                        continue
+
+                # Búsqueda en la Biblioteca en lenguaje natural dentro del grupo (menciona biblioteca) -> Exclusivo BD YouTube
+                if not es_tarea_declarada and not audio_obj and ("BIBLIOTECA" in texto_upper or "CONOCIMIENTO UNIVERSAL" in texto_upper):
+                    mencion_toby = ("TOBY" in texto_upper or "@" in texto or msg.get("reply_to_message", {}).get("from", {}).get("id") == BOT_ID)
+                    if mencion_toby or "BIBLIOTECA" in texto_upper:
+                        responder_consulta_biblioteca(chat_id, texto, msg_id_reply=msg_id, from_u=from_user)
                         continue
 
                 # Detectar orden de administradores para limpiar la sala de notificaciones del robot
