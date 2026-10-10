@@ -1581,14 +1581,18 @@ def escuchar_comandos() -> None:
                                 except Exception:
                                     pass
                             else:
-                                bot_info = obtener_info_bot() or "el bot"
+                                bot_info = obtener_info_bot()
+                                if bot_info:
+                                    txt_alerta = f"⚠️ Para que pueda escribirte al privado, primero debes abrir el chat con EL ASISTENTE TOBY (@{bot_info}) y presionar EL BOTON 'INICIAR'."
+                                else:
+                                    txt_alerta = "⚠️ Para que pueda escribirte al privado, primero debes abrir el chat con EL ASISTENTE TOBY y presionar EL BOTON 'INICIAR'."
                                 try:
                                     url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                                     req_ans = urllib.request.Request(
                                         url_ans,
                                         data=json.dumps({
                                             "callback_query_id": cb_id,
-                                            "text": f"⚠️ Para que pueda escribirte al privado, primero abre el chat con @{bot_info} y presiona 'INICIAR'.",
+                                            "text": txt_alerta,
                                             "show_alert": True
                                         }).encode(),
                                         headers={"Content-Type": "application/json"}
