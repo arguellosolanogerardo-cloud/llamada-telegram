@@ -5,5 +5,23 @@
   "fecha": "09/26/20",
   "maestro": "Alaniso",
   "detectado_como": "MEDITACION",
-  "fecha_tarea_admin": "09/10/2026"
+  "fecha_tarea_admin": "10/10/2026",
+  "cola_audios": [
+    {
+      "numero": 1098,
+      "tipo": "MEDITACION",
+      "titulo": "La vida va a cambiar radicalmente el Amor va a imponerse en este planeta",
+      "fecha": "09/26/20",
+      "maestro": "Alaniso",
+      "detectado_como": "MEDITACION"
+    },
+    {
+      "numero": 1096,
+      "tipo": "MEDITACION",
+      "titulo": "Ayudenos siendo Paz",
+      "fecha": "09/18/20",
+      "maestro": "Aliestro",
+      "detectado_como": "MEDITACION"
+    }
+  ]
 }
