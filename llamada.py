@@ -746,7 +746,7 @@ def generar_texto_reglas() -> str:
         "• Entrar en los primeros 5 min: **+25 pts**\n"
         "• Entrar entre min 5 y 10: **+15 pts**\n\n"
         "🌟 **PERMANENCIA:**\n"
-        "⏳n): **+50 pts**\n"
+        "• Permanencia completa (>75% de la sesión): **+50 pts**\n"
         "• Asistencia parcial: **+20 a +35 pts**\n\n"
         "🎙️ **MICRÓFONO / VOZ:**\n"
         "• Hablar y aportar activamente: **+20 pts**\n\n"
@@ -764,16 +764,16 @@ def generar_texto_reglas() -> str:
         "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
         "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
         "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
-        "⏳fono abierto sin hablar por 5 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
+        "• Si alguien deja el micrófono abierto sin hablar por 5 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
         "📝 **MINUTAS Y ACTAS CON IA:**\n"
-        "⏳n.\n"
+        "• Al finalizar la llamada, la IA de Google Gemini genera un resumen y acta oficial de la sesión.\n"
         "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
         "• Escribe `/acta [fecha]` para consultar el documento formal.\n\n"
         "👑 **GRABACIÓN (SOLO ADMINS):**\n"
         "• `/estadograbacion` — Consultar estado actual.\n"
-        "⏳n (ej. tema confidencial).\n"
-        "⏳n.\n"
-        "⏳n de hoy.\n\n"
+        "• `/pausargrabacion` — Pausar grabación (ej. tema confidencial).\n"
+        "• `/reanudargrabacion` — Reanudar grabación.\n"
+        "• `/cancelargrabacion` — Cancelar y eliminar grabación de hoy.\n\n"
         "💎 **RANGOS:** Bronce (<250) | Plata (250+) | Oro (750+) | Diamante (1800+)\n"
         "¡Los 3 primeros del mes reciben mención de honor!"
     )
@@ -1386,9 +1386,9 @@ async def main() -> None:
         async def pausar_grabacion():
             nonlocal grabacion_pausada
             if grabacion_cancelada:
-                return False, "⏳n ya fue cancelada definitivamente para la sesión de hoy."
+                return False, "🛑 La grabación ya fue cancelada definitivamente para la sesión de hoy."
             if grabacion_pausada:
-                return False, "⏳n ya se encuentra pausada."
+                return False, "ℹ️ La grabación ya se encuentra pausada."
             grabacion_pausada = True
             if tgcalls:
                 try:
@@ -1396,33 +1396,27 @@ async def main() -> None:
                 except Exception:
                     pass
             print("Grabación pausada manualmente por un administrador.")
-            return True, "⏳n de audio pausada por administración.**\nLos temas compartidos durante esta pausa no quedarán registrados en el audio ni en la minuta."
+            return True, "⏸️ **Grabación de audio pausada por administración.**\nLos temas compartidos durante esta pausa no quedarán registrados en el audio ni en la minuta."
 
         async def reanudar_grabacion():
             nonlocal grabacion_pausada, contador_segmentos
             if grabacion_cancelada:
-                return False, "⏳n fue cancelada definitivamente para esta sesión."
+                return False, "🛑 La grabación fue cancelada definitivamente para esta sesión."
             if not grabacion_pausada:
-                return False, "⏳n ya está activa y grabando."
+                return False, "ℹ️ La grabación ya está activa y grabando."
             grabacion_pausada = False
             contador_segmentos += 1
             nueva_ruta = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_seg_{contador_segmentos}_{fecha_hoy}.mp3")
             segmentos_grabados.append(nueva_ruta)
             if tgcalls:
                 try:
-                    nueva_ruta_raw = nueva_ruta.rsplit(".", 1)[0] + ".raw"
-                    stream_rec = Stream(
-                        speaker=AudioStream(
-                            media_source=MediaSource.FILE,
-                            path=os.path.abspath(nueva_ruta_raw),
-                            parameters=AudioParameters(48000, 2)
-                        )
-                    )
-                    await tgcalls.record(destino, stream_rec)
+                    from pytgcalls.types import RecordStream
+                    os.makedirs(os.path.dirname(os.path.abspath(nueva_ruta)), exist_ok=True)
+                    await tgcalls.record(destino, RecordStream(nueva_ruta))
                 except Exception as e:
                     print("Nota reanudando grabación:", e)
             print("Grabación reanudada manualmente por un administrador.")
-            return True, "⏳n de audio reanudada por administración.**\nSe continúa documentando la sesión con normalidad."
+            return True, "▶️ **Grabación de audio reanudada por administración.**\nSe continúa documentando la sesión con normalidad."
 
         async def cancelar_grabacion():
             nonlocal grabacion_cancelada, grabacion_activa, grabacion_pausada
@@ -1448,16 +1442,16 @@ async def main() -> None:
                 except Exception:
                     pass
             print("Grabación cancelada y eliminada por un administrador.")
-            return True, "⏳n cancelada y eliminada para la sesión de hoy.**\nNo se generará audio ni minuta con IA al finalizar la sala."
+            return True, "🛑 **Grabación cancelada y eliminada para la sesión de hoy.**\nNo se generará audio ni minuta con IA al finalizar la sala."
 
         def estado_grabacion_str():
             if grabacion_cancelada:
-                return "⏳n:** Cancelada / Desactivada (no se procesará con IA hoy)."
+                return "🔴 **Estado de Grabación:** Cancelada / Desactivada (no se procesará con IA hoy)."
             elif grabacion_pausada:
-                return "⏳n:** Pausada temporalmente (espacio confidencial)."
+                return "⏸️ **Estado de Grabación:** Pausada temporalmente (espacio confidencial)."
             elif grabacion_activa:
                 return "🔴 **Estado de Grabación:** Activa (documentando charla comunitaria)."
-            return "⏳n:** Inactiva."
+            return "⚪ **Estado de Grabación:** Inactiva."
 
         # Iniciar servicio PyTgCalls si está disponible
         tgcalls = None
@@ -1476,34 +1470,17 @@ async def main() -> None:
                         print(f"input_call registrado en caché de PyTgCalls para {resolved_id}.")
                 except Exception as e_c:
                     print("Nota registrando input_call en PyTgCalls:", e_c)
-                    
-                # Iniciar grabación de audio pre-meditación
-                try:
-                    from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
-                    from ntgcalls import MediaSource
-                    if not grabacion_cancelada:
-                        ruta_pre_raw = ruta_grabacion_pre.rsplit(".", 1)[0] + ".raw"
-                        stream_rec_pre = Stream(
-                            speaker=AudioStream(
-                                media_source=MediaSource.SHELL,
-                                path=os.path.abspath(ruta_pre_raw),
-                                parameters=AudioParameters(48000, 2)
-                            )
-                        )
-                        # Intentar primero tgcalls.record() para captura bidireccional (grabación de micrófonos)
-                        grabacion_iniciada_ok = False
-                        try:
-                            await tgcalls.record(destino, stream_rec_pre)
-                            grabacion_iniciada_ok = True
-                            print("Grabación PRE-meditación (bidireccional) iniciada correctamente.")
-                        except Exception as e_rec:
-                            print("Nota registrando con tgcalls.record, intentando play como respaldo:", e_rec)
 
-                        if not grabacion_iniciada_ok:
-                            await tgcalls.play(destino, stream_rec_pre)
-                            print("Grabación PRE-meditación (play respaldo) iniciada correctamente.")
-                except Exception as e:
-                    print(f"Error iniciando grabación pre-meditación: {e}")
+                # Iniciar grabación de audio pre-meditación
+                if not grabacion_cancelada:
+                    try:
+                        from pytgcalls.types import RecordStream
+                        os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_pre)), exist_ok=True)
+                        await tgcalls.record(destino, RecordStream(ruta_grabacion_pre))
+                        grabacion_activa = True
+                        print(f"🎙️ Grabación PRE-meditación iniciada correctamente con PyTgCalls -> {ruta_grabacion_pre}")
+                    except Exception as e_rec:
+                        print(f"⚠️ Error iniciando grabación pre-meditación con PyTgCalls: {e_rec}")
             except Exception as e:
                 print("Nota iniciando PyTgCalls:", e)
 
@@ -1810,9 +1787,9 @@ async def main() -> None:
                 info_act = pista_actual.get("info")
                 if total_pistas == 1:
                     if info_act:
-                        avisar_con_bot(f"⏳n oficial:**\n{formatear_info_audio(info_act)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                        avisar_con_bot(f"▶️ **Reproduciendo meditación oficial:**\n{formatear_info_audio(info_act)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
                     else:
-                        avisar_con_bot("⏳n de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                        avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
                 else:
                     txt_act = formatear_info_audio(info_act) if info_act else f"🧘 **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Meditación')}"
                     avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
@@ -1951,24 +1928,14 @@ async def main() -> None:
                 if duracion_tts > 0:
                     await asyncio.sleep(duracion_tts + 0.5)
 
-                # 8. Reanudar grabación pre-meditación si estaba activa y no fue cancelada
+                # 8. Reanudar grabación si estaba activa y no fue cancelada
                 if grabacion_activa and not grabacion_cancelada and not grabacion_pausada and not reproduciendo_meditacion:
                     try:
-                        from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
-                        from ntgcalls import MediaSource
-                        ruta_pre_raw = ruta_grabacion_pre.rsplit(".", 1)[0] + ".raw"
-                        stream_rec = Stream(
-                            speaker=AudioStream(
-                                media_source=MediaSource.SHELL,
-                                path=os.path.abspath(ruta_pre_raw),
-                                parameters=AudioParameters(48000, 2)
-                            )
-                        )
-                        try:
-                            await tgcalls.record(destino, stream_rec)
-                        except Exception:
-                            await tgcalls.play(destino, stream_rec)
-                        print("🔴 Grabación reanudada tras anuncio de turno TTS.")
+                        from pytgcalls.types import RecordStream
+                        seg_activo = ruta_grabacion_post if reproduccion_iniciada else ruta_grabacion_pre
+                        os.makedirs(os.path.dirname(os.path.abspath(seg_activo)), exist_ok=True)
+                        await tgcalls.record(destino, RecordStream(seg_activo))
+                        print(f"🔴 Grabación reanudada tras anuncio de turno TTS -> {seg_activo}")
                     except Exception as e_rec:
                         print(f"Nota reanudando grabación tras TTS: {e_rec}")
 
@@ -2066,20 +2033,15 @@ async def main() -> None:
                                 avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
                                 # Reanudar grabación para el segmento post-meditación si no fue cancelada
                                 if not grabacion_cancelada and not grabacion_pausada:
-                                    segmentos_grabados.append(ruta_grabacion_post)
+                                    if ruta_grabacion_post not in segmentos_grabados:
+                                        segmentos_grabados.append(ruta_grabacion_post)
                                     try:
-                                        ruta_post_raw = ruta_grabacion_post.rsplit(".", 1)[0] + ".raw"
-                                        stream_rec_post = Stream(
-                                            speaker=AudioStream(
-                                                media_source=MediaSource.FILE,
-                                                path=os.path.abspath(ruta_post_raw),
-                                                parameters=AudioParameters(48000, 2)
-                                            )
-                                        )
-                                        await tgcalls.record(destino, stream_rec_post)
-                                        print("Grabación de preguntas y testimonios reanudada tras la meditación.")
+                                        from pytgcalls.types import RecordStream
+                                        os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_post)), exist_ok=True)
+                                        await tgcalls.record(destino, RecordStream(ruta_grabacion_post))
+                                        print(f"🎙️ Grabación post-meditación (preguntas y testimonios) iniciada exitosamente -> {ruta_grabacion_post}")
                                     except Exception as e:
-                                        print("Nota reanudando grabación:", e)
+                                        print("Nota reanudando grabación tras meditación:", e)
             except Exception as e:
                 print("Nota configurando StreamEnded handler:", e)
 
@@ -2126,7 +2088,7 @@ async def main() -> None:
                     return
                 for idx, t in enumerate(cola_turnos, 1):
                     if t["id"] == uid:
-                        await responder(f"⏳n #{idx}). Te avisaremos cuando sea tu momento.")
+                        await responder(f"✋ Ya estás en la fila de espera (Posición #{idx}). Te avisaremos cuando sea tu momento.")
                         await actualizar_mensaje_turnos(forzar_al_fondo=True)
                         return
                 if uid in oradores_activos:
@@ -2134,7 +2096,7 @@ async def main() -> None:
                     return
                 cola_turnos.append({"id": uid, "nombre": nom, "username": usr})
                 pos = len(cola_turnos)
-                await responder(f"⏳n #{pos}). Te avisaremos cuando sea tu momento.")
+                await responder(f"✋ Turno solicitado con éxito (Posición #{pos}). Te avisaremos cuando sea tu momento.")
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
             elif texto_cmd in ("/ceder",):
                 en_cola = any(t["id"] == uid for t in cola_turnos)
@@ -2222,27 +2184,27 @@ async def main() -> None:
                         await responder_admin("▶️ Reproduciendo meditación en la sala de voz...")
                     else:
                         detalle = f"\n*(Detalle: {ultimo_error_reproduccion})*" if ultimo_error_reproduccion else ""
-                        await responder_admin(f"⏳n de la meditación.{detalle}")
+                        await responder_admin(f"❌ Error al iniciar la reproducción de la meditación.{detalle}")
                 else:
-                    await responder_admin("⏳ ningún archivo de meditación de tarea disponible.")
+                    await responder_admin("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
             elif cmd in ("/saltaraudio", "/siguienteaudio", "/nextaudio"):
                 if not reproduciendo_meditacion:
-                    await responder_admin("⏳n activa en este momento.")
+                    await responder_admin("⚠️ No hay reproducción activa en este momento.")
                 elif indice_pista_actual + 1 < len(cola_reproduccion):
-                    await responder_admin(f"â­ï¸ Saltando a la pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
+                    await responder_admin(f"⏭️ Saltando a la pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
                     await reproducir_meditacion(indice_pista_actual + 1)
                 else:
                     if tgcalls:
                         await tgcalls.leave_call(destino)
                     reproduciendo_meditacion = False
                     await desbloquear_todos_los_participantes()
-                    await responder_admin("⏳n finalizada y micrófonos desbloqueados.")
+                    await responder_admin("⏹️ Reproducción finalizada y micrófonos desbloqueados.")
             elif cmd in ("/pausar", "/pause"):
                 if tgcalls:
                     try:
                         await tgcalls.pause(destino)
                         marcar_pausa()
-                        await responder_admin("â¸ï¸ Meditación pausada.")
+                        await responder_admin("⏸️ Meditación pausada.")
                     except Exception as e:
                         await responder_admin(f"Error al pausar: {e}")
             elif cmd in ("/continuar", "/resume"):
@@ -2272,7 +2234,7 @@ async def main() -> None:
                         await tgcalls.leave_call(destino)
                         reproduciendo_meditacion = False
                         await desbloquear_todos_los_participantes()
-                        await responder_admin("⏳n finalizada. Micrófonos restablecidos y desbloqueados.")
+                        await responder_admin("⏹️ Reproducción finalizada. Micrófonos restablecidos y desbloqueados.")
                     except Exception as e:
                         await responder_admin(f"Error al detener: {e}")
             elif cmd in ("/desmuteartodos", "/abrir", "/desbloquear"):
@@ -2432,7 +2394,7 @@ async def main() -> None:
                 nuevo = "reset"
             elif sin_acentos == "separar":
                 if not demucs_disponible():
-                    await resp("⏳n voz/música no está disponible (requiere AUDIO_DEMUCS=1 y `pip install demucs`).")
+                    await resp("⚠️ La separación voz/música no está disponible (requiere AUDIO_DEMUCS=1 y `pip install demucs`).")
                     return
                 eq_estado["manual"] = actual.con(separar=not actual.separar)
                 nuevo = "separar"
@@ -2497,7 +2459,7 @@ async def main() -> None:
                 return r
 
             if uid not in admin_ids:
-                await resp_q("⏳n.")
+                await resp_q("⛔ Solo los administradores pueden gestionar la lista de reproducción.")
                 return
 
             partes = event.raw_text.strip().split(maxsplit=1)
@@ -2514,7 +2476,7 @@ async def main() -> None:
                         "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
                     })
                 txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
-                txt_ayuda = "\n\n💡 *Comandos disponibles:*\n⏳n"
+                txt_ayuda = "\n\n💡 *Comandos disponibles:*\n• `/encolar <número/nombre>` — Añadir audio a la cola\n• `/limpiarcola` — Vaciar la cola\n• `/saltaraudio` — Saltar a la siguiente pista"
                 await resp_q(txt_cola + txt_ayuda)
 
             elif cmd_q in ("/limpiarcola", "/vaciarcola"):
@@ -2683,7 +2645,7 @@ async def main() -> None:
 
                         if info_cat:
                             txt_card = formatear_info_audio(info_cat)
-                            await event.reply(f"⏳n de hoy:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz (Total en cola: {len(cola_reproduccion)}).")
+                            await event.reply(f"✅ **Audio recibido y añadido a la lista de hoy:**\n\n{txt_card}\n\nProgramado para reproducirse {txt_horario} en la sala de voz (Total en cola: {len(cola_reproduccion)}).")
                             avisar_con_bot(f"📢 **{lbl_tarea} registrada (Pista #{len(cola_reproduccion)}):**\n\n{txt_card}")
                         else:
                             await event.reply(f"✅ Meditación recibida para hoy (Pista #{len(cola_reproduccion)}). Programada para reproducirse {txt_horario} en la sala de voz.")
@@ -2699,10 +2661,10 @@ async def main() -> None:
                         print(f"Nueva meditación recibida y guardada para mañana ({lbl_tarea}):", ruta)
                         if info_cat:
                             txt_card = formatear_info_audio(info_cat)
-                            await event.reply(f"⏳n de la sala de hoy se mantiene intacta).*")
+                            await event.reply(f"✅ Meditación recibida para mañana ({txt_horario}). Se activará automáticamente mañana (la programación de la sala de hoy se mantiene intacta).*")
                             avisar_con_bot(f"📢 **{lbl_tarea} registrada:**\n\n{txt_card}")
                         else:
-                            await event.reply(f"⏳n: {txt_horario}.")
+                            await event.reply(f"✅ Meditación recibida para mañana. Programada para reproducirse {txt_horario}.")
                 else:
                     items_cat = identificar_todos_los_audios(event.raw_text or "")
                     if items_cat:
@@ -2743,7 +2705,7 @@ async def main() -> None:
                             else:
                                 guardar_cola_manana(descargados)
                                 txt_cola_manana = formatear_cola_audios(descargados)
-                                # await event.reply(f"⏳n de la sala de hoy se mantiene intacta).*")
+                                # await event.reply(f"✅ Meditación recibida para mañana ({txt_horario}). Se activará automáticamente mañana (la programación de la sala de hoy se mantiene intacta).*")
                                 # avisar_con_bot(f"📢 **{lbl_tarea} confirmada desde Google Drive:**\n\n{txt_cola_manana}")
 
         # Escuchar comando /soyadmin
@@ -2814,16 +2776,16 @@ async def main() -> None:
                         await responder_nat("▶️ Reproduciendo meditación en la sala de voz...")
                     else:
                         detalle = f"\n*(Detalle: {ultimo_error_reproduccion})*" if ultimo_error_reproduccion else ""
-                        await responder_nat(f"⏳n de la meditación.{detalle}")
+                        await responder_nat(f"❌ Error al iniciar la reproducción de la meditación.{detalle}")
                 else:
-                    await responder_nat("⏳ ningún archivo de meditación de tarea disponible.")
+                    await responder_nat("⚠️ No se encontró ningún archivo de meditación de tarea disponible.")
             # Pausar meditación
             elif any(p in texto_raw for p in ["pausar meditacion", "pausa la meditacion", "pausar meditación", "pausa la meditación", "pausar audio", "pausa el audio"]):
                 if tgcalls:
                     try:
                         await tgcalls.pause(destino)
                         marcar_pausa()
-                        await responder_nat("⏳n de administración.")
+                        await responder_nat("⏸️ Meditación pausada por instrucción de administración.")
                     except Exception as e:
                         await responder_nat(f"Nota al pausar: {e}")
             # Reanudar meditación
@@ -2832,7 +2794,7 @@ async def main() -> None:
                     try:
                         await tgcalls.resume(destino)
                         marcar_reanudacion()
-                        await responder_nat("⏳n de administración.")
+                        await responder_nat("▶️ Meditación reanudada por instrucción de administración.")
                     except Exception as e:
                         await responder_nat(f"Nota al reanudar: {e}")
             # Detener meditación
@@ -2842,22 +2804,22 @@ async def main() -> None:
                         await tgcalls.leave_call(destino)
                         reproduciendo_meditacion = False
                         await desbloquear_todos_los_participantes()
-                        await responder_nat("⏳fonos restablecidos y desbloqueados.")
+                        await responder_nat("⏹️ Reproducción finalizada. Micrófonos restablecidos y desbloqueados.")
                     except Exception as e:
                         await responder_nat(f"Nota al detener: {e}")
             # Siguiente audio en la cola de reproducción
             elif any(p in texto_raw for p in ["siguiente audio", "pasar al siguiente audio", "saltar audio", "siguiente meditacion", "siguiente meditación", "pasar audio"]):
                 if not reproduciendo_meditacion:
-                    await responder_nat("⏳n activa en este momento.")
+                    await responder_nat("⚠️ No hay reproducción activa en este momento.")
                 elif indice_pista_actual + 1 < len(cola_reproduccion):
-                    await responder_nat(f"â­ï¸ Saltando a la pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
+                    await responder_nat(f"⏭️ Saltando a la pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
                     await reproducir_meditacion(indice_pista_actual + 1)
                 else:
                     if tgcalls:
                         await tgcalls.leave_call(destino)
                     reproduciendo_meditacion = False
                     await desbloquear_todos_los_participantes()
-                    await responder_nat("⏳n finalizada y micrófonos desbloqueados.")
+                    await responder_nat("⏹️ Reproducción finalizada y micrófonos desbloqueados.")
             # Desbloquear micrófonos / Abrir sala
             elif any(p in texto_raw for p in ["abrir microfonos", "abrir micrófonos", "desmutear a todos", "desbloquear microfonos", "desbloquear micrófonos", "abrir la sala", "liberar microfonos", "liberar micrófonos"]):
                 await desbloquear_todos_los_participantes()
@@ -3226,7 +3188,7 @@ async def main() -> None:
 
                 if total_activos_previos >= 4 and desconectados_este_tick >= max(3, int(total_activos_previos * 0.6)):
                     hubo_caida_masiva_sala = True
-                    print("⏳n de caída masiva o parpadeo general en la sala de Telegram.")
+                    print("⚠️ Detección de caída masiva o parpadeo general en la sala de Telegram.")
 
                 participantes_conectados = uids_en_servidor
 
@@ -3469,7 +3431,7 @@ async def main() -> None:
                     "🎙️ **SALA DE VOZ CONCLUIDA**\n"
                     "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
                     f"📅 Fecha: {fecha_hoy} | ⏰ Fin: {datetime.now(tz_col).strftime('%I:%M %p')}\n"
-                    "⏳n diaria.\n"
+                    "✨ Gracias a todos por su participación en la sesión diaria.\n"
                     "📊 Los reportes y actas oficiales se publican a continuación."
                 )
                 await client.edit_message(entidad, msg_fijado, texto_concluido)
@@ -3501,6 +3463,7 @@ async def main() -> None:
         if tgcalls:
             try:
                 await tgcalls.leave_call(destino)
+                await asyncio.sleep(2)
             except Exception:
                 pass
 
@@ -3726,7 +3689,7 @@ async def main() -> None:
         lineas_pub = [
             "📊 **REPORTE DE ASISTENCIA Y PUNTOS — LLAMADA DIARIA**",
             f"🗓️ Fecha: {inicio_llamada.strftime('%d/%m/%Y')}",
-            f"⏳n: {duracion_reunion_minutos} min | 👥 Asistentes: {txt_asistentes_pub}\n",
+            f"⏱️ Duración: {duracion_reunion_minutos} min | 👥 Asistentes: {txt_asistentes_pub}\n",
             "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
             "🏆 **PODIO DE PUNTUALIDAD (TOP 9):**",
         ]
@@ -3838,13 +3801,13 @@ async def main() -> None:
                     txt_privado_usuario = (
                         f"👋 ¡Hola **{p['nombre']}**!\n\n"
                         f"🎉 **Resumen de tu llamada de hoy:**\n"
-                        f"⏳n)\n"
-                        f"⏳n: {txt_calidad_senal}\n"
-                        f"⏳n de voz: {txt_uso_mic}\n"
+                        f"• Permanencia: **{p['minutos']} minutos** ({p['porcentaje']}% de la sesión)\n"
+                        f"• Estabilidad de conexión: {txt_calidad_senal}\n"
+                        f"• Participación de voz: {txt_uso_mic}\n"
                         f"{txt_meditacion_ind}"
                         f"• Puntos sumados hoy: **+{p['pts_hoy']} pts**\n"
                         f"  _{p['desglose']}_\n"
-                        f"⏳rico: {p['pts_totales']})\n"
+                        f"• Total acumulado: **{p['pts_mes']} pts este mes** (Histórico: {p['pts_totales']})\n"
                         f"• Rango actual: **{p['rango']}**\n"
                         f"• Racha diaria: **🔥 {p['racha']} días consecutivos**\n"
                         f"{txt_nuevas_meds}"
@@ -3871,14 +3834,14 @@ async def main() -> None:
                 if reconex >= 1 or p["minutos"] >= 1:
                     try:
                         seg_hablo = p.get("segundos_hablando", 0.0)
-                        txt_mic_fugaz = f"⏳fono: **{round(seg_hablo)} seg**\n" if seg_hablo > 0 else ""
+                        txt_mic_fugaz = f"• Micrófono: **{round(seg_hablo)} seg**\n" if seg_hablo > 0 else ""
                         txt_visita_red = (
                             f"👋 ¡Hola **{p['nombre']}**!\n\n"
                             f"📡 **Reporte de conexión de la llamada de hoy:**\n"
-                            f"⏳n)\n"
+                            f"• Tiempo en sala: **{p['minutos']} minutos** ({p['porcentaje']}% de la sesión)\n"
                             f"• Desconexiones registradas: **{reconex} salidas de la sala**\n"
                             f"{txt_mic_fugaz}"
-                            f"⏳ y no lograste alcanzar los 10 minutos mínimos para sumar puntos hoy.\n\n"
+                            f"• Lamentablemente tu conexión fue inestable y no lograste alcanzar los 10 minutos mínimos para sumar puntos hoy.\n\n"
                             f"💡 **¿Telegram te saca frecuentemente de la llamada? Sigue estos 3 pasos:**\n"
                             f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (evita que el celular cierre la llamada al apagar la pantalla).\n"
                             f"2. 📶 **Señal:** Procura no alternar entre WiFi y datos móviles durante la llamada.\n"
@@ -3905,7 +3868,7 @@ async def main() -> None:
         lineas_priv = [
             "🔐 **REPORTE ADMINISTRATIVO DETALLADO (SOLO DUEÑO)**",
             f"📅 Fecha: {fecha_hoy} | ⏰ {inicio_llamada.strftime('%I:%M:%S %p')} – {fin_llamada.strftime('%I:%M:%S %p')}",
-            f"⏳n total: {duracion_reunion_minutos} minutos (Motivo cierre: {motivo_cierre})",
+            f"⏱️ Duración total: {duracion_reunion_minutos} minutos (Motivo cierre: {motivo_cierre})",
             f"🧘 Meditación/Mensaje reproducido: {med_detalle}",
             f"👥 Total que entraron: {len(participantes)} | ✅ Válidos: {len(asistentes_validos)} | ⚠️ Fugaces: {len(visitas_fugaces)}\n",
             "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
@@ -3925,16 +3888,16 @@ async def main() -> None:
             meds_txt = ", ".join(u_info.get("medallas", [])) or "Ninguna"
             caidas_tag = ""
             if p.get("reconexiones", 0) >= 2:
-                caidas_tag = " [⚠️ Celular/Red del usuario]" if not hubo_caida_masiva_sala else " [âš¡ Telegram global]"
+                caidas_tag = " [⚠️ Celular/Red del usuario]" if not hubo_caida_masiva_sala else " [⚡ Telegram global]"
             elif p.get("reconexiones", 0) == 1:
                 caidas_tag = " [Estable]"
             else:
                 caidas_tag = " [100% fluido]"
             lineas_priv.append(
                 f"{i}. **{p['nombre']}** (ID: `{p['id']}` | {tag})\n"
-                f"   ⏳n: {p['primera_entrada'].strftime('%I:%M:%S %p')} âž” {p['ultima_salida'].strftime('%I:%M:%S %p')}\n"
-                f"   ⏳n) | Caídas: {p['reconexiones']}{caidas_tag}\n"
-                f"   ⏳fono: {mic}{med_txt} | Hoy: +{p['pts_hoy']} pts (Mes: {p['pts_mes']} | Histórico: {p['pts_totales']})\n"
+                f"   • Conexión: {p['primera_entrada'].strftime('%I:%M:%S %p')} ➔ {p['ultima_salida'].strftime('%I:%M:%S %p')}\n"
+                f"   • Permanencia: {p['minutos']} min ({p['porcentaje']}%) | Caídas: {p['reconexiones']}{caidas_tag}\n"
+                f"   • Micrófono: {mic}{med_txt} | Hoy: +{p['pts_hoy']} pts (Mes: {p['pts_mes']} | Histórico: {p['pts_totales']})\n"
                 f"   • Medallas: {meds_txt}"
             )
 
@@ -4010,7 +3973,7 @@ async def main() -> None:
             ruta_transcripcion_salida=ruta_transcripcion_txt,
         )
         if grabacion_cancelada:
-            resumen_ia = "⏳n de audio fue cancelada por la administración durante la sesión. Este informe se generó con base en los datos de participación sin almacenamiento de audio.*\n\n" + resumen_ia
+            resumen_ia = "🛑 *La grabación de audio fue cancelada por la administración durante la sesión. Este informe se generó con base en los datos de participación sin almacenamiento de audio.*\n\n" + resumen_ia
 
         # Publicar Minuta Oficial en el Grupo
         txt_minuta_grupo = (
@@ -4085,7 +4048,7 @@ async def main() -> None:
                     print("Grabación de audio MP3 enviada a Mensajes Guardados del dueño.")
                 elif not grabacion_cancelada:
                     msg_diag_audio = (
-                        "⏳n de Audio:**\n"
+                        "🎙️ **Grabación de Audio:**\n"
                         "No se pudo generar el archivo MP3 de la sesión porque no se capturaron flujos de voz entrantes en el servidor."
                     )
                     await client.send_message(me.id, msg_diag_audio)
