@@ -1968,7 +1968,7 @@ def escuchar_comandos() -> None:
                     admins_set = obtener_admin_ids()
                     resp = generar_texto_ranking(db, admin_ids=admins_set)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
-                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and (param in ("audio", "meditacion", "tarea") or param.startswith("audio_") or param.startswith("meditacion_") or param.startswith("mensaje_"))):
+                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje", "/playlist", "/cola") or (cmd == "/start" and (param in ("audio", "meditacion", "tarea") or param.startswith("audio_") or param.startswith("meditacion_") or param.startswith("mensaje_"))):
                     param_texto = "" if (cmd == "/start" and param in ("audio", "meditacion", "tarea")) else (" ".join(partes[1:]).strip() if (len(partes) > 1 and not param.startswith("audio")) else "")
                     if cmd == "/start" and param.startswith("audio_"):
                         sub = param[6:]  # ej: "meditacion_6" o "6" o "mensaje_989"
@@ -2001,6 +2001,17 @@ def escuchar_comandos() -> None:
                             except Exception:
                                 pass
                         if not info_cat:
+                            ruta_state = os.path.join("data", "state_meditaciones.json")
+                            if os.path.exists(ruta_state):
+                                try:
+                                    with open(ruta_state, "r", encoding="utf-8") as fs:
+                                        st = json.load(fs)
+                                        num_st = st.get("numero_programado")
+                                        if num_st:
+                                            info_cat = identificar_audio_catalogo(texto=f"meditacion {num_st}")
+                                except Exception:
+                                    pass
+                        if not info_cat:
                             ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
                             if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
                                 info_cat = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
@@ -2008,6 +2019,20 @@ def escuchar_comandos() -> None:
                             db_a = cargar_audios_registrados()
                             if db_a:
                                 info_cat = list(db_a.values())[-1]
+
+                    if cmd in ("/playlist", "/cola") and info_cat:
+                        num_txt = info_cat.get("numero", "")
+                        tit_txt = info_cat.get("titulo", "")
+                        mae_txt = info_cat.get("maestro", "Alaniso")
+                        fec_txt = info_cat.get("fecha", "")
+                        txt_pl = (
+                            f"📋 **LISTA DE REPRODUCCIÓN PROGRAMADA PARA HOY:**\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"🧘 **Práctica:** Meditación #{num_txt} - «{tit_txt}»\n"
+                            f"👤 **Maestro:** {mae_txt} | 📅 {fec_txt}\n\n"
+                            f"🎧 *A continuación te entrego el audio oficial para su estudio previo:* 👇"
+                        )
+                        enviar_mensaje(chat_id, txt_pl, reply_to_message_id=msg_id)
 
                     entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
                 elif cmd in ("/progreso",):
