@@ -1209,6 +1209,10 @@ async def main() -> None:
             if aid_str.strip().isdigit():
                 admin_ids.add(int(aid_str.strip()))
 
+        # Lista de Administradores Permanentes conocidos (Gerardo, Claudia, Maricela) para protección total
+        for hard_admin in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581):
+            admin_ids.add(hard_admin)
+
         try:
             if isinstance(entidad, (Channel, Chat)):
                 async for admin in client.iter_participants(entidad, filter=ChannelParticipantsAdmins):
@@ -3258,19 +3262,20 @@ async def main() -> None:
                         print(f"⏳ la mano en Telegram y fue añadido a la lista de turnos.")
                         hubo_cambio_turnos = True
 
-                # Moderación de micrófonos en vivo
-                if uid not in admin_ids and uid not in checked_admins_cache:
-                    checked_admins_cache.add(uid)
-                    try:
-                        perm = await client.get_permissions(entidad, uid)
-                        if getattr(perm, 'is_admin', False) or getattr(perm, 'is_creator', False):
-                            admin_ids.add(uid)
-                    except Exception:
-                        pass
+                # Moderación de micrófonos en vivo: asegurar detección infalible de administradores
+                if uid not in admin_ids:
+                    if uid not in checked_admins_cache:
+                        checked_admins_cache.add(uid)
+                        try:
+                            perm = await client.get_permissions(entidad, uid)
+                            if getattr(perm, 'is_admin', False) or getattr(perm, 'is_creator', False):
+                                admin_ids.add(uid)
+                        except Exception:
+                            checked_admins_cache.discard(uid)
                 
                 if uid in admin_ids:
-                    # Garantizar que ningún administrador tenga candado de silencio en ningún momento (ni en meditación)
-                    # Y garantizar que la cuenta del robot nunca quede con micrófono apagado durante reproducción
+                    # ADMINISTRADORES: NUNCA SILENCIADOS BAJO NINGUNA CIRCUNSTANCIA
+                    # Si Telegram le impone candado o silencio administrativo, retirarlo inmediatamente
                     if uid == me.id:
                         if reproduciendo_meditacion and p_muted:
                             try:
@@ -3281,14 +3286,14 @@ async def main() -> None:
                             except Exception:
                                 pass
                     else:
-                        # ADMINISTRADORES HUMANOS: NUNCA SILENCIADOS (siempre tienen micrófono libre)
+                        # Para administradores humanos: retirar cualquier restricción de micrófono impuesta por Telegram
                         if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
                             try:
                                 try:
-                                    input_peer = await client.get_input_entity(p.peer)
+                                    raid_peer = await client.get_input_entity(p.peer)
                                 except Exception:
-                                    input_peer = await client.get_input_entity(uid)
-                                await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                                    raid_peer = await client.get_input_entity(uid)
+                                await client(EditGroupCallParticipantRequest(call=input_call, participant=raid_peer, muted=False))
                                 print(f"🔓 Candado de silencio retirado para administrador {nombre} ({uid}).")
                             except Exception:
                                 pass
