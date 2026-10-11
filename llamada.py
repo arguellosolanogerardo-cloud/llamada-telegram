@@ -2285,6 +2285,21 @@ async def main() -> None:
                             pass
                 else:
                     await responder_admin("✨ La sala ya está limpia de notificaciones temporales.")
+            elif cmd in ("/desbloquearadmins", "/liberaradmins", "/blindaradmins"):
+                desbloqueados_count = 0
+                for aid in list(admin_ids):
+                    if aid != me.id:
+                        try:
+                            admin_peer = await client.get_input_entity(aid)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                            desbloqueados_count += 1
+                        except Exception:
+                            pass
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                except Exception:
+                    pass
+                await responder_admin(f"🔓 **¡ÉXITO!** {desbloqueados_count} administradores desbloqueados y blindados con micrófono libre. El candado global de la sala fue desactivado.")
             elif cmd in ("/hablar", "/desmutear"):
                 target_user = None
                 if event.is_reply:
