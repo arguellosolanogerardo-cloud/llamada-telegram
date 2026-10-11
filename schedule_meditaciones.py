@@ -1,9 +1,18 @@
 import json
 import os
 import re
+import sys
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Asegurar codificación UTF-8 en stdout/stderr para Windows
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # ----------------------------------------------------------------------
 #  Configuración de rutas
@@ -206,14 +215,18 @@ def _cargar_estado() -> dict:
     return estado
 
 
-def _actualizar_estado(nuevo_indice: int) -> None:
+def _actualizar_estado(nuevo_indice: int, override: bool = False, descripcion: str = "") -> None:
     fecha_hoy = _ahora_colombia().strftime("%Y-%m-%d")
-    _guardar_json(STATE_FILE, {
+    data = {
         "indice": nuevo_indice,
         "fecha_actualizacion": fecha_hoy,
         "numero_programado": SECUENCIA[nuevo_indice % len(SECUENCIA)],
         "timestamp": _ahora_colombia().isoformat()
-    })
+    }
+    if override:
+        data["override"] = True
+        data["descripcion"] = descripcion or f"Override explícito para siguiente ejecución: #{SECUENCIA[nuevo_indice % len(SECUENCIA)]} (índice {nuevo_indice})"
+    _guardar_json(STATE_FILE, data)
 
 # ----------------------------------------------------------------------
 #  3. Función que será llamada cada día a las 03:00 AM
@@ -251,8 +264,10 @@ def programar_meditacion_diaria() -> None:
     numero = SECUENCIA[indice]
     
     # Si el estado especifica un siguiente_indice manual (ej: saltar directo a 1095 tras repetir 1097), usarlo
+    es_salto_manual = False
     if "siguiente_indice" in estado and isinstance(estado["siguiente_indice"], int):
         siguiente_indice = estado["siguiente_indice"] % len(SECUENCIA)
+        es_salto_manual = True
     else:
         siguiente_indice = (indice + 1) % len(SECUENCIA)
 
@@ -303,7 +318,8 @@ def programar_meditacion_diaria() -> None:
     _guardar_json(LOG_FILE, log)
 
     # ── PERSISTIR NUEVO ÍNDICE ──
-    _actualizar_estado(siguiente_indice)
+    desc = f"Salto directo programado a #{SECUENCIA[siguiente_indice]} (índice {siguiente_indice})" if es_salto_manual else ""
+    _actualizar_estado(siguiente_indice, override=es_salto_manual, descripcion=desc)
 
     # ── SINCRONIZAR CON BOT EN RENDER ──
     try:
