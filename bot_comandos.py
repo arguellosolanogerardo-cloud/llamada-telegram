@@ -792,17 +792,97 @@ def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | No
         return m_id
 
 
-def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
+def obtener_info_tarea_hoy() -> dict | None:
+    """
+    Obtiene la información oficial de la tarea programada para HOY de forma robusta.
+    1. Si meta_hoy.json existe y su fecha coincide con HOY (DD/MM/AAAA o AAAA-MM-DD), lo usa.
+    2. Si meta_hoy.json tiene fecha de un día anterior (obsoleto de despliegues previos), lo descarta.
+    3. Consulta state_meditaciones.json (cronograma astronómico oficial).
+    4. Consulta cola_hoy.json para hoy si hay una lista de audios programada.
+    5. Si obtiene una meditación válida, actualiza meta_hoy.json para sincronizarlo con HOY.
+    """
+    tz_col = ZoneInfo("America/Bogota")
+    ahora = datetime.now(tz_col)
+    if ahora.hour < 4:
+        ahora -= timedelta(days=1)
+    hoy_str = ahora.strftime("%d/%m/%Y")
+    hoy_iso = ahora.strftime("%Y-%m-%d")
 
-    # Obtener tarea del día si está disponible
-    info_tarea = None
+    info_valida = None
+
+    # 1. Intentar leer meta_hoy.json SOLO si su fecha coincide con HOY
     ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
     if os.path.exists(ruta_meta):
         try:
             with open(ruta_meta, "r", encoding="utf-8") as fm:
-                info_tarea = json.load(fm)
+                meta = json.load(fm)
+            f_meta = meta.get("fecha_tarea_admin") or meta.get("fecha_iso")
+            if f_meta and (f_meta == hoy_str or f_meta == hoy_iso):
+                info_valida = meta
         except Exception:
             pass
+
+    # 2. Si meta_hoy.json no es de hoy o no existe, consultar state_meditaciones.json
+    if not info_valida:
+        ruta_state = os.path.join("data", "state_meditaciones.json")
+        if os.path.exists(ruta_state):
+            try:
+                with open(ruta_state, "r", encoding="utf-8") as fs:
+                    st = json.load(fs)
+                num_st = st.get("numero_programado")
+                if num_st:
+                    info_valida = identificar_audio_catalogo(texto=f"meditacion {num_st}")
+                    if info_valida:
+                        info_valida["fecha_tarea_admin"] = hoy_str
+                        info_valida["fecha_iso"] = hoy_iso
+            except Exception:
+                pass
+
+    # 3. Revisar si hay audio físico meditacion_hoy.mp3
+    if not info_valida:
+        ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
+        if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
+            info_valida = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
+            if info_valida:
+                info_valida["fecha_tarea_admin"] = hoy_str
+                info_valida["fecha_iso"] = hoy_iso
+
+    # 4. Revisar si existe cola_hoy.json para hoy con múltiples audios
+    ruta_cola = os.path.join("data", "meditaciones", "cola_hoy.json")
+    if os.path.exists(ruta_cola):
+        try:
+            with open(ruta_cola, "r", encoding="utf-8") as fc:
+                dc = json.load(fc)
+            f_cola = dc.get("fecha") if isinstance(dc, dict) else None
+            if f_cola == hoy_str:
+                items_c = dc.get("cola", []) if isinstance(dc, dict) else (dc if isinstance(dc, list) else [])
+                validos_c = [it.get("info") for it in items_c if isinstance(it, dict) and it.get("info")]
+                if validos_c and len(validos_c) > 1:
+                    if not info_valida:
+                        info_valida = dict(validos_c[0])
+                    info_valida["cola_audios"] = validos_c
+        except Exception:
+            pass
+
+    # 5. Si logramos resolver info_valida, sincronizar meta_hoy.json para hoy
+    if info_valida:
+        try:
+            os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+            info_guardar = dict(info_valida)
+            info_guardar["fecha_tarea_admin"] = hoy_str
+            info_guardar["fecha_iso"] = hoy_iso
+            with open(ruta_meta, "w", encoding="utf-8") as fm:
+                json.dump(info_guardar, fm, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    return info_valida
+
+
+def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
+
+    # Obtener tarea del día si está disponible
+    info_tarea = obtener_info_tarea_hoy()
 
     txt_med_bloque = ""
     if info_tarea and info_tarea.get("numero"):
@@ -993,13 +1073,7 @@ def copiar_mensaje(chat_id: int | str, from_chat_id: int | str, message_id: int 
 
 def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: int | str = None, user_id_privado: int | str = None) -> None:
     if not info_cat:
-        ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
-        if os.path.exists(ruta_meta):
-            try:
-                with open(ruta_meta, "r", encoding="utf-8") as fm:
-                    info_cat = json.load(fm)
-            except Exception:
-                pass
+        info_cat = obtener_info_tarea_hoy()
 
     if not info_cat:
         enviar_mensaje(
@@ -1051,15 +1125,8 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     # A) file_id directo en info_cat
     audio_file_id = info_cat.get("file_id")
 
-    # B) file_id en meta_hoy.json (si coincide el número o si no se especificó)
-    ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
-    meta_hoy = {}
-    if os.path.exists(ruta_meta):
-        try:
-            with open(ruta_meta, "r", encoding="utf-8") as fm:
-                meta_hoy = json.load(fm)
-        except Exception:
-            pass
+    # B) file_id en la tarea oficial de hoy (si coincide el número o si no se especificó)
+    meta_hoy = obtener_info_tarea_hoy() or {}
 
     if not audio_file_id and meta_hoy:
         if not num or str(meta_hoy.get("numero", "")).strip() == num:
@@ -1759,14 +1826,7 @@ def escuchar_comandos() -> None:
                             if not es_mensaje_de_admin(msg, chat_id):
                                 # Si un usuario no administrador menciona la tarea, solo entregarle la tarea actual que ya fue fijada por los admins
                                 log_debug(f"Usuario no admin {user_id} intentó programar tarea. Bloqueado.")
-                                ruta_meta_actual = os.path.join("data", "meditaciones", "meta_hoy.json")
-                                info_cat_act = None
-                                if os.path.exists(ruta_meta_actual):
-                                    try:
-                                        with open(ruta_meta_actual, "r", encoding="utf-8") as f_act:
-                                            info_cat_act = json.load(f_act)
-                                    except Exception:
-                                        pass
+                                info_cat_act = obtener_info_tarea_hoy()
                                 if info_cat_act:
                                     entregar_audio_meditacion(chat_id, info_cat_act, msg_id_reply=msg_id, user_id_privado=user_id)
                                 else:
@@ -2002,48 +2062,8 @@ def escuchar_comandos() -> None:
                             enviar_mensaje(chat_id, f"ℹ️ No se encontró ninguna meditación o mensaje correspondiente a «{param_texto}» en el catálogo.", reply_to_message_id=msg_id)
                             continue
                     else:
-                        # Obtener meditación activa del día
-                        ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
-                        if os.path.exists(ruta_meta):
-                            try:
-                                with open(ruta_meta, "r", encoding="utf-8") as fm:
-                                    info_cat = json.load(fm)
-                            except Exception:
-                                pass
-                        if not info_cat:
-                            ruta_state = os.path.join("data", "state_meditaciones.json")
-                            if os.path.exists(ruta_state):
-                                try:
-                                    with open(ruta_state, "r", encoding="utf-8") as fs:
-                                        st = json.load(fs)
-                                        num_st = st.get("numero_programado")
-                                        if num_st:
-                                            info_cat = identificar_audio_catalogo(texto=f"meditacion {num_st}")
-                                except Exception:
-                                    pass
-                        if not info_cat:
-                            ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
-                            if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
-                                info_cat = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
-                        if not info_cat:
-                            db_a = cargar_audios_registrados()
-                            if db_a:
-                                info_cat = list(db_a.values())[-1]
-
-                        # Revisar si existe cola_hoy.json con lista múltiple
-                        ruta_cola_hoy = os.path.join("data", "meditaciones", "cola_hoy.json")
-                        if os.path.exists(ruta_cola_hoy):
-                            try:
-                                with open(ruta_cola_hoy, "r", encoding="utf-8") as fch:
-                                    dch = json.load(fch)
-                                    items_ch = dch.get("cola", []) if isinstance(dch, dict) else (dch if isinstance(dch, list) else [])
-                                    validos_ch = [it.get("info") for it in items_ch if isinstance(it, dict) and it.get("info")]
-                                    if validos_ch and len(validos_ch) > 1:
-                                        if not info_cat:
-                                            info_cat = dict(validos_ch[0])
-                                        info_cat["cola_audios"] = validos_ch
-                            except Exception:
-                                pass
+                        # Obtener meditación activa y validada del día
+                        info_cat = obtener_info_tarea_hoy()
 
                     if cmd in ("/playlist", "/cola") and info_cat:
                         cola_audios = info_cat.get("cola_audios")
@@ -2124,42 +2144,7 @@ def escuchar_comandos() -> None:
                 elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea", "/guardaraudio", "/setaudio"):
                     # Si se llama /tarea a secas (sin parametros), entregar la tarea programada del dia a cualquiera (admin o miembro)
                     if cmd == "/tarea" and len(partes) == 1 and not (msg.get("reply_to_message")):
-                        ruta_meta_act = os.path.join("data", "meditaciones", "meta_hoy.json")
-                        info_act = None
-                        if os.path.exists(ruta_meta_act):
-                            try:
-                                with open(ruta_meta_act, "r", encoding="utf-8") as f_act:
-                                    info_act = json.load(f_act)
-                            except Exception:
-                                pass
-                        if not info_act:
-                            ruta_state = os.path.join("data", "state_meditaciones.json")
-                            if os.path.exists(ruta_state):
-                                try:
-                                    with open(ruta_state, "r", encoding="utf-8") as fs:
-                                        st = json.load(fs)
-                                        num_st = st.get("numero_programado")
-                                        if num_st:
-                                            info_act = identificar_audio_catalogo(texto=f"meditacion {num_st}")
-                                except Exception:
-                                    pass
-                        if not info_act:
-                            ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
-                            if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
-                                info_act = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
-                        ruta_cola_act = os.path.join("data", "meditaciones", "cola_hoy.json")
-                        if os.path.exists(ruta_cola_act):
-                            try:
-                                with open(ruta_cola_act, "r", encoding="utf-8") as fca:
-                                    dca = json.load(fca)
-                                    items_ca = dca.get("cola", []) if isinstance(dca, dict) else (dca if isinstance(dca, list) else [])
-                                    validos_ca = [it.get("info") for it in items_ca if isinstance(it, dict) and it.get("info")]
-                                    if validos_ca and len(validos_ca) > 1:
-                                        if not info_act:
-                                            info_act = dict(validos_ca[0])
-                                        info_act["cola_audios"] = validos_ca
-                            except Exception:
-                                pass
+                        info_act = obtener_info_tarea_hoy()
                         if info_act:
                             entregar_audio_meditacion(chat_id, info_act, msg_id_reply=msg_id, user_id_privado=user_id)
                         else:
