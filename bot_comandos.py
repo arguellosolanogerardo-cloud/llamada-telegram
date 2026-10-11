@@ -1009,6 +1009,16 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
         )
         return
 
+    # Si hay una cola con múltiples audios programados, entregar cada uno en orden
+    cola_audios = info_cat.get("cola_audios")
+    if cola_audios and isinstance(cola_audios, list) and len(cola_audios) > 1:
+        for sub_info in cola_audios:
+            if isinstance(sub_info, dict):
+                sub_copy = dict(sub_info)
+                sub_copy.pop("cola_audios", None)
+                entregar_audio_meditacion(chat_id, sub_copy, msg_id_reply=msg_id_reply, user_id_privado=user_id_privado)
+        return
+
     tipo_nombre = info_cat.get('tipo', 'Meditación').title()
     num = str(info_cat.get('numero', '')).strip()
     titulo = info_cat.get('titulo', '')
@@ -2020,18 +2030,38 @@ def escuchar_comandos() -> None:
                             if db_a:
                                 info_cat = list(db_a.values())[-1]
 
+                        # Revisar si existe cola_hoy.json con lista múltiple
+                        ruta_cola_hoy = os.path.join("data", "meditaciones", "cola_hoy.json")
+                        if os.path.exists(ruta_cola_hoy):
+                            try:
+                                with open(ruta_cola_hoy, "r", encoding="utf-8") as fch:
+                                    dch = json.load(fch)
+                                    items_ch = dch.get("cola", []) if isinstance(dch, dict) else (dch if isinstance(dch, list) else [])
+                                    validos_ch = [it.get("info") for it in items_ch if isinstance(it, dict) and it.get("info")]
+                                    if validos_ch and len(validos_ch) > 1:
+                                        if not info_cat:
+                                            info_cat = dict(validos_ch[0])
+                                        info_cat["cola_audios"] = validos_ch
+                            except Exception:
+                                pass
+
                     if cmd in ("/playlist", "/cola") and info_cat:
-                        num_txt = info_cat.get("numero", "")
-                        tit_txt = info_cat.get("titulo", "")
-                        mae_txt = info_cat.get("maestro", "Alaniso")
-                        fec_txt = info_cat.get("fecha", "")
-                        txt_pl = (
-                            f"📋 **LISTA DE REPRODUCCIÓN PROGRAMADA PARA HOY:**\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"🧘 **Práctica:** Meditación #{num_txt} - «{tit_txt}»\n"
-                            f"👤 **Maestro:** {mae_txt} | 📅 {fec_txt}\n\n"
-                            f"🎧 *A continuación te entrego el audio oficial para su estudio previo:* 👇"
-                        )
+                        cola_audios = info_cat.get("cola_audios")
+                        if cola_audios and isinstance(cola_audios, list) and len(cola_audios) > 1:
+                            cola_formato = [{"info": ca, "titulo": ca.get("titulo", "")} for ca in cola_audios]
+                            txt_pl = formatear_cola_audios(cola_formato) + "\n\n🎧 *A continuación te entrego los audios oficiales de la lista:* 👇"
+                        else:
+                            num_txt = info_cat.get("numero", "")
+                            tit_txt = info_cat.get("titulo", "")
+                            mae_txt = info_cat.get("maestro", "Alaniso")
+                            fec_txt = info_cat.get("fecha", "")
+                            txt_pl = (
+                                f"📋 **LISTA DE REPRODUCCIÓN PROGRAMADA PARA HOY:**\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"🧘 **Práctica:** Meditación #{num_txt} - «{tit_txt}»\n"
+                                f"👤 **Maestro:** {mae_txt} | 📅 {fec_txt}\n\n"
+                                f"🎧 *A continuación te entrego el audio oficial para su estudio previo:* 👇"
+                            )
                         enviar_mensaje(chat_id, txt_pl, reply_to_message_id=msg_id)
 
                     entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
@@ -2117,6 +2147,19 @@ def escuchar_comandos() -> None:
                             ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
                             if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
                                 info_act = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
+                        ruta_cola_act = os.path.join("data", "meditaciones", "cola_hoy.json")
+                        if os.path.exists(ruta_cola_act):
+                            try:
+                                with open(ruta_cola_act, "r", encoding="utf-8") as fca:
+                                    dca = json.load(fca)
+                                    items_ca = dca.get("cola", []) if isinstance(dca, dict) else (dca if isinstance(dca, list) else [])
+                                    validos_ca = [it.get("info") for it in items_ca if isinstance(it, dict) and it.get("info")]
+                                    if validos_ca and len(validos_ca) > 1:
+                                        if not info_act:
+                                            info_act = dict(validos_ca[0])
+                                        info_act["cola_audios"] = validos_ca
+                            except Exception:
+                                pass
                         if info_act:
                             entregar_audio_meditacion(chat_id, info_act, msg_id_reply=msg_id, user_id_privado=user_id)
                         else:
