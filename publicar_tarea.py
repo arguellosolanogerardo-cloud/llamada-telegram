@@ -179,9 +179,13 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
         except Exception:
             fecha_obj = ahora
 
+    DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    dia_semana_nombre = DIAS_SEMANA[fecha_obj.weekday()]
+    dia_semana_upper = dia_semana_nombre.upper()
+
     es_hoy = fecha_obj.date() == ahora.date()
-    tiempo_palabra = "hoy" if es_hoy else "mañana" if fecha_obj.date() == (ahora + timedelta(days=1)).date() else f"el {fecha_str}"
-    cronograma_palabra = f"esta noche ({fecha_str})" if es_hoy else f"la noche del {fecha_str}"
+    tiempo_palabra = f"hoy {dia_semana_upper}" if es_hoy else f"mañana {dia_semana_upper}" if fecha_obj.date() == (ahora + timedelta(days=1)).date() else f"el {dia_semana_upper} {fecha_str}"
+    cronograma_palabra = f"esta noche de {dia_semana_nombre} ({fecha_str})" if es_hoy else f"la noche de {dia_semana_nombre} ({fecha_str})"
 
     if isinstance(info, list) and len(info) > 1:
         bloques_items = []
@@ -204,9 +208,9 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
             f"GRUPO LA VERDAD OS HARA LIBRES, {tiempo_palabra} ({fecha_str}) trabajaremos con las siguientes prácticas en secuencia:\n\n"
             f"{txt_items}\n\n"
             f"⏰ **Cronograma para {cronograma_palabra}:**\n"
-            f"• **7:56 PM:** Apertura de la sala de voz en Telegram.\n"
-            f"• **8:28 PM:** Oración y recogimiento en silencio (3 min).\n"
-            f"• **8:32 PM:** Reproducción en vivo secuencial de las pistas.\n\n"
+            f"• **7:56 PM:** Apertura de la REUNION VIRTUAL en Telegram.\n"
+            f"• **8:28 PM:** Oración y recogimiento en silencio (3 min). ''SE SILENCIAN MICROFONOS''\n"
+            f"• **8:32 PM:** Reproducción en vivo secuencial de las pistas.   ''SE SILENCIA MICROFONOS''\n\n"
             f"🎧 *Los audios están disponibles en el grupo para su estudio previo.*"
         )
 
@@ -230,9 +234,9 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
         f"👤 **Maestro:** {maestro}\n"
         f"🗓️ **Grabación original:** {fecha_orig}\n\n"
         f"⏰ **Cronograma para {cronograma_palabra}:**\n"
-        f"• **7:56 PM:** Apertura de la sala de voz en Telegram.\n"
-        f"• **8:28 PM:** Oración y recogimiento en silencio (3 min).\n"
-        f"• **8:32 PM:** Reproducción en vivo de la {tipo.lower()}.\n\n"
+        f"• **7:56 PM:** Apertura de la REUNION VIRTUAL en Telegram.\n"
+        f"• **8:28 PM:** Oración y recogimiento en silencio (3 min). ''SE SILENCIAN MICROFONOS''\n"
+        f"• **8:32 PM:** Reproducción en vivo de la {tipo.lower()}.   ''SE SILENCIA MICROFONOS''\n\n"
         f"🎧 *El audio ya fue publicado en el grupo para su estudio previo.*"
     )
 
