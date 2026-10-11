@@ -1209,8 +1209,8 @@ async def main() -> None:
             if aid_str.strip().isdigit():
                 admin_ids.add(int(aid_str.strip()))
 
-        # Lista de Administradores Permanentes conocidos (Gerardo, Claudia, Maricela) para protección total
-        for hard_admin in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581):
+        # Lista de Administradores Permanentes conocidos (Gerardo, Claudia, Maricela, Mario Carrillo) para protección total
+        for hard_admin in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190):
             admin_ids.add(hard_admin)
 
         try:
@@ -3264,7 +3264,12 @@ async def main() -> None:
 
                 # Moderación de micrófonos en vivo: asegurar detección infalible de administradores
                 if uid not in admin_ids:
-                    if uid not in checked_admins_cache:
+                    # Protección por nombre: Si es Mario Carrillo, reconocerlo inmediatamente como Administrador
+                    nom_lower = nombre.lower()
+                    if "mario" in nom_lower and "carrillo" in nom_lower:
+                        admin_ids.add(uid)
+                        print(f"👑 Administrador detectado por nombre: {nombre} ({uid}). Añadido a admin_ids permanentemente.")
+                    elif uid not in checked_admins_cache:
                         checked_admins_cache.add(uid)
                         try:
                             perm = await client.get_permissions(entidad, uid)
