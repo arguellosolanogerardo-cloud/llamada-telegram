@@ -2128,7 +2128,7 @@ def escuchar_comandos() -> None:
                         "inline_keyboard": [
                             [{"text": "▶️ Play", "callback_data": "panel_play"}, {"text": "⏸️ Pausa", "callback_data": "panel_pausa"}, {"text": "⏭️ Siguiente", "callback_data": "panel_nextaudio"}],
                             [{"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}],
-                            [{"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}, {"text": "⏹️ Fin Grabación", "callback_data": "panel_stoprec"}]
+                            [{"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}]
                         ]
                     }
                     enviar_mensaje(chat_id, "🎛 **PANEL DE CONTROL DE SALA**\n*(Solo funciona durante la llamada)*\nPresiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)
