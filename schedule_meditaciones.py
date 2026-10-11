@@ -339,37 +339,12 @@ def programar_meditacion_diaria() -> None:
 
     # ── PUBLICAR EN TELEGRAM ──
     try:
-        from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio
-        bot_token = os.environ.get("BOT_TOKEN")
-        chat_id = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
-
-        if bot_token and chat_id:
-            anuncio = generar_anuncio_tarea(info_cat)
-            teclado = armar_teclado_audio(chat_id, numero_tarea=numero, tipo_tarea="MEDITACION")
-
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            payload = {
-                "chat_id": chat_id,
-                "text": anuncio,
-                "parse_mode": "Markdown",
-            }
-            if teclado:
-                payload["reply_markup"] = teclado
-
-            datos = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            req = urllib.request.Request(url, data=datos, headers={
-                "Content-Type": "application/json; charset=utf-8"
-            })
-            with urllib.request.urlopen(req, timeout=15) as r:
-                res = json.loads(r.read().decode())
-                if res.get("ok"):
-                    print(f"✅ Meditación #{numero} programada y anunciada en el grupo con éxito.")
-                else:
-                    print(f"⚠️ Telegram respondió: {res}")
-        else:
-            print("⚠️ BOT_TOKEN o CHAT_ID no configurados, anuncio omitido.")
+        from publicar_tarea import publicar_tarea_dia
+        print(f"Publicando tarea diaria #{numero} en Telegram con audio oficial y anuncio...")
+        publicar_tarea_dia(str(numero))
     except Exception as e_notif:
         print(f"⚠️ Error al notificar meditación en el grupo: {e_notif}")
+
 
 # ----------------------------------------------------------------------
 #  4. Iniciar el scheduler (se llama una sola vez al iniciar el bot)

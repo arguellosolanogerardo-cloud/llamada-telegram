@@ -2102,7 +2102,44 @@ def escuchar_comandos() -> None:
                             if msg_id_audio:
                                 info_cat["msg_id_audio"] = msg_id_audio
 
+                            # Si no se pasó audio adjunto ni existía file_id, buscar y subir automáticamente desde Google Drive
+                            if not f_id and not msg_id_audio and info_cat.get("numero"):
+                                try:
+                                    t_nom = "Meditación" if "MEDITACI" in str(info_cat.get("tipo", "")).upper() else "Mensaje"
+                                    n_num = int(info_cat["numero"])
+                                    enviar_mensaje(chat_id, f"🔍 Buscando audio para {t_nom} #{n_num} en Google Drive...", reply_to_message_id=msg_id)
+                                    ruta_audio_desc = obtener_o_descargar_audio(info_cat.get("tipo", "MEDITACION"), n_num)
+                                    if ruta_audio_desc and os.path.exists(ruta_audio_desc):
+                                        cap_audio = (
+                                            f"🧘 **{t_nom} #{n_num}**\n"
+                                            f"📌 **Título:** «{info_cat.get('titulo', '')}»\n"
+                                            f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
+                                            f"🗓️ **Grabación original:** {info_cat.get('fecha', '')}\n\n"
+                                            f"🎧 Audio oficial para la práctica de hoy."
+                                        )
+                                        bot_u = obtener_info_bot()
+                                        clean_t = "mensaje" if "MENSAJE" in str(info_cat.get("tipo", "")).upper() else "meditacion"
+                                        param_priv = f"audio_{clean_t}_{n_num}"
+                                        teclado_aud = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start={param_priv}"}]]} if bot_u else None
+                                        target_chat_audio = CHAT_ID if (int(chat_id) > 0 and CHAT_ID) else chat_id
+                                        ok_a, m_id_a, f_id_a = enviar_audio(
+                                            target_chat_audio,
+                                            ruta_audio_desc,
+                                            caption=cap_audio,
+                                            title=f"{t_nom} #{n_num} - {info_cat.get('titulo', '')}",
+                                            performer=info_cat.get('maestro', 'Alaniso'),
+                                            reply_markup=teclado_aud
+                                        )
+                                        if ok_a:
+                                            f_id = f_id_a
+                                            msg_id_audio = m_id_a
+                                            info_cat["file_id"] = f_id_a
+                                            info_cat["msg_id_audio"] = m_id_a
+                                except Exception as e_aud_cmd:
+                                    print("Nota buscando/subiendo audio en comando /tarea:", e_aud_cmd)
+
                             guardar_audio_registrado(info_cat, file_id=f_id, msg_id=msg_id_audio)
+
 
                             if cmd in ("/guardaraudio", "/setaudio"):
                                 enviar_mensaje(chat_id, f"✅ Audio vinculado exitosamente a **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}**: «{info_cat['titulo']}».", reply_to_message_id=msg_id)

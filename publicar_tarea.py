@@ -92,6 +92,78 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_markup: dict = None) ->
         return False
 
 
+def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
+    if not BOT_TOKEN or not ruta_audio:
+        return False, None, None
+
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
+
+    # Si es file_id
+    if not os.path.exists(ruta_audio):
+        payload = {
+            "chat_id": str(chat_id),
+            "audio": str(ruta_audio),
+            "caption": caption,
+            "parse_mode": "Markdown",
+            "title": title,
+            "performer": performer,
+        }
+        if reply_markup:
+            payload["reply_markup"] = json.dumps(reply_markup)
+        try:
+            r = requests.post(url, data=payload, timeout=25)
+            res = r.json()
+            if not res.get("ok") and "parse_mode" in payload:
+                payload_fb = dict(payload)
+                del payload_fb["parse_mode"]
+                r = requests.post(url, data=payload_fb, timeout=25)
+                res = r.json()
+            if res.get("ok"):
+                res_m = res.get("result", {})
+                m_id = res_m.get("message_id")
+                f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id") or ruta_audio
+                return True, m_id, f_id
+            print(f"Telegram rechazó audio file_id ({chat_id}): {res}")
+            return False, None, None
+        except Exception as e:
+            print(f"Error enviando audio por file_id a {chat_id}: {e}")
+            return False, None, None
+
+    # Si es archivo local en disco
+    data = {
+        "chat_id": str(chat_id),
+        "caption": caption,
+        "parse_mode": "Markdown",
+        "title": title,
+        "performer": performer,
+    }
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+
+    try:
+        with open(ruta_audio, "rb") as f:
+            files = {"audio": (os.path.basename(ruta_audio), f, "audio/mpeg")}
+            r = requests.post(url, data=data, files=files, timeout=180)
+            res = r.json()
+            if not res.get("ok") and "parse_mode" in data:
+                del data["parse_mode"]
+                f.seek(0)
+                r = requests.post(url, data=data, files=files, timeout=180)
+                res = r.json()
+            if res.get("ok"):
+                res_m = res.get("result", {})
+                m_id = res_m.get("message_id")
+                f_id = (res_m.get("audio") or res_m.get("document") or {}).get("file_id")
+                return True, m_id, f_id
+            print(f"Telegram rechazó audio local ({chat_id}): {res}")
+            return False, None, None
+    except Exception as e:
+        print(f"Error enviando audio local a {chat_id}: {e}")
+        return False, None, None
+
+
+
 def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     tz_col = ZoneInfo("America/Bogota")
     ahora = datetime.now(tz_col)
@@ -306,6 +378,51 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
         msg_id_audio, username_grupo = buscar_id_audio_en_grupo(CHAT_ID, info["numero"])
         if msg_id_audio:
             print(f"Mensaje del audio detectado automáticamente: ID {msg_id_audio}")
+
+    # Si aún no está en el grupo, buscarlo en Drive y subir el archivo al grupo directamente
+    if not msg_id_audio and CHAT_ID and info.get("numero"):
+        try:
+            from drive_manager import obtener_o_descargar_audio
+            tipo_raw = str(info.get("tipo", "MEDITACION")).upper()
+            t_nombre = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
+            num_int = int(str(info["numero"]).strip())
+
+            print(f"Buscando audio para {t_nombre} #{num_int} en Google Drive...")
+            ruta_audio_desc = obtener_o_descargar_audio(tipo_raw, num_int)
+            if ruta_audio_desc and os.path.exists(ruta_audio_desc):
+                cap_audio = (
+                    f"🧘 **{t_nombre} #{num_int}**\n"
+                    f"📌 **Título:** «{info.get('titulo', '')}»\n"
+                    f"👤 **Maestro:** {info.get('maestro', 'Alaniso')}\n"
+                    f"🗓️ **Grabación original:** {info.get('fecha_original') or info.get('fecha', '')}\n\n"
+                    f"🎧 Audio oficial para la práctica de hoy."
+                )
+                bot_u_tarea = obtener_info_bot()
+                clean_t = "mensaje" if "MENSAJE" in tipo_raw else "meditacion"
+                param_priv = f"audio_{clean_t}_{num_int}"
+                teclado_aud = {
+                    "inline_keyboard": [[
+                        {"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u_tarea}?start={param_priv}"}
+                    ]]
+                } if bot_u_tarea else None
+
+                print(f"Subiendo archivo de audio al grupo {CHAT_ID}...")
+                ok_aud, m_id_aud, f_id_aud = enviar_audio(
+                    CHAT_ID,
+                    ruta_audio_desc,
+                    caption=cap_audio,
+                    title=f"{t_nombre} #{num_int} - {info.get('titulo', '')}",
+                    performer=info.get('maestro', 'Alaniso'),
+                    reply_markup=teclado_aud
+                )
+                if ok_aud:
+                    msg_id_audio = m_id_aud
+                    info["file_id"] = f_id_aud
+                    info["msg_id_audio"] = m_id_aud
+                    print(f"✅ Audio oficial publicado en el grupo: msg_id={m_id_aud}")
+        except Exception as e_aud_pub:
+            print(f"⚠️ Nota descargando/publicando audio en el grupo: {e_aud_pub}")
+
 
     # Guardar metadatos del día
     os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
