@@ -1154,17 +1154,25 @@ def generar_texto_turnos(cola: list, oradores: list) -> str:
         txt_oradores = ", ".join([f"**{o}**" for o in oradores])
         lineas.append(f"🗣️ **Hablando ahora:** {txt_oradores}")
     else:
-        lineas.append("🗣️ **Hablando ahora:** Micrófono disponible 🎙️")
+        lineas.append("🗣️ **Hablando ahora:** Micrófono libre 🎙️")
 
     lineas.append("\n⏳ **En lista de espera:**")
     if cola:
         for idx, item in enumerate(cola, 1):
-            sufijo = " *(le toca a continuación)*" if idx == 1 else ""
-            lineas.append(f"{idx}. ✋ **{item['nombre']}**{sufijo}")
+            nom_u = item['nombre']
+            if idx == 1:
+                # PRIMER TURNO: Máximo realce visual
+                lineas.append("")
+                lineas.append(f"✨👉 1️⃣ **{nom_u.upper()}** 👈✨")
+                lineas.append(f"      🌟 *(¡LE TOCA A CONTINUACIÓN!)* 🌟")
+                lineas.append(f"      ━━━━━━━━━━━━━━━━━━━━━━")
+            else:
+                lineas.append(f"{idx}. ✋ **{nom_u}**")
     else:
         lineas.append("Nadie en lista de espera.")
 
-    lineas.append("\n💡 Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.")
+    lineas.append("")
+    lineas.append("💡 Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.")
     return "\n".join("> " + line if line.strip() else ">" for line in lineas)
 
 
