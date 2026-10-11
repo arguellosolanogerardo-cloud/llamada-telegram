@@ -1645,7 +1645,7 @@ def escuchar_comandos() -> None:
                     admins_set = obtener_admin_ids()
                     resp = generar_texto_ranking(db, admin_ids=admins_set)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
-                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and (param == "audio" or param.startswith("audio_") or param.startswith("meditacion_") or param.startswith("mensaje_"))):
+                elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and (param in ("audio", "meditacion", "tarea") or param.startswith("audio_") or param.startswith("meditacion_") or param.startswith("mensaje_"))):
                     param_texto = " ".join(partes[1:]).strip() if (len(partes) > 1 and not param.startswith("audio")) else ""
                     if cmd == "/start" and param.startswith("audio_"):
                         sub = param[6:]  # ej: "meditacion_6" o "6" o "mensaje_989"
@@ -1721,9 +1721,7 @@ def escuchar_comandos() -> None:
                             [{"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}]
                         ]
                     }
-                    enviar_mensaje(chat_id, "≡ƒÄ¢ **PANEL DE CONTROL DE SALA**
-*(Solo funciona durante la llamada)*
-Presiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)
+                    enviar_mensaje(chat_id, "🎛️ **PANEL DE CONTROL DE SALA**\n*(Solo funciona durante la llamada)*\nPresiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)
                     eliminar_mensaje(chat_id, msg_id)
                 elif cmd in ("/aviso", "/recordatorio", "/preparacion", "/aviso30min"):
                     if not es_mensaje_de_admin(msg, chat_id):
