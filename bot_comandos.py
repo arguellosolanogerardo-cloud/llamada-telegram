@@ -2092,22 +2092,40 @@ def escuchar_comandos() -> None:
                         enviar_mensaje(chat_id, "✅ Aviso de preparación enviado exitosamente.", reply_to_message_id=msg_id)
                     continue
                 elif cmd in ("/tarea", "/anunciartarea", "/anunciar", "/publicartarea", "/guardaraudio", "/setaudio"):
-                    if not es_mensaje_de_admin(msg, chat_id):
-                        if cmd == "/tarea" and len(partes) == 1:
-                            ruta_meta_act = os.path.join("data", "meditaciones", "meta_hoy.json")
-                            info_act = None
-                            if os.path.exists(ruta_meta_act):
+                    # Si se llama /tarea a secas (sin parametros), entregar la tarea programada del dia a cualquiera (admin o miembro)
+                    if cmd == "/tarea" and len(partes) == 1 and not (msg.get("reply_to_message")):
+                        ruta_meta_act = os.path.join("data", "meditaciones", "meta_hoy.json")
+                        info_act = None
+                        if os.path.exists(ruta_meta_act):
+                            try:
+                                with open(ruta_meta_act, "r", encoding="utf-8") as f_act:
+                                    info_act = json.load(f_act)
+                            except Exception:
+                                pass
+                        if not info_act:
+                            ruta_state = os.path.join("data", "state_meditaciones.json")
+                            if os.path.exists(ruta_state):
                                 try:
-                                    with open(ruta_meta_act, "r", encoding="utf-8") as f_act:
-                                        info_act = json.load(f_act)
+                                    with open(ruta_state, "r", encoding="utf-8") as fs:
+                                        st = json.load(fs)
+                                        num_st = st.get("numero_programado")
+                                        if num_st:
+                                            info_act = identificar_audio_catalogo(texto=f"meditacion {num_st}")
                                 except Exception:
                                     pass
-                            if info_act:
-                                entregar_audio_meditacion(chat_id, info_act, msg_id_reply=msg_id, user_id_privado=user_id)
-                            else:
-                                enviar_mensaje(chat_id, "ℹ️ Aún no hay una tarea programada para hoy por los administradores.", reply_to_message_id=msg_id)
+                        if not info_act:
+                            ruta_med = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
+                            if os.path.exists(ruta_med) and os.path.getsize(ruta_med) > 0:
+                                info_act = identificar_audio_catalogo(nombre_archivo=os.path.basename(ruta_med))
+                        if info_act:
+                            entregar_audio_meditacion(chat_id, info_act, msg_id_reply=msg_id, user_id_privado=user_id)
                         else:
-                            enviar_mensaje(chat_id, "⛔ Solo los administradores pueden programar o anunciar la tarea del día.", reply_to_message_id=msg_id)
+                            enviar_mensaje(chat_id, "ℹ️ Aún no hay una tarea programada para hoy.", reply_to_message_id=msg_id)
+                        continue
+
+                    # Si se intenta programar o anunciar la tarea con parametros, exigir permisos de administrador
+                    if not es_mensaje_de_admin(msg, chat_id):
+                        enviar_mensaje(chat_id, "⛔ Solo los administradores pueden programar o anunciar la tarea del día.", reply_to_message_id=msg_id)
                         continue
 
                     param_texto = " ".join(partes[1:]).strip() if len(partes) > 1 else ""
