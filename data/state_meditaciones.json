@@ -1,6 +1,8 @@
 {
-  "indice": 5,
+  "indice": 3,
+  "siguiente_indice": 5,
+  "override": true,
   "fecha_actualizacion": "2026-10-10",
-  "numero_programado": 1095,
-  "descripcion": "El 10/10 correspondio la #1096 (indice 4). El proximo 11/10 corresponde la #1095 (indice 5)."
+  "numero_programado": 1097,
+  "descripcion": "Domingo 11/10 repite la #1097 (indice 3). Lunes 12/10 salta directo a la #1095 (indice 5)."
 }

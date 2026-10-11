@@ -126,8 +126,12 @@ def _cargar_estado() -> dict:
     ahora = _ahora_colombia()
     fecha_hoy = ahora.strftime("%Y-%m-%d")
     
-    # 1. Verificar si el estado tiene la fecha de última actualización
+    # 1. Verificar si el estado tiene la fecha de última actualización o un override explícito
     if isinstance(estado, dict) and "indice" in estado:
+        # Si tiene bandera explícita de override/personalización del administrador, respetarla prioritariamente
+        if estado.get("override"):
+            return estado
+
         fecha_estado = estado.get("fecha_actualizacion", "")
         
         # Si ya se actualizó HOY, el estado es confiable
@@ -245,7 +249,12 @@ def programar_meditacion_diaria() -> None:
     if indice >= len(SECUENCIA):
         indice = 0
     numero = SECUENCIA[indice]
-    siguiente_indice = (indice + 1) % len(SECUENCIA)
+    
+    # Si el estado especifica un siguiente_indice manual (ej: saltar directo a 1095 tras repetir 1097), usarlo
+    if "siguiente_indice" in estado and isinstance(estado["siguiente_indice"], int):
+        siguiente_indice = estado["siguiente_indice"] % len(SECUENCIA)
+    else:
+        siguiente_indice = (indice + 1) % len(SECUENCIA)
 
     print(f"📋 Programando meditación: índice={indice}, "
           f"número=#{numero}, siguiente=#{SECUENCIA[siguiente_indice]}")
