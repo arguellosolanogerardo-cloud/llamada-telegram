@@ -1663,6 +1663,20 @@ async def main() -> None:
             info_catalogo_hoy = pista_actual.get("info")
 
             try:
+                # 0. Anuncio de voz por Toby antes de la meditación oficial (pista inicial)
+                if pista_idx == 0:
+                    try:
+                        num = (info_catalogo_hoy or {}).get("numero", "")
+                        tit = (info_catalogo_hoy or {}).get("titulo", "Meditación diaria")
+                        maestro = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                        if num:
+                            txt_med = f"A continuación daremos inicio a la meditación diaria número {num}: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
+                        else:
+                            txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
+                        await emitir_anuncio_tts(txt_med)
+                    except Exception as e_tts_med:
+                        print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
+
                 # 1. Incorporar campanas tibetanas / gong zen al inicio y final con antelación
                 ruta_base_audio = await preparar_audio_eq(ruta_pista)
                 ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
@@ -2011,6 +2025,27 @@ async def main() -> None:
                 print(f"🔔 Audio efímero reproducido con éxito: {os.path.basename(ruta_audio)}")
             except Exception as e_ef:
                 print(f"Nota reproduciendo audio efímero ({os.path.basename(ruta_audio)}):", e_ef)
+
+        async def emitir_anuncio_tts(texto: str):
+            """Genera locución con la voz de Toby (edge_tts) y la emite en vivo en la sala de voz."""
+            if not tgcalls or not texto:
+                return
+            try:
+                import edge_tts
+                ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_anuncio_{int(time.time()*1000)}.mp3")
+                com = edge_tts.Communicate(texto, "es-CO-GonzaloNeural", pitch="+35Hz", rate="+5%")
+                await com.save(ruta_tts)
+                if os.path.exists(ruta_tts) and os.path.getsize(ruta_tts) > 1000:
+                    print(f"🗣️🎙️ Toby emitiendo locución TTS en la sala: «{texto}»")
+                    await reproducir_audio_efimero(ruta_tts)
+                    try:
+                        os.remove(ruta_tts)
+                    except Exception:
+                        pass
+                else:
+                    print(f"⚠️ TTS anuncio: no se pudo generar el audio para «{texto}»")
+            except Exception as e_tts:
+                print(f"❌ Error emitiendo anuncio TTS de Toby: {e_tts}")
 
         # Configurar evento de fin de audio en PyTgCalls
         if tgcalls:
@@ -3031,10 +3066,17 @@ async def main() -> None:
                 )
                 avisar_con_bot(texto_oracion, reply_markup=keyboard_oracion, es_efimero=True)
 
-                # Emitir en vivo el pitido inicial de oración en la sala de voz
-                pitido_ini = obtener_pitido_inicial_oracion()
-                if pitido_ini:
-                    lanzar_tarea(reproducir_audio_efimero(pitido_ini))
+                # Emitir en vivo el anuncio de voz de Toby y el pitido inicial de oración en la sala de voz
+                async def emitir_secuencia_oracion():
+                    try:
+                        await emitir_anuncio_tts("Comunidad, entramos en nuestro momento de oración y recogimiento en silencio por 3 minutos. GRACIAS.")
+                    except Exception as e_an:
+                        print("Nota emitiendo anuncio de oración:", e_an)
+                    pitido_ini = obtener_pitido_inicial_oracion()
+                    if pitido_ini:
+                        await reproducir_audio_efimero(pitido_ini)
+
+                lanzar_tarea(emitir_secuencia_oracion())
 
             # 8:31 PM: Conclusión de los 3 minutos de oración y alerta 1 minuto antes de la meditación
             if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado:
