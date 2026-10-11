@@ -177,9 +177,11 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
                     continue
 
                 segundos_antiguedad = (ahora_utc - dt_pub).total_seconds() if dt_pub else 999999
-                es_reciente = segundos_antiguedad < (86400 * 2)  # publicado en las últimas 48h
+                # Ventana máxima de 25 minutos: detecta videos nuevos en sondeos de 90s o publicados durante deploys (1-2 min),
+                # y previene 100% que al reiniciar o desplegar se re-anuncien videos de horas o días anteriores.
+                es_reciente = segundos_antiguedad < 1500
 
-                # Si es un video histórico que no estaba en el archivo (antigüedad > 48h), marcar como visto sin notificar
+                # Si es un video anterior (publicado hace más de 25 minutos), registrar como visto sin spamear el chat
                 if not es_reciente:
                     nuevos_vistos.append(vid)
                     continue
