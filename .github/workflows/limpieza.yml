@@ -2,8 +2,8 @@ name: Limpieza periódica Telegram
 
 on:
   schedule:
-    # Cada 3 días a las 3:15 am Colombia (UTC-5) = 08:15 UTC
-    - cron: "15 8 */3 * *"
+    # Cada 9 días a las 3:15 am Colombia (UTC-5) = 08:15 UTC
+    - cron: "15 8 */9 * *"
   workflow_dispatch:
     inputs:
       modo_profundo:

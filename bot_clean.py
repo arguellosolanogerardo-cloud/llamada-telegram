@@ -1646,7 +1646,7 @@ def escuchar_comandos() -> None:
                     resp = generar_texto_ranking(db, admin_ids=admins_set)
                     enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id)
                 elif cmd in ("/meditacion", "/meditacion_hoy", "/audio", "/mensaje") or (cmd == "/start" and (param in ("audio", "meditacion", "tarea") or param.startswith("audio_") or param.startswith("meditacion_") or param.startswith("mensaje_"))):
-                    param_texto = " ".join(partes[1:]).strip() if (len(partes) > 1 and not param.startswith("audio")) else ""
+                    param_texto = "" if (cmd == "/start" and param in ("audio", "meditacion", "tarea")) else (" ".join(partes[1:]).strip() if (len(partes) > 1 and not param.startswith("audio")) else "")
                     if cmd == "/start" and param.startswith("audio_"):
                         sub = param[6:]  # ej: "meditacion_6" o "6" o "mensaje_989"
                         if "_" in sub:

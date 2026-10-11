@@ -1082,24 +1082,62 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
                     primera = cola_drive[0]
                     return primera["ruta"], primera.get("info"), cola_drive
 
-        # Caso C: Respaldo de meta_hoy.json si existía y coincide con la fecha
+        # Caso C: Respaldo de meta_hoy.json SOLO si su fecha coincide EXACTAMENTE con HOY
         ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
         if os.path.exists(ruta_meta):
             try:
                 with open(ruta_meta, "r", encoding="utf-8") as fm:
                     meta = json.load(fm)
-                f_meta = meta.get("fecha_tarea_admin")
-                if not f_meta or f_meta == hoy_str:
+                f_meta = meta.get("fecha_tarea_admin") or meta.get("fecha_iso")
+                if f_meta and (f_meta == hoy_str or f_meta == ahora.strftime("%Y-%m-%d")):
                     if meta.get("numero") and meta.get("tipo"):
                         t = meta["tipo"]
                         n = int(meta["numero"])
+                        print(f"Obteniendo audio de {t} #{n} desde meta_hoy.json oficial de hoy ({f_meta})...")
                         r_drive = obtener_o_descargar_audio(t, n)
-                        if r_drive and os.path.exists(r_drive):
+                        if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
                             item_c = {"ruta": r_drive, "info": meta, "titulo": meta.get("titulo", f"{t} #{n}")}
                             guardar_cola_hoy([item_c], fecha_destino=hoy_str)
                             return r_drive, meta, [item_c]
-            except Exception:
-                pass
+            except Exception as e_mc:
+                print("Nota validando meta_hoy.json:", e_mc)
+
+        # Caso D (INFALIBLE E INQUEBRANTABLE): Consultar secuencia fija y patrón alternante oficial
+        try:
+            from schedule_meditaciones import SECUENCIA, _cargar_estado
+            estado_sec = _cargar_estado()
+            idx_sec = estado_sec.get("indice", 4)
+            # El estado apunta al siguiente si se avanzó a las 3 AM; si coincide con fecha de hoy
+            # verificar el último del log o el índice previo
+            from schedule_meditaciones import _cargar_json, LOG_FILE
+            log_med = _cargar_json(LOG_FILE)
+            num_sec = None
+            if isinstance(log_med, list) and log_med:
+                for entry in reversed(log_med):
+                    f_ent = entry.get("fecha", "")
+                    if f_ent.startswith(ahora.strftime("%Y-%m-%d")):
+                        num_sec = entry.get("numero")
+                        break
+            if not num_sec:
+                num_sec = SECUENCIA[idx_sec % len(SECUENCIA)]
+
+            print(f"🌟 SECUENCIA OFICIAL INQUEBRANTABLE activada: Meditación #{num_sec} (para hoy {hoy_str}).")
+            r_drive = obtener_o_descargar_audio("MEDITACION", num_sec)
+            if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
+                info_cat_sec = identificar_audio_catalogo(f"meditacion {num_sec}") or {
+                    "numero": num_sec,
+                    "tipo": "MEDITACION",
+                    "titulo": f"Meditación #{num_sec}",
+                    "fecha": ahora.strftime("%d/%m/%y"),
+                    "maestro": "Alaniso",
+                    "detectado_como": "MEDITACION"
+                }
+                info_cat_sec["fecha_tarea_admin"] = hoy_str
+                item_d = {"ruta": r_drive, "info": info_cat_sec, "titulo": info_cat_sec.get("titulo", f"Meditación #{num_sec}")}
+                guardar_cola_hoy([item_d], fecha_destino=hoy_str)
+                return r_drive, info_cat_sec, [item_d]
+        except Exception as e_d:
+            print("Nota en secuencia fija inquebrantable:", e_d)
 
     except Exception as e:
         print("Nota buscando audio de meditación:", e)
