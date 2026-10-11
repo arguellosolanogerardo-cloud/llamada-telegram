@@ -59,6 +59,50 @@ def guardar_vistos(vistos: list) -> None:
         print("Nota guardando radar_vistos:", e)
 
 
+def sincronizar_github_vistos(vistos: list) -> None:
+    """Sincroniza la lista de videos vistos directamente con el repositorio de GitHub si hay token configurado."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        return
+    repo = "arguellosolanogerardo-cloud/llamada-telegram"
+    url = f"https://api.github.com/repos/{repo}/contents/data/radar_vistos.json"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "BotRadarYouTube"
+    }
+    try:
+        req_get = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req_get, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            sha = data.get("sha")
+
+        import base64
+        unicos = []
+        for x in vistos:
+            if x not in unicos:
+                unicos.append(x)
+        contenido_str = json.dumps(unicos[-100:], indent=2)
+        contenido_b64 = base64.b64encode(contenido_str.encode("utf-8")).decode("utf-8")
+        payload = {
+            "message": "chore(radar): sincronizar radar_vistos.json [skip ci]",
+            "content": contenido_b64,
+            "sha": sha
+        }
+        req_put = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", **headers},
+            method="PUT"
+        )
+        with urllib.request.urlopen(req_put, timeout=10) as resp:
+            if resp.status in (200, 201):
+                print("📡 Radar YouTube: Sincronizado automáticamente con GitHub repo.")
+    except Exception as e:
+        print("Nota sincronizando radar con GitHub:", e)
+
+
+
 def extraer_entradas_xml(xml_texto: str) -> list:
     entradas = []
     for entry in re.findall(r'<entry>(.*?)</entry>', xml_texto, re.DOTALL):
@@ -133,11 +177,10 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
                     continue
 
                 segundos_antiguedad = (ahora_utc - dt_pub).total_seconds() if dt_pub else 999999
-                es_reciente = segundos_antiguedad < 86400  # publicado en las últimas 24h
+                es_reciente = segundos_antiguedad < (86400 * 2)  # publicado en las últimas 48h
 
-                # Ignorar videos publicados hace más de 15 minutos al arrancar/reiniciar el bot
-                # (evita enviar notificaciones de videos de hace varias horas tras hacer git push)
-                if es_primera_vez or segundos_antiguedad > 900:
+                # Si es un video histórico que no estaba en el archivo (antigüedad > 48h), marcar como visto sin notificar
+                if not es_reciente:
                     nuevos_vistos.append(vid)
                     continue
 
@@ -173,13 +216,20 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
 
                 print(f"📡 Radar YouTube: Anunciando nuevo video de {canal['nombre']} ({vid}): «{datos['titulo']}»")
                 if bot_enviar_mensaje_func:
-                    bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
-                    anunciados += 1
+                    try:
+                        bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
+                        anunciados += 1
+                    except Exception as e_send:
+                        print(f"⚠️ Error enviando anuncio de radar ({vid}): {e_send}")
                 time.sleep(1)
         except Exception as e:
             print(f"⚠️ Error revisando radar {canal['nombre']}: {e}")
 
-    guardar_vistos(nuevos_vistos)
+    if len(nuevos_vistos) > len(vistos):
+        guardar_vistos(nuevos_vistos)
+        if anunciados > 0:
+            threading.Thread(target=sincronizar_github_vistos, args=(nuevos_vistos,), daemon=True).start()
+
     return anunciados
 
 
