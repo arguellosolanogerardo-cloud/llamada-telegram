@@ -1,9 +1,11 @@
 {
-  "numero": 1097,
+  "numero": 1095,
   "tipo": "MEDITACION",
-  "titulo": "Con tantos mensajes que hemos dado ya entendieron lo que es el Amor?",
-  "fecha": "09/25/20",
+  "titulo": "Solo aquellos que aprendieron nuestro mensaje estaran con nosotros",
+  "fecha": "09/11/20",
   "maestro": "Alaniso",
   "detectado_como": "MEDITACION",
-  "fecha_tarea_admin": "11/10/2026"
+  "fecha_tarea_admin": "12/10/2026",
+  "fecha_iso": "2026-10-12",
+  "indice_secuencia": 5
 }

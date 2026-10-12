@@ -78,6 +78,27 @@ def _generar_secuencia() -> list[int]:
 SECUENCIA = _generar_secuencia()
 
 # ----------------------------------------------------------------------
+#  Ancla Matemática Oficial del Calendario (Indestructible e Inquebrantable)
+#  Base: Lunes 12 de Octubre de 2026 -> Meditación #1095 (Índice 5 de SECUENCIA)
+# ----------------------------------------------------------------------
+FECHA_ANCLA_BASE = datetime(2026, 10, 12, tzinfo=TZ_OFFSET).date()
+INDICE_ANCLA_BASE = 5  # SECUENCIA[5] == 1095
+
+def obtener_indice_para_fecha(fecha=None) -> int:
+    """Calcula deterministamente el índice en SECUENCIA para una fecha dada (Colombia UTC-5)."""
+    if fecha is None:
+        fecha = _ahora_colombia().date()
+    elif isinstance(fecha, datetime):
+        fecha = fecha.date()
+    delta = (fecha - FECHA_ANCLA_BASE).days
+    return (INDICE_ANCLA_BASE + delta) % len(SECUENCIA)
+
+def obtener_numero_meditacion_fecha(fecha=None) -> int:
+    """Retorna el número oficial de meditación para una fecha dada según la secuencia matemática."""
+    idx = obtener_indice_para_fecha(fecha)
+    return SECUENCIA[idx]
+
+# ----------------------------------------------------------------------
 #  2. Estado de ejecución robusto con múltiples fuentes de verdad
 # ----------------------------------------------------------------------
 
@@ -100,12 +121,9 @@ def _obtener_ultimo_numero_desde_telegram() -> int | None:
     if not bot_token or not chat_id:
         return None
     try:
-        # Usar getUpdates o getChat history no es posible con Bot API,
-        # pero podemos leer meta_hoy.json del endpoint del bot si existe
         url_render = os.environ.get("RENDER_BOT_URL", "").replace("/tarea", "")
         if not url_render:
             return None
-        # Intentar leer estado desde el bot en Render
         req = urllib.request.Request(
             f"{url_render}/estado_meditacion",
             headers={"User-Agent": "ScheduleMeditaciones"}
@@ -126,93 +144,46 @@ def _indice_de_numero(numero: int) -> int | None:
 
 
 def _cargar_estado() -> dict:
-    """Carga el estado con validación cruzada contra el log de reproducciones.
+    """Carga el estado del cronograma de meditaciones de forma matemáticamente robusta.
     
-    REGLA DE ORO: El log de reproducciones es la fuente de verdad definitiva.
-    Si el state_meditaciones.json contradice el log, se corrige automáticamente.
+    Jerarquía de resolución:
+    1. Override explícito de administrador activo SOLO si coincide exactamente con la fecha de hoy.
+       Si el override tiene fecha de un día anterior, se considera expirado y se elimina.
+    2. Cálculo astronómico/calendario determinista desde la fecha ancla fija (2026-10-12 -> 1095).
+       Garantiza que ningún reinicio de servidor en Render, despliegue o borrado de disco efímero
+       desincronice el cronograma ni repita meditaciones pasadas.
     """
     estado = _cargar_json(STATE_FILE)
     ahora = _ahora_colombia()
-    fecha_hoy = ahora.strftime("%Y-%m-%d")
+    fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
     
-    # 1. Verificar si el estado tiene la fecha de última actualización o un override explícito
-    if isinstance(estado, dict) and "indice" in estado:
-        # Si tiene bandera explícita de override/personalización del administrador, respetarla prioritariamente
-        if estado.get("override"):
+    # 1. Verificar override activo
+    if isinstance(estado, dict) and estado.get("override"):
+        fecha_override = estado.get("fecha_override") or estado.get("fecha_actualizacion")
+        if fecha_override == fecha_hoy_iso and "indice" in estado:
             return estado
-
-        fecha_estado = estado.get("fecha_actualizacion", "")
-        
-        # Si ya se actualizó HOY, el estado es confiable
-        if fecha_estado == fecha_hoy:
-            return estado
-        
-        # Si se actualizó ayer o antes, verificar con el log
-        indice_estado = estado["indice"]
-        
-        # El índice actual apunta al SIGUIENTE a programar.
-        # Verificar: el número anterior (indice-1) debería ser el último del log
-        if indice_estado > 0:
-            numero_anterior = SECUENCIA[(indice_estado - 1) % len(SECUENCIA)]
         else:
-            numero_anterior = SECUENCIA[-1]
-        
-        ultimo_log = _obtener_ultimo_numero_desde_log()
-        
-        if ultimo_log is not None and ultimo_log == numero_anterior:
-            # Estado y log coinciden → estado es confiable
-            return estado
-        elif ultimo_log is not None:
-            # ¡CONFLICTO! El log dice otro número → reconstruir desde el log
-            indice_log = _indice_de_numero(ultimo_log)
-            if indice_log is not None:
-                nuevo_indice = (indice_log + 1) % len(SECUENCIA)
-                print(f"⚠️ CORRECCIÓN DE ESTADO: state decía índice {indice_estado} "
-                      f"(número {SECUENCIA[indice_estado % len(SECUENCIA)]}), "
-                      f"pero el log dice que el último fue #{ultimo_log} "
-                      f"→ corrigiendo a índice {nuevo_indice} "
-                      f"(siguiente: #{SECUENCIA[nuevo_indice]})")
-                estado = {
-                    "indice": nuevo_indice,
-                    "fecha_actualizacion": fecha_estado,
-                    "correccion": f"Auto-corregido desde log: ultimo={ultimo_log}"
-                }
-                _guardar_json(STATE_FILE, estado)
-                return estado
-        
-        # Si no hay log, confiar en el estado existente
-        return estado
+            print(f"ℹ️ Limpiando override expirado de fecha {fecha_override} (hoy es {fecha_hoy_iso})")
+            estado["override"] = False
+            estado.pop("siguiente_indice", None)
     
-    # 2. Estado vacío o corrupto → reconstruir desde el log
-    ultimo_log = _obtener_ultimo_numero_desde_log()
-    if ultimo_log is not None:
-        indice_log = _indice_de_numero(ultimo_log)
-        if indice_log is not None:
-            nuevo_indice = (indice_log + 1) % len(SECUENCIA)
-            print(f"🔧 Estado reconstruido desde log: último=#{ultimo_log}, "
-                  f"siguiente=#{SECUENCIA[nuevo_indice]} (índice {nuevo_indice})")
-            estado = {"indice": nuevo_indice, "fecha_actualizacion": ""}
-            _guardar_json(STATE_FILE, estado)
-            return estado
+    # 2. Cálculo determinista por calendario (a prueba de fallos de disco o reinicios en Render)
+    idx_hoy = obtener_indice_para_fecha(ahora.date())
+    num_hoy = SECUENCIA[idx_hoy]
+    idx_manana = (idx_hoy + 1) % len(SECUENCIA)
+    num_manana = SECUENCIA[idx_manana]
     
-    # 3. Intentar reconstruir desde Telegram
-    ultimo_tg = _obtener_ultimo_numero_desde_telegram()
-    if ultimo_tg is not None:
-        indice_tg = _indice_de_numero(ultimo_tg)
-        if indice_tg is not None:
-            nuevo_indice = (indice_tg + 1) % len(SECUENCIA)
-            print(f"🔧 Estado reconstruido desde Telegram: último=#{ultimo_tg}, "
-                  f"siguiente=#{SECUENCIA[nuevo_indice]}")
-            estado = {"indice": nuevo_indice, "fecha_actualizacion": ""}
-            _guardar_json(STATE_FILE, estado)
-            return estado
-    
-    # 4. Valor por defecto seguro
-    # El 09/10/2026 se completó 1097 (índice 3: 1100, 1099, 1098, 1097)
-    # La siguiente a programar es 1096 (índice 4)
-    estado = {"indice": 4, "fecha_actualizacion": ""}
-    _guardar_json(STATE_FILE, estado)
-    return estado
+    estado_calculado = {
+        "fecha_actualizacion": fecha_hoy_iso,
+        "indice": idx_hoy,
+        "numero_programado": num_hoy,
+        "siguiente_indice": idx_manana,
+        "siguiente_numero": num_manana,
+        "override": False,
+        "descripcion": f"Calendario matemático: hoy #{num_hoy} (índice {idx_hoy}), mañana #{num_manana} (índice {idx_manana})"
+    }
+    _guardar_json(STATE_FILE, estado_calculado)
+    return estado_calculado
 
 
 def _actualizar_estado(nuevo_indice: int, override: bool = False, descripcion: str = "") -> None:
@@ -225,51 +196,88 @@ def _actualizar_estado(nuevo_indice: int, override: bool = False, descripcion: s
     }
     if override:
         data["override"] = True
+        data["fecha_override"] = fecha_hoy
         data["descripcion"] = descripcion or f"Override explícito para siguiente ejecución: #{SECUENCIA[nuevo_indice % len(SECUENCIA)]} (índice {nuevo_indice})"
     _guardar_json(STATE_FILE, data)
+
+
+def registrar_reproduccion_en_log_y_estado(info_cat: dict, fecha_str: str = "") -> None:
+    """Registra en reproducciones_log.json y sincroniza state_meditaciones.json
+    al finalizar la llamada oficial diaria. Llamado desde llamada.py."""
+    ahora = _ahora_colombia()
+    fecha_iso = ahora.strftime("%Y-%m-%d")
+    numero = info_cat.get("numero") if isinstance(info_cat, dict) else None
+    if not numero:
+        return
+    
+    # 1. Actualizar log
+    log = _cargar_json(LOG_FILE)
+    if not isinstance(log, list):
+        log = []
+    # Deduplicar si ya existe entrada para hoy
+    log = [it for it in log if not str(it.get("fecha", "")).startswith(fecha_iso)]
+    log.append({
+        "fecha": ahora.strftime("%Y-%m-%d %H:%M:%S"),
+        "numero": int(numero),
+        "titulo": info_cat.get("titulo", f"Meditación #{numero}"),
+        "indice": _indice_de_numero(int(numero)),
+        "fecha_iso": fecha_iso,
+    })
+    if len(log) > 365:
+        log = log[-365:]
+    _guardar_json(LOG_FILE, log)
+    
+    # 2. Actualizar state para el día siguiente
+    idx_actual = _indice_de_numero(int(numero))
+    idx_sig = (idx_actual + 1) % len(SECUENCIA) if idx_actual is not None else obtener_indice_para_fecha(ahora.date() + timedelta(days=1))
+    
+    st = {
+        "fecha_actualizacion": fecha_iso,
+        "indice": idx_sig,
+        "numero_programado": SECUENCIA[idx_sig],
+        "ultimo_reproducido": int(numero),
+        "override": False,
+        "descripcion": f"Completada #{numero} el {fecha_iso}. Siguiente programada: #{SECUENCIA[idx_sig]} (índice {idx_sig})"
+    }
+    _guardar_json(STATE_FILE, st)
+    print(f"✅ Registro oficial guardado: #{numero} completada, siguiente #{SECUENCIA[idx_sig]}")
+
 
 # ----------------------------------------------------------------------
 #  3. Función que será llamada cada día a las 03:00 AM
 # ----------------------------------------------------------------------
-def programar_meditacion_diaria() -> None:
+def programar_meditacion_diaria(forzar: bool = False) -> None:
     """Selecciona la siguiente meditación según el patrón alternante,
     actualiza meta_hoy.json, añade al log histórico y notifica al grupo.
     
     GARANTÍAS DE ROBUSTEZ:
-    - Verifica que no se haya programado ya hoy (idempotente)
-    - Reconstruye el estado desde el log si hay inconsistencias
-    - Escribe fecha_iso para validación estricta en llamada.py
+    - Verificación matemática por fecha ancla calendario
+    - Idempotente: evita duplicar si ya se programó la correcta
+    - Detección y autocorrección si meta_hoy.json tenía un número desfasado
     - Escritura atómica de archivos JSON
     """
     ahora = _ahora_colombia()
     fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
     fecha_hoy_display = ahora.strftime("%d/%m/%Y")
     
+    numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
+    
     # ── PROTECCIÓN ANTI-DUPLICADO ──
-    # Verificar si ya se programó hoy mirando el log
-    log = _cargar_json(LOG_FILE)
-    if isinstance(log, list) and log:
-        ultimo = log[-1]
-        fecha_ultimo = ultimo.get("fecha", "")
-        if fecha_ultimo.startswith(fecha_hoy_iso):
-            print(f"⚠️ Ya se programó meditación hoy ({fecha_hoy_iso}): "
-                  f"#{ultimo.get('numero')}. Omitiendo duplicado.")
+    meta = _cargar_json(META_HOY)
+    if not forzar and isinstance(meta, dict):
+        f_meta = meta.get("fecha_iso") or meta.get("fecha_tarea_admin")
+        num_meta = meta.get("numero")
+        if (f_meta == fecha_hoy_iso or f_meta == fecha_hoy_display) and num_meta == numero_esperado:
+            print(f"ℹ️ Ya está programada correctamente la meditación #{num_meta} para hoy ({fecha_hoy_iso}). Omitiendo duplicado.")
             return
     
     # ── DETERMINAR SIGUIENTE MEDITACIÓN ──
     estado = _cargar_estado()
-    indice = estado.get("indice", 4)
+    indice = estado.get("indice", 5)
     if indice >= len(SECUENCIA):
         indice = 0
     numero = SECUENCIA[indice]
-    
-    # Si el estado especifica un siguiente_indice manual (ej: saltar directo a 1095 tras repetir 1097), usarlo
-    es_salto_manual = False
-    if "siguiente_indice" in estado and isinstance(estado["siguiente_indice"], int):
-        siguiente_indice = estado["siguiente_indice"] % len(SECUENCIA)
-        es_salto_manual = True
-    else:
-        siguiente_indice = (indice + 1) % len(SECUENCIA)
+    siguiente_indice = (indice + 1) % len(SECUENCIA)
 
     print(f"📋 Programando meditación: índice={indice}, "
           f"número=#{numero}, siguiente=#{SECUENCIA[siguiente_indice]}")
@@ -303,8 +311,10 @@ def programar_meditacion_diaria() -> None:
     print(f"✅ meta_hoy.json actualizado: #{numero} para {fecha_hoy_display}")
 
     # ── AÑADIR AL LOG HISTÓRICO ──
+    log = _cargar_json(LOG_FILE)
     if not isinstance(log, list):
         log = []
+    log = [entry for entry in log if not str(entry.get("fecha", "")).startswith(fecha_hoy_iso)]
     log.append({
         "fecha": ahora.strftime("%Y-%m-%d %H:%M:%S"),
         "numero": numero,
@@ -318,8 +328,7 @@ def programar_meditacion_diaria() -> None:
     _guardar_json(LOG_FILE, log)
 
     # ── PERSISTIR NUEVO ÍNDICE ──
-    desc = f"Salto directo programado a #{SECUENCIA[siguiente_indice]} (índice {siguiente_indice})" if es_salto_manual else ""
-    _actualizar_estado(siguiente_indice, override=es_salto_manual, descripcion=desc)
+    _actualizar_estado(siguiente_indice, override=False, descripcion=f"Programada #{numero} para hoy. Siguiente: #{SECUENCIA[siguiente_indice]}")
 
     # ── SINCRONIZAR CON BOT EN RENDER ──
     try:

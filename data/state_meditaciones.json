@@ -1,8 +1,9 @@
 {
-  "indice": 3,
-  "siguiente_indice": 5,
-  "override": true,
-  "fecha_actualizacion": "2026-10-10",
-  "numero_programado": 1097,
-  "descripcion": "Domingo 11/10 repite la #1097 (indice 3). Lunes 12/10 salta directo a la #1095 (indice 5)."
+  "fecha_actualizacion": "2026-10-12",
+  "indice": 5,
+  "numero_programado": 1095,
+  "siguiente_indice": 6,
+  "siguiente_numero": 1094,
+  "override": false,
+  "descripcion": "Calendario matemático: hoy #1095 (índice 5), mañana #1094 (índice 6)"
 }

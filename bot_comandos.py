@@ -795,11 +795,10 @@ def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | No
 def obtener_info_tarea_hoy() -> dict | None:
     """
     Obtiene la información oficial de la tarea programada para HOY de forma robusta.
-    1. Si meta_hoy.json existe y su fecha coincide con HOY (DD/MM/AAAA o AAAA-MM-DD), lo usa.
-    2. Si meta_hoy.json tiene fecha de un día anterior (obsoleto de despliegues previos), lo descarta.
-    3. Consulta state_meditaciones.json (cronograma astronómico oficial).
-    4. Consulta cola_hoy.json para hoy si hay una lista de audios programada.
-    5. Si obtiene una meditación válida, actualiza meta_hoy.json para sincronizarlo con HOY.
+    1. Si meta_hoy.json existe y su fecha coincide con HOY (DD/MM/AAAA o AAAA-MM-DD), y coincide con el cronograma oficial o override admin, lo usa.
+    2. Si meta_hoy.json tiene fecha de un día anterior u otro número, calcula la meditación matemática oficial de hoy.
+    3. Consulta cola_hoy.json para hoy si hay una lista de audios programada.
+    4. Sincroniza meta_hoy.json para asegurar consistencia atómica.
     """
     tz_col = ZoneInfo("America/Bogota")
     ahora = datetime.now(tz_col)
@@ -807,6 +806,12 @@ def obtener_info_tarea_hoy() -> dict | None:
         ahora -= timedelta(days=1)
     hoy_str = ahora.strftime("%d/%m/%Y")
     hoy_iso = ahora.strftime("%Y-%m-%d")
+
+    try:
+        from schedule_meditaciones import obtener_numero_meditacion_fecha
+        num_oficial = obtener_numero_meditacion_fecha(ahora.date())
+    except Exception:
+        num_oficial = 1095
 
     info_valida = None
 
@@ -818,25 +823,18 @@ def obtener_info_tarea_hoy() -> dict | None:
                 meta = json.load(fm)
             f_meta = meta.get("fecha_tarea_admin") or meta.get("fecha_iso")
             if f_meta and (f_meta == hoy_str or f_meta == hoy_iso):
-                info_valida = meta
+                # Validar que el número sea el oficial o provenga de un override explícito
+                if meta.get("numero") == num_oficial or meta.get("admin_override"):
+                    info_valida = meta
         except Exception:
             pass
 
-    # 2. Si meta_hoy.json no es de hoy o no existe, consultar state_meditaciones.json
+    # 2. Si meta_hoy.json no es de hoy, no existe o tenía un número incorrecto, usar cálculo oficial por calendario
     if not info_valida:
-        ruta_state = os.path.join("data", "state_meditaciones.json")
-        if os.path.exists(ruta_state):
-            try:
-                with open(ruta_state, "r", encoding="utf-8") as fs:
-                    st = json.load(fs)
-                num_st = st.get("numero_programado")
-                if num_st:
-                    info_valida = identificar_audio_catalogo(texto=f"meditacion {num_st}")
-                    if info_valida:
-                        info_valida["fecha_tarea_admin"] = hoy_str
-                        info_valida["fecha_iso"] = hoy_iso
-            except Exception:
-                pass
+        info_valida = identificar_audio_catalogo(texto=f"meditacion {num_oficial}")
+        if info_valida:
+            info_valida["fecha_tarea_admin"] = hoy_str
+            info_valida["fecha_iso"] = hoy_iso
 
     # 3. Revisar si hay audio físico meditacion_hoy.mp3
     if not info_valida:

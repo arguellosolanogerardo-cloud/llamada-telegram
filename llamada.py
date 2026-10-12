@@ -1123,24 +1123,10 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
             except Exception as e_mc:
                 print("Nota validando meta_hoy.json:", e_mc)
 
-        # Caso D (INFALIBLE E INQUEBRANTABLE): Consultar secuencia fija y patrón alternante oficial
+        # Caso D (INFALIBLE E INQUEBRANTABLE): Consultar secuencia fija y patrón alternante oficial por fecha
         try:
-            from schedule_meditaciones import SECUENCIA, _cargar_estado
-            estado_sec = _cargar_estado()
-            idx_sec = estado_sec.get("indice", 4)
-            # El estado apunta al siguiente si se avanzó a las 3 AM; si coincide con fecha de hoy
-            # verificar el último del log o el índice previo
-            from schedule_meditaciones import _cargar_json, LOG_FILE
-            log_med = _cargar_json(LOG_FILE)
-            num_sec = None
-            if isinstance(log_med, list) and log_med:
-                for entry in reversed(log_med):
-                    f_ent = entry.get("fecha", "")
-                    if f_ent.startswith(ahora.strftime("%Y-%m-%d")):
-                        num_sec = entry.get("numero")
-                        break
-            if not num_sec:
-                num_sec = SECUENCIA[idx_sec % len(SECUENCIA)]
+            from schedule_meditaciones import obtener_numero_meditacion_fecha
+            num_sec = obtener_numero_meditacion_fecha(ahora.date())
 
             print(f"🌟 SECUENCIA OFICIAL INQUEBRANTABLE activada: Meditación #{num_sec} (para hoy {hoy_str}).")
             r_drive = obtener_o_descargar_audio("MEDITACION", num_sec)
@@ -4258,6 +4244,14 @@ async def main() -> None:
             ruta_pdf=ruta_acta_pdf,
             info_catalogo=info_catalogo_hoy,
         )
+
+        # Registrar reproducción oficial en log histórico y sincronizar estado
+        try:
+            from schedule_meditaciones import registrar_reproduccion_en_log_y_estado
+            if info_catalogo_hoy:
+                registrar_reproduccion_en_log_y_estado(info_catalogo_hoy, fecha_hoy)
+        except Exception as e_reg:
+            print("Nota registrando reproduccion en log oficial:", e_reg)
 
         me = await client.get_me()
         if me:
