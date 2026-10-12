@@ -3302,7 +3302,7 @@ async def main() -> None:
                 async def emitir_secuencia_oracion():
                     try:
                         print("🕊️ Emitiendo locución de Toby para la oración comunitaria (8:28 PM)...")
-                        await emitir_anuncio_tts("Comunidad, entramos en nuestro momento de oración y recogimiento en silencio por 3 minutos. GRACIAS.")
+                        await emitir_anuncio_tts("¡ATENCIÓN! A continuación empieza el momento de oración y recogimiento en silencio por 3 minutos. GRACIAS.")
                         await asyncio.sleep(0.8)
                     except Exception as e_an:
                         print("Nota emitiendo anuncio de oración:", e_an)
