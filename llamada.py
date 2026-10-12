@@ -979,7 +979,27 @@ async def buscar_audio_meditacion(client, entidad, admin_ids) -> tuple[str | Non
             primera = cola_guardada[0]
             return primera["ruta"], primera.get("info"), cola_guardada
 
-        # 2. Escanear los últimos 60 mensajes del chat
+        # 2. Prioridad Oficial: Si a las 3:00 AM se programó meta_hoy.json para HOY, respetarlo directamente
+        ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
+        if os.path.exists(ruta_meta):
+            try:
+                with open(ruta_meta, "r", encoding="utf-8") as fm:
+                    meta = json.load(fm)
+                f_meta = meta.get("fecha_tarea_admin") or meta.get("fecha_iso")
+                if f_meta and (f_meta == hoy_str or f_meta == ahora.strftime("%Y-%m-%d")):
+                    if meta.get("numero") and meta.get("tipo"):
+                        t = meta["tipo"]
+                        n = int(meta["numero"])
+                        print(f"Obteniendo audio oficial de {t} #{n} desde meta_hoy.json programado para hoy ({f_meta})...")
+                        r_drive = obtener_o_descargar_audio(t, n)
+                        if r_drive and os.path.exists(r_drive) and os.path.getsize(r_drive) > 5000:
+                            item_c = {"ruta": r_drive, "info": meta, "titulo": meta.get("titulo", f"{t} #{n}")}
+                            guardar_cola_hoy([item_c], fecha_destino=hoy_str)
+                            return r_drive, meta, [item_c]
+            except Exception as e_mc:
+                print("Nota validando meta_hoy.json:", e_mc)
+
+        # 3. Escanear los últimos 60 mensajes del chat (solo si no hay meta_hoy.json o si un admin subió archivo físico)
         mensajes_audio_hoy = []
         textos_anuncio_hoy = []
 
