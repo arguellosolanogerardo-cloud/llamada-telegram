@@ -11,6 +11,7 @@ import subprocess
 import shutil
 import tempfile
 import urllib.request
+import urllib.parse
 import wave
 from zoneinfo import ZoneInfo
 
@@ -1703,7 +1704,9 @@ async def main() -> None:
                             txt_med = f"A continuación daremos inicio a la meditación diaria número {num}: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
                         else:
                             txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
+                        print(f"🧘🎙️ Emitiendo anuncio de meditación #{num or 'diaria'} con voz de Toby...")
                         await emitir_anuncio_tts(txt_med)
+                        await asyncio.sleep(0.8)
                     except Exception as e_tts_med:
                         print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
 
@@ -1951,35 +1954,110 @@ async def main() -> None:
             except Exception as e:
                 print("Nota desbloqueando todos los participantes:", e)
 
+        def dividir_texto_tts(texto_a_dividir: str, max_chars: int = 85) -> list[str]:
+            """Divide un texto en fragmentos naturales por puntuación y palabras,
+            respetando el límite estricto de Google Translate TTS (máx 100 caracteres)."""
+            texto_limpio = " ".join(texto_a_dividir.split()).strip()
+            if not texto_limpio:
+                return []
+            if len(texto_limpio) <= max_chars:
+                return [texto_limpio]
+            partes = re.split(r"([.,;:!?\n])", texto_limpio)
+            frases = []
+            acumulado = ""
+            i = 0
+            while i < len(partes):
+                frag = partes[i]
+                punc = partes[i + 1] if i + 1 < len(partes) else ""
+                trozo = (frag + punc).strip()
+                i += 2
+                if not trozo:
+                    continue
+                if len(acumulado) + len(trozo) + 1 <= max_chars:
+                    acumulado = f"{acumulado} {trozo}".strip()
+                else:
+                    if acumulado:
+                        frases.append(acumulado)
+                    if len(trozo) > max_chars:
+                        sub = ""
+                        for pal in trozo.split():
+                            if len(sub) + len(pal) + 1 <= max_chars:
+                                sub = f"{sub} {pal}".strip()
+                            else:
+                                if sub:
+                                    frases.append(sub)
+                                sub = pal
+                        acumulado = sub
+                    else:
+                        acumulado = trozo
+            if acumulado:
+                frases.append(acumulado)
+            return frases
+
         async def generar_audio_tts(texto: str, ruta_salida: str) -> bool:
-            """Genera locución TTS intentando primero con edge_tts (voz Toby)
-            y con fallback automático a Google Translate TTS."""
+            """Genera locución TTS de manera robusta e infalible (Google TTS por fragmentos + edge-tts)."""
             if not texto or not ruta_salida:
                 return False
-            # 1. Intentar edge-tts (Voz Toby niño-robot)
+
+            dir_salida = os.path.dirname(os.path.abspath(ruta_salida))
+            if dir_salida:
+                os.makedirs(dir_salida, exist_ok=True)
+
+            # 1. Intentar edge-tts con timeout corto (si Microsoft no bloquea con 403)
             try:
                 import edge_tts
-                com = edge_tts.Communicate(texto, "es-CO-GonzaloNeural", pitch="+35Hz", rate="+5%")
-                await com.save(ruta_salida)
+                com = edge_tts.Communicate(texto, "es-CO-GonzaloNeural", pitch="+30Hz", rate="+5%")
+                await asyncio.wait_for(com.save(ruta_salida), timeout=3.5)
                 if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
+                    print(f"✅ Locución TTS generada con edge-tts ({os.path.getsize(ruta_salida)} bytes).")
                     return True
             except Exception as e_edge:
-                print(f"Nota edge-tts ({e_edge}), usando fallback de voz...")
+                pass
 
-            # 2. Fallback infalible Google Translate TTS
-            try:
-                import urllib.request
-                import urllib.parse
-                q = urllib.parse.quote(texto[:300])
-                url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={q}&tl=es&client=tw-ob"
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=10) as r, open(ruta_salida, "wb") as f:
-                    f.write(r.read())
-                if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
-                    print("✅ Locución de voz generada exitosamente vía Google TTS.")
-                    return True
-            except Exception as e_gtts:
-                print(f"Error generando locución con Google TTS: {e_gtts}")
+            # 2. Motor infalible: Google Translate TTS con fragmentación inteligente (<85 chars)
+            def _descargar_gtts_chunks() -> bool:
+                try:
+                    import urllib.request
+                    import urllib.parse
+                    frases = dividir_texto_tts(texto, max_chars=85)
+                    if not frases:
+                        return False
+                    audio_total = bytearray()
+                    for f in frases:
+                        q = urllib.parse.quote(f)
+                        url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={q}&tl=es&client=tw-ob"
+                        req = urllib.request.Request(
+                            url,
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            }
+                        )
+                        datos_chunk = None
+                        for intento in range(2):
+                            try:
+                                with urllib.request.urlopen(req, timeout=8) as r:
+                                    if r.status == 200:
+                                        datos_chunk = r.read()
+                                        break
+                            except Exception:
+                                time.sleep(0.3)
+                        if not datos_chunk:
+                            print(f"⚠️ No se pudo descargar fragmento TTS: «{f}»")
+                            return False
+                        audio_total.extend(datos_chunk)
+
+                    if len(audio_total) > 1000:
+                        with open(ruta_salida, "wb") as f_out:
+                            f_out.write(audio_total)
+                        print(f"✅ Locución TTS generada exitosamente con Google TTS ({len(frases)} fragmentos, {len(audio_total)} bytes).")
+                        return True
+                except Exception as e_gtts:
+                    print(f"Error generando Google TTS: {e_gtts}")
+                return False
+
+            ok_gtts = await asyncio.to_thread(_descargar_gtts_chunks)
+            if ok_gtts and os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
+                return True
 
             return False
 
@@ -1988,34 +2066,20 @@ async def main() -> None:
             if not tgcalls:
                 print("⚠️ TTS turno: tgcalls no disponible.")
                 return
+            nom_limpio = str(nombre_destinatario or "").split()[0][:20] or "Compañero"
+            texto_tts = f"¡Turno de palabra para {nom_limpio}, adelante te escuchamos!"
+            ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_turno_{int(time.time()*1000)}.mp3")
+            ruta_pcm = ruta_tts.rsplit(".", 1)[0] + ".raw"
             try:
                 from telethon.tl.types import InputPeerSelf
 
-                nom_limpio = str(nombre_destinatario or "").split()[0][:20] or "Compañero"
-                texto_tts = f"¡Turno de palabra para {nom_limpio}, adelante te escuchamos!"
-                ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_turno_{int(time.time()*1000)}.mp3")
-
-                # 1. Generar el audio TTS con fallback
+                # 1. Generar audio TTS
                 ok_tts = await generar_audio_tts(texto_tts, ruta_tts)
                 if not ok_tts or not os.path.exists(ruta_tts) or os.path.getsize(ruta_tts) < 1000:
-                    print(f"⚠️ TTS turno: archivo generado vacío o inválido: {ruta_tts}")
+                    print(f"⚠️ TTS turno: audio no generado para {nom_limpio}")
                     return
 
-                # 2. Liberar stream activo en tgcalls para evitar conflicto (grabación o meditación)
-                try:
-                    calls_activas = await tgcalls._binding.calls()
-                    esta_en_llamada = (
-                        destino in calls_activas
-                        or (isinstance(destino, int) and abs(destino) in calls_activas)
-                    )
-                    if esta_en_llamada:
-                        await tgcalls.leave_call(destino)
-                        await asyncio.sleep(0.4)
-                        print("🔄 TTS turno: stream previo liberado antes de anuncio.")
-                except Exception as e_lv:
-                    print(f"Nota liberando stream previo para TTS: {e_lv}")
-
-                # 3. Re-inyectar input_call en caché de PyTgCalls
+                # 2. Refrescar input_call en caché de PyTgCalls
                 try:
                     resolved_id = await tgcalls.resolve_chat_id(destino)
                     if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
@@ -2024,15 +2088,15 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # 4. Convertir a PCM y construir stream
-                ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_tts)
-                if ruta_pcm and os.path.exists(ruta_pcm):
+                # 3. Convertir a PCM nativo para latencia mínima
+                pcm_generado = await asyncio.to_thread(convertir_audio_a_pcm, ruta_tts)
+                if pcm_generado and os.path.exists(pcm_generado):
                     from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
                     from ntgcalls import MediaSource
                     stream_play = Stream(
                         microphone=AudioStream(
                             media_source=MediaSource.FILE,
-                            path=os.path.abspath(ruta_pcm),
+                            path=os.path.abspath(pcm_generado),
                             parameters=AudioParameters(48000, 2)
                         )
                     )
@@ -2040,13 +2104,13 @@ async def main() -> None:
                     from pytgcalls.types import MediaStream, AudioQuality
                     stream_play = MediaStream(ruta_tts, audio_parameters=AudioQuality.HIGH)
 
-                # 5. Desmutear robot en Telegram antes de reproducir
+                # 4. Desmutear robot en Telegram (servidor)
                 try:
                     await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
                 except Exception:
                     pass
 
-                # 6. Reproducir TTS
+                # 5. Emitir en la sala usando hot-swap de stream
                 await tgcalls.play(destino, stream_play)
                 try:
                     await tgcalls.unmute(destino)
@@ -2057,39 +2121,27 @@ async def main() -> None:
 
                 print(f"🤖🎙️ Toby anunció por voz en la sala: Turno para {nom_limpio}")
 
-                # 7. Esperar duración real del TTS antes de reanudar grabación
                 duracion_tts = obtener_duracion_segundos(ruta_tts)
                 if duracion_tts > 0:
-                    await asyncio.sleep(duracion_tts + 0.5)
-
-                # 8. Reanudar grabación si estaba activa y no fue cancelada
-                if grabacion_activa and not grabacion_cancelada and not grabacion_pausada and not reproduciendo_meditacion:
-                    try:
-                        from pytgcalls.types import RecordStream
-                        seg_activo = ruta_grabacion_post if reproduccion_iniciada else ruta_grabacion_pre
-                        os.makedirs(os.path.dirname(os.path.abspath(seg_activo)), exist_ok=True)
-                        await tgcalls.record(destino, RecordStream(seg_activo))
-                        print(f"🔴 Grabación reanudada tras anuncio de turno TTS -> {seg_activo}")
-                    except Exception as e_rec:
-                        print(f"Nota reanudando grabación tras TTS: {e_rec}")
+                    await asyncio.sleep(duracion_tts + 0.3)
 
             except Exception as e_voz:
                 print(f"❌ Error emitiendo voz de Toby para turno: {e_voz}")
+            finally:
+                for r in (ruta_tts, ruta_pcm):
+                    try:
+                        if os.path.exists(r):
+                            os.remove(r)
+                    except Exception:
+                        pass
 
         async def reproducir_audio_efimero(ruta_audio: str):
-            """Reproduce un audio corto en la sala de voz (ej: pitidos de oración) liberando el stream previo."""
+            """Reproduce un audio corto en la sala de voz sin desconectar la llamada."""
             if not tgcalls or not os.path.exists(ruta_audio):
                 print(f"⚠️ Audio efímero no encontrado o tgcalls inactivo: {ruta_audio}")
                 return
             try:
                 from telethon.tl.types import InputPeerSelf
-                try:
-                    calls_activas = await tgcalls._binding.calls()
-                    if destino in calls_activas or (isinstance(destino, int) and abs(destino) in calls_activas):
-                        await tgcalls.leave_call(destino)
-                        await asyncio.sleep(0.3)
-                except Exception:
-                    pass
 
                 try:
                     resolved_id = await tgcalls.resolve_chat_id(destino)
@@ -2135,23 +2187,27 @@ async def main() -> None:
                 print(f"Nota reproduciendo audio efímero ({os.path.basename(ruta_audio)}):", e_ef)
 
         async def emitir_anuncio_tts(texto: str):
-            """Genera locución con la voz de Toby (edge_tts con fallback) y la emite en vivo en la sala de voz."""
+            """Genera locución con la voz de Toby y la emite en vivo en la sala de voz."""
             if not tgcalls or not texto:
                 return
+            ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_anuncio_{int(time.time()*1000)}.mp3")
+            ruta_pcm = ruta_tts.rsplit(".", 1)[0] + ".raw"
             try:
-                ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_anuncio_{int(time.time()*1000)}.mp3")
                 ok_gen = await generar_audio_tts(texto, ruta_tts)
                 if ok_gen and os.path.exists(ruta_tts) and os.path.getsize(ruta_tts) > 1000:
                     print(f"🗣️🎙️ Toby emitiendo locución TTS en la sala: «{texto}»")
                     await reproducir_audio_efimero(ruta_tts)
-                    try:
-                        os.remove(ruta_tts)
-                    except Exception:
-                        pass
                 else:
                     print(f"⚠️ TTS anuncio: no se pudo generar el audio para «{texto}»")
             except Exception as e_tts:
                 print(f"❌ Error emitiendo anuncio TTS de Toby: {e_tts}")
+            finally:
+                for r in (ruta_tts, ruta_pcm):
+                    try:
+                        if os.path.exists(r):
+                            os.remove(r)
+                    except Exception:
+                        pass
 
         # Configurar evento de fin de audio en PyTgCalls
         if tgcalls:
@@ -3215,11 +3271,14 @@ async def main() -> None:
                 # Emitir en vivo el anuncio de voz de Toby y el pitido inicial de oración en la sala de voz
                 async def emitir_secuencia_oracion():
                     try:
+                        print("🕊️ Emitiendo locución de Toby para la oración comunitaria (8:28 PM)...")
                         await emitir_anuncio_tts("Comunidad, entramos en nuestro momento de oración y recogimiento en silencio por 3 minutos. GRACIAS.")
+                        await asyncio.sleep(0.8)
                     except Exception as e_an:
                         print("Nota emitiendo anuncio de oración:", e_an)
                     pitido_ini = obtener_pitido_inicial_oracion()
                     if pitido_ini:
+                        print("🔔 Emitiendo campana inicial de oración...")
                         await reproducir_audio_efimero(pitido_ini)
 
                 lanzar_tarea(emitir_secuencia_oracion())
