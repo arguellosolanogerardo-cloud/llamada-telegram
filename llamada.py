@@ -2050,7 +2050,7 @@ async def main() -> None:
                         with open(ruta_salida, "wb") as f_out:
                             f_out.write(audio_total)
 
-                        # Modular acústicamente a voz de niño-robot Toby (+32% tono infantil + sutil textura metálica)
+                        # Modular acústicamente a voz de niño pausada y tierna (tono dulce +22%, ritmo sereno y pausado)
                         fbin = shutil.which("ffmpeg") or "ffmpeg"
                         ruta_temp = ruta_salida + ".raw_tts.mp3"
                         try:
@@ -2058,18 +2058,18 @@ async def main() -> None:
                             cmd_robot = [
                                 fbin, "-y",
                                 "-i", ruta_temp,
-                                "-af", "asetrate=44100*1.32,aresample=44100,atempo=1/1.25,flanger=delay=2:depth=1.5:regen=45:width=50:speed=1.5",
+                                "-af", "asetrate=24000*1.22,aresample=24000,atempo=0.90/1.22",
                                 "-b:a", "128k",
                                 ruta_salida
                             ]
                             res_r = subprocess.run(cmd_robot, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
                             if res_r.returncode == 0 and os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
-                                print(f"🤖🎙️ Voz de niño-robot Toby modulada exitosamente ({os.path.getsize(ruta_salida)} bytes).")
+                                print(f"👦🎙️ Voz de niño tierna y pausada modulada exitosamente ({os.path.getsize(ruta_salida)} bytes).")
                             else:
                                 if os.path.exists(ruta_temp) and not os.path.exists(ruta_salida):
                                     os.replace(ruta_temp, ruta_salida)
                         except Exception as e_mod:
-                            print("Nota modulando voz niño-robot:", e_mod)
+                            print("Nota modulando voz de niño:", e_mod)
                             if os.path.exists(ruta_temp) and not os.path.exists(ruta_salida):
                                 os.replace(ruta_temp, ruta_salida)
                         finally:
