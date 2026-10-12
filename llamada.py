@@ -2049,6 +2049,36 @@ async def main() -> None:
                     if len(audio_total) > 1000:
                         with open(ruta_salida, "wb") as f_out:
                             f_out.write(audio_total)
+
+                        # Modular acústicamente a voz de niño-robot Toby (+32% tono infantil + sutil textura metálica)
+                        fbin = shutil.which("ffmpeg") or "ffmpeg"
+                        ruta_temp = ruta_salida + ".raw_tts.mp3"
+                        try:
+                            os.replace(ruta_salida, ruta_temp)
+                            cmd_robot = [
+                                fbin, "-y",
+                                "-i", ruta_temp,
+                                "-af", "asetrate=44100*1.32,aresample=44100,atempo=1/1.25,flanger=delay=2:depth=1.5:regen=45:width=50:speed=1.5",
+                                "-b:a", "128k",
+                                ruta_salida
+                            ]
+                            res_r = subprocess.run(cmd_robot, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                            if res_r.returncode == 0 and os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
+                                print(f"🤖🎙️ Voz de niño-robot Toby modulada exitosamente ({os.path.getsize(ruta_salida)} bytes).")
+                            else:
+                                if os.path.exists(ruta_temp) and not os.path.exists(ruta_salida):
+                                    os.replace(ruta_temp, ruta_salida)
+                        except Exception as e_mod:
+                            print("Nota modulando voz niño-robot:", e_mod)
+                            if os.path.exists(ruta_temp) and not os.path.exists(ruta_salida):
+                                os.replace(ruta_temp, ruta_salida)
+                        finally:
+                            if os.path.exists(ruta_temp):
+                                try:
+                                    os.remove(ruta_temp)
+                                except Exception:
+                                    pass
+
                         print(f"✅ Locución TTS generada exitosamente con Google TTS ({len(frases)} fragmentos, {len(audio_total)} bytes).")
                         return True
                 except Exception as e_gtts:
