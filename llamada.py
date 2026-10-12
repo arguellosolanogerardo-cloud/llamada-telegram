@@ -3349,9 +3349,9 @@ async def main() -> None:
 
                 # Moderación de micrófonos en vivo: asegurar detección infalible de administradores
                 if uid not in admin_ids:
-                    # Protección por nombre: Si es Mario Carrillo, reconocerlo inmediatamente como Administrador
                     nom_lower = nombre.lower()
-                    if "mario" in nom_lower and "carrillo" in nom_lower:
+                    # Protección por nombre inquebrantable para los administradores principales
+                    if any(k in nom_lower for k in ("gerardo", "mario", "claudia", "maricela", "carrillo")):
                         admin_ids.add(uid)
                         print(f"👑 Administrador detectado por nombre: {nombre} ({uid}). Añadido a admin_ids permanentemente.")
                     elif uid not in checked_admins_cache:
