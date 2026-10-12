@@ -9,6 +9,7 @@ import random
 import struct
 import subprocess
 import shutil
+import tempfile
 import urllib.request
 import wave
 from zoneinfo import ZoneInfo
@@ -1964,24 +1965,53 @@ async def main() -> None:
             except Exception as e:
                 print("Nota desbloqueando todos los participantes:", e)
 
+        async def generar_audio_tts(texto: str, ruta_salida: str) -> bool:
+            """Genera locución TTS intentando primero con edge_tts (voz Toby)
+            y con fallback automático a Google Translate TTS."""
+            if not texto or not ruta_salida:
+                return False
+            # 1. Intentar edge-tts (Voz Toby niño-robot)
+            try:
+                import edge_tts
+                com = edge_tts.Communicate(texto, "es-CO-GonzaloNeural", pitch="+35Hz", rate="+5%")
+                await com.save(ruta_salida)
+                if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
+                    return True
+            except Exception as e_edge:
+                print(f"Nota edge-tts ({e_edge}), usando fallback de voz...")
+
+            # 2. Fallback infalible Google Translate TTS
+            try:
+                import urllib.request
+                import urllib.parse
+                q = urllib.parse.quote(texto[:300])
+                url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={q}&tl=es&client=tw-ob"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=10) as r, open(ruta_salida, "wb") as f:
+                    f.write(r.read())
+                if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
+                    print("✅ Locución de voz generada exitosamente vía Google TTS.")
+                    return True
+            except Exception as e_gtts:
+                print(f"Error generando locución con Google TTS: {e_gtts}")
+
+            return False
+
         async def anunciar_turno_por_voz(nombre_destinatario: str):
             """Emite la voz de Toby en vivo en la sala anunciando el turno del siguiente orador."""
             if not tgcalls:
                 print("⚠️ TTS turno: tgcalls no disponible.")
                 return
             try:
-                import edge_tts
                 from telethon.tl.types import InputPeerSelf
 
                 nom_limpio = str(nombre_destinatario or "").split()[0][:20] or "Compañero"
                 texto_tts = f"¡Turno de palabra para {nom_limpio}, adelante te escuchamos!"
                 ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_turno_{int(time.time()*1000)}.mp3")
 
-                # 1. Generar el audio TTS
-                com = edge_tts.Communicate(texto_tts, "es-CO-GonzaloNeural", pitch="+35Hz", rate="+5%")
-                await com.save(ruta_tts)
-
-                if not os.path.exists(ruta_tts) or os.path.getsize(ruta_tts) < 1000:
+                # 1. Generar el audio TTS con fallback
+                ok_tts = await generar_audio_tts(texto_tts, ruta_tts)
+                if not ok_tts or not os.path.exists(ruta_tts) or os.path.getsize(ruta_tts) < 1000:
                     print(f"⚠️ TTS turno: archivo generado vacío o inválido: {ruta_tts}")
                     return
 
@@ -2119,15 +2149,13 @@ async def main() -> None:
                 print(f"Nota reproduciendo audio efímero ({os.path.basename(ruta_audio)}):", e_ef)
 
         async def emitir_anuncio_tts(texto: str):
-            """Genera locución con la voz de Toby (edge_tts) y la emite en vivo en la sala de voz."""
+            """Genera locución con la voz de Toby (edge_tts con fallback) y la emite en vivo en la sala de voz."""
             if not tgcalls or not texto:
                 return
             try:
-                import edge_tts
                 ruta_tts = os.path.join(tempfile.gettempdir(), f"toby_anuncio_{int(time.time()*1000)}.mp3")
-                com = edge_tts.Communicate(texto, "es-CO-GonzaloNeural", pitch="+35Hz", rate="+5%")
-                await com.save(ruta_tts)
-                if os.path.exists(ruta_tts) and os.path.getsize(ruta_tts) > 1000:
+                ok_gen = await generar_audio_tts(texto, ruta_tts)
+                if ok_gen and os.path.exists(ruta_tts) and os.path.getsize(ruta_tts) > 1000:
                     print(f"🗣️🎙️ Toby emitiendo locución TTS en la sala: «{texto}»")
                     await reproducir_audio_efimero(ruta_tts)
                     try:
