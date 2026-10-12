@@ -203,15 +203,24 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
             )
         txt_items = "\n\n".join(bloques_items)
         return (
-            f"🕊️ **TAREA DEL DÍA {fecha_str}** 🕊️\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"GRUPO LA VERDAD OS HARA LIBRES, {tiempo_palabra} ({fecha_str}) trabajaremos con las siguientes prácticas en secuencia:\n\n"
+            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+            f"📢 ⚠️ **¡ATENCIÓN COMUNIDAD!** ⚠️ 📢\n"
+            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+            f"🗓️ **{dia_semana_upper}  {fecha_str}**\n"
+            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+            f"👥 **GRUPO: LA VERDAD OS HARÁ LIBRES**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Para {tiempo_palabra} ({fecha_str}) trabajaremos con las siguientes prácticas en secuencia:\n\n"
             f"{txt_items}\n\n"
-            f"⏰ **Cronograma para {cronograma_palabra}:**\n"
-            f"• **7:56 PM:** Apertura de la REUNION VIRTUAL en Telegram.\n"
-            f"• **8:28 PM:** Oración y recogimiento en silencio (3 min). ''SE SILENCIAN MICROFONOS''\n"
-            f"• **8:32 PM:** Reproducción en vivo secuencial de las pistas.   ''SE SILENCIA MICROFONOS''\n\n"
-            f"🎧 *Los audios están disponibles en el grupo para su estudio previo.*"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏰ **HORARIOS PARA ESTA NOCHE (COLOMBIA):**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 📞 **7:56 PM** → Apertura de la **REUNIÓN VIRTUAL** en Telegram.\n"
+            f"• 🤫 **8:28 PM** → Oración y silencio (3 min). 🔇 **MICROFONOS APAGADOS**\n"
+            f"• 🎧 **8:32 PM** → Reproducción en vivo secuencial. 🔇 **MICROFONOS APAGADOS**\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎧 **LOS AUDIOS ESTÁN DISPONIBLES EN EL GRUPO**\n"
+            f"👇 *Pueden escucharlos previamente tocando los mensajes de arriba.*"
         )
 
     if isinstance(info, list) and len(info) == 1:
@@ -227,17 +236,27 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     fecha_orig = info.get("fecha_original") or info.get("fecha", "")
 
     return (
-        f"🕊️ **TAREA DEL DÍA {fecha_str}** 🕊️\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"GRUPO LA VERDAD OS HARA LIBRES, {tiempo_palabra} ({fecha_str}) trabajaremos con la siguiente práctica:\n\n"
-        f"🧘 **{tipo} #{num}:** «{titulo}»\n"
+        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+        f"📢 ⚠️ **¡ATENCIÓN COMUNIDAD!** ⚠️ 📢\n"
+        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+        f"🗓️ **{dia_semana_upper}  {fecha_str}**\n"
+        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+        f"👥 **GRUPO: LA VERDAD OS HARÁ LIBRES**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Para {tiempo_palabra} ({fecha_str}) trabajaremos con la siguiente práctica:\n\n"
+        f"🧘 **{tipo.upper()} #{num}**\n"
+        f"📌 **Título:** «{titulo}»\n"
         f"👤 **Maestro:** {maestro}\n"
         f"🗓️ **Grabación original:** {fecha_orig}\n\n"
-        f"⏰ **Cronograma para {cronograma_palabra}:**\n"
-        f"• **7:56 PM:** Apertura de la REUNION VIRTUAL en Telegram.\n"
-        f"• **8:28 PM:** Oración y recogimiento en silencio (3 min). ''SE SILENCIAN MICROFONOS''\n"
-        f"• **8:32 PM:** Reproducción en vivo de la {tipo.lower()}.   ''SE SILENCIA MICROFONOS''\n\n"
-        f"🎧 *El audio ya fue publicado en el grupo para su estudio previo.*"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⏰ **HORARIOS PARA ESTA NOCHE (COLOMBIA):**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• 📞 **7:56 PM** → Apertura de la **REUNIÓN VIRTUAL** en Telegram.\n"
+        f"• 🤫 **8:28 PM** → Oración y recogimiento (3 min). 🔇 **MICROFONOS APAGADOS**\n"
+        f"• 🎧 **8:32 PM** → Reproducción en vivo de la {tipo.lower()}. 🔇 **MICROFONOS APAGADOS**\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎧 **EL AUDIO YA FUE PUBLICADO EN EL GRUPO**\n"
+        f"👇 *Pueden escucharlo previamente tocando el mensaje de arriba o en el botón oficial.*"
     )
 
 
@@ -498,18 +517,31 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                 if len(items) > 1:
                     txt_detalles = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)
                     texto_priv = (
-                        f"🕊️ **TAREA DEL DÍA {fecha_final}** 🕊️\n"
-                        f"Hola **{datos.get('nombre', 'Compañero')}**, trabajaremos con:\n\n"
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                        f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
+                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                        f"🗓️ **FECHA: {fecha_final}**\n"
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+                        f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
                         f"{txt_detalles}\n\n"
-                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
+                        f"👇 *Toca los botones abajo para escuchar los audios.*"
                     )
                 else:
                     texto_priv = (
-                        f"🕊️ **TAREA DEL DÍA {fecha_final}** 🕊️\n"
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                        f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
+                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                        f"🗓️ **FECHA: {fecha_final}**\n"
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
                         f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
-                        f"🧘 **{info.get('tipo', 'MEDITACION').title()} #{info['numero']}:** «{info['titulo']}»\n"
+                        f"🧘 **{info.get('tipo', 'MEDITACION').upper()} #{info['numero']}**\n"
+                        f"📌 **Título:** «{info['titulo']}»\n"
                         f"👤 **Maestro:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
-                        f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
+                        f"👇 *Toca el botón de abajo para escuchar el audio directamente.*"
                     )
                 teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items)
                 if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):

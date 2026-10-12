@@ -1944,18 +1944,31 @@ def escuchar_comandos() -> None:
                                     if len(audios_procesados) > 1:
                                         txt_items_p = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in audios_procesados)
                                         txt_priv = (
-                                            f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                                            f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
+                                            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                                            f"🗓️ **FECHA: {fecha_priv}**\n"
+                                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
                                             f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
                                             f"{txt_items_p}\n\n"
-                                            f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                            f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
+                                            f"👇 *Usa los botones abajo para escuchar los audios.*"
                                         )
                                     else:
                                         txt_priv = (
-                                            f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                                            f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
+                                            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                                            f"🗓️ **FECHA: {fecha_priv}**\n"
+                                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
                                             f"Hola **{datos.get('nombre', 'Compañero')}**, {tiempo_saludo} trabajaremos con:\n\n"
-                                            f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                            f"🧘 **{info_cat.get('tipo', 'MEDITACION').upper()} #{info_cat['numero']}**\n"
+                                            f"📌 **Título:** «{info_cat['titulo']}»\n"
                                             f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Grabación:** {info_cat['fecha']}\n\n"
-                                            f"⏰ Te esperamos puntual a las 7:56 PM para la apertura de la sala."
+                                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                            f"⏰ **Te esperamos puntual a las 7:56 PM para la apertura de la sala.**\n"
+                                            f"👇 *Toca el botón abajo para escuchar el audio directamente.*"
                                         )
                                     if enviar_mensaje(u_id, txt_priv, reply_markup=teclado_actual):
                                         enviados_priv += 1
@@ -2263,11 +2276,18 @@ def escuchar_comandos() -> None:
                                     except ValueError:
                                         continue
                                     txt_priv = (
-                                        f"🕊️ **TAREA DEL DÍA {fecha_priv}** 🕊️\n"
+                                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                                        f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
+                                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                                        f"🗓️ **FECHA: {fecha_priv}**\n"
+                                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
                                         f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
-                                        f"🧘 **{info_cat.get('tipo', 'MEDITACION').title()} #{info_cat['numero']}:** «{info_cat['titulo']}»\n"
+                                        f"🧘 **{info_cat.get('tipo', 'MEDITACION').upper()} #{info_cat['numero']}**\n"
+                                        f"📌 **Título:** «{info_cat['titulo']}»\n"
                                         f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Fecha:** {info_cat['fecha']}\n\n"
-                                        f"¡Te esperamos puntual esta noche a las 7:56 PM!"
+                                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                        f"⏰ **¡Te esperamos puntual esta noche a las 7:56 PM!**\n"
+                                        f"👇 *Toca el botón abajo para escuchar el audio directamente.*"
                                     )
                                     if enviar_mensaje(u_id, txt_priv, reply_markup=teclado):
                                         enviados_priv += 1
