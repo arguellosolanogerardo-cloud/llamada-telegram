@@ -61,13 +61,13 @@ except ImportError:
     PYTGCALLS_AVAILABLE = False
 
 # Credenciales obligatorias
-API_ID = int(os.environ.get("TG_API_ID", "0"))
-API_HASH = os.environ.get("TG_API_HASH", "")
-SESSION = os.environ.get("TG_SESSION", "")
-GRUPO = os.environ.get("TG_GROUP", "")  # @usuario, o id numérico (-100...)
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # opcional
+API_ID = int((os.environ.get("TG_API_ID", "0") or "0").strip())
+API_HASH = (os.environ.get("TG_API_HASH", "") or "").strip()
+SESSION = (os.environ.get("TG_SESSION", "") or "").strip()
+GRUPO = (os.environ.get("TG_GROUP", "") or "").strip()
+BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
 BOT_ID = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
-CHAT_ID = os.environ.get("CHAT_ID", GRUPO)  # id del grupo para el bot
+CHAT_ID = (os.environ.get("CHAT_ID") or GRUPO or "").strip()
 TITULO = os.environ.get("CALL_TITLE", "Llamada diaria")
 AVISO = os.environ.get(
     "AVISO",

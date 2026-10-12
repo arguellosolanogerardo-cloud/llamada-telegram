@@ -7,13 +7,13 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, cargar_catalogo, identificar_todos_los_audios
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
+BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
+CHAT_ID = (os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP") or "").strip()
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 
-TG_API_ID = os.environ.get("TG_API_ID")
-TG_API_HASH = os.environ.get("TG_API_HASH")
-TG_SESSION = os.environ.get("TG_SESSION")
+TG_API_ID = (os.environ.get("TG_API_ID") or "").strip()
+TG_API_HASH = (os.environ.get("TG_API_HASH") or "").strip()
+TG_SESSION = (os.environ.get("TG_SESSION") or "").strip()
 
 
 def extraer_fecha_de_texto(texto: str, fecha_referencia: datetime = None) -> str | None:

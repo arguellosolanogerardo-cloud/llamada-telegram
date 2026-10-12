@@ -39,13 +39,13 @@ from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, id
 from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
 BOT_ID = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
-CHAT_ID = os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP")
-TG_API_ID = os.environ.get("TG_API_ID")
-TG_API_HASH = os.environ.get("TG_API_HASH")
-TG_SESSION = os.environ.get("TG_SESSION")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+CHAT_ID = (os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP") or "").strip()
+TG_API_ID = (os.environ.get("TG_API_ID") or "").strip()
+TG_API_HASH = (os.environ.get("TG_API_HASH") or "").strip()
+TG_SESSION = (os.environ.get("TG_SESSION") or "").strip()
+GITHUB_TOKEN = (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
 
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 RUTA_AUDIOS_REGISTRADOS = os.path.join("data", "meditaciones", "audios_registrados.json")
