@@ -2676,10 +2676,13 @@ async def main() -> None:
             # 1. Intentar edge-tts con timeout corto (si Microsoft no bloquea con 403)
             try:
                 import edge_tts
-                com = edge_tts.Communicate(texto, "es-CO-GonzaloNeural", pitch="+30Hz", rate="+5%")
-                await asyncio.wait_for(com.save(ruta_salida), timeout=3.5)
+                voz_toby = os.getenv("VOZ_TOBY", "es-PE-AlexNeural")
+                pitch_toby = os.getenv("VOZ_TOBY_PITCH", "+0Hz")
+                rate_toby = os.getenv("VOZ_TOBY_RATE", "-3%")
+                com = edge_tts.Communicate(texto, voz_toby, pitch=pitch_toby, rate=rate_toby)
+                await asyncio.wait_for(com.save(ruta_salida), timeout=4.0)
                 if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
-                    print(f"✅ Locución TTS generada con edge-tts ({os.path.getsize(ruta_salida)} bytes).")
+                    print(f"✅ Locución TTS ({voz_toby}) generada con edge-tts ({os.path.getsize(ruta_salida)} bytes).")
                     return True
             except Exception as e_edge:
                 pass
@@ -2720,7 +2723,7 @@ async def main() -> None:
                         with open(ruta_salida, "wb") as f_out:
                             f_out.write(audio_total)
 
-                        # Modular acústicamente a voz de niño pausada y tierna (tono dulce +22%, ritmo sereno y pausado)
+                        # Modular suave y naturalmente sin distorsión de tono artificial
                         fbin = shutil.which("ffmpeg") or "ffmpeg"
                         ruta_temp = ruta_salida + ".raw_tts.mp3"
                         try:
@@ -2728,18 +2731,18 @@ async def main() -> None:
                             cmd_robot = [
                                 fbin, "-y",
                                 "-i", ruta_temp,
-                                "-af", "asetrate=24000*1.22,aresample=24000,atempo=0.90/1.22",
+                                "-af", "volume=1.1,atempo=0.95",
                                 "-b:a", "128k",
                                 ruta_salida
                             ]
                             res_r = subprocess.run(cmd_robot, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
                             if res_r.returncode == 0 and os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
-                                print(f"👦🎙️ Voz de niño tierna y pausada modulada exitosamente ({os.path.getsize(ruta_salida)} bytes).")
+                                print(f"🎙️ Locución modulada suavemente ({os.path.getsize(ruta_salida)} bytes).")
                             else:
                                 if os.path.exists(ruta_temp) and not os.path.exists(ruta_salida):
                                     os.replace(ruta_temp, ruta_salida)
                         except Exception as e_mod:
-                            print("Nota modulando voz de niño:", e_mod)
+                            print("Nota modulando voz suave:", e_mod)
                             if os.path.exists(ruta_temp) and not os.path.exists(ruta_salida):
                                 os.replace(ruta_temp, ruta_salida)
                         finally:
