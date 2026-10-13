@@ -1962,7 +1962,7 @@ async def main() -> None:
 
         async def reproducir_meditacion(pista_idx: int = 0):
             with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"\\n--- Iniciando reproducir_meditacion {pista_idx} ---\\n")
-            nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy, ultimo_error_reproduccion, token_reproduccion
+            nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy, ultimo_error_reproduccion, token_reproduccion, tarea_panel_progreso, msg_panel_meditacion_id, ultimo_texto_panel, ruta_caratula_actual, ruta_activa_audio
             ultimo_error_reproduccion = ""
             if not tgcalls:
                 ultimo_error_reproduccion = "Servicio PyTgCalls no disponible"
@@ -2546,7 +2546,7 @@ async def main() -> None:
                 @tgcalls.on_update()
                 async def manejar_fin_stream(client_call, update):
                     if isinstance(update, StreamEnded):
-                        nonlocal reproduciendo_meditacion, indice_pista_actual
+                        nonlocal reproduciendo_meditacion, indice_pista_actual, tarea_panel_progreso, msg_panel_meditacion_id
                         if reproduciendo_meditacion and not eq_estado["cambiando"]:
                             # Verificar si aún quedan más audios en la cola
                             if indice_pista_actual + 1 < len(cola_reproduccion):
@@ -2564,9 +2564,24 @@ async def main() -> None:
                                 if not ok_sig:
                                     print("Error reproduciendo siguiente pista, finalizando sesión de meditación.")
                                     reproduciendo_meditacion = False
+                                    if tarea_panel_progreso and not tarea_panel_progreso.done():
+                                        tarea_panel_progreso.cancel()
+                                    msg_panel_meditacion_id = None
                                     await desbloquear_todos_los_participantes()
                             else:
                                 reproduciendo_meditacion = False
+                                if tarea_panel_progreso and not tarea_panel_progreso.done():
+                                    tarea_panel_progreso.cancel()
+                                if msg_panel_meditacion_id:
+                                    try:
+                                        await editar_mensaje_bot(
+                                            msg_panel_meditacion_id,
+                                            "⏹️ **REPRODUCCIÓN FINALIZADA**\n🔓 Micrófonos desbloqueados.",
+                                            reply_markup={"inline_keyboard": []}
+                                        )
+                                    except Exception:
+                                        pass
+                                    msg_panel_meditacion_id = None
                                 print("Reproducción de la sesión de meditación concluida automáticamente.")
                                 await desbloquear_todos_los_participantes()
                                 avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
@@ -2743,7 +2758,7 @@ async def main() -> None:
 
             partes_cmd = event.raw_text.strip().split()
             cmd = partes_cmd[0].lower().split("@")[0]
-            nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, reproduciendo_meditacion, volumen_actual
+            nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, reproduciendo_meditacion, volumen_actual, tarea_panel_progreso, msg_panel_meditacion_id, ultimo_texto_panel
             if cmd in ("/reproducir", "/play"):
                 if reproduciendo_meditacion and eq_estado.get("t_pausa") is not None:
                     if tgcalls:
