@@ -116,34 +116,42 @@ def calcular_astronomia_lunar(fecha_hora: datetime.datetime = None, lat: float =
 
 
 def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bool = True) -> Image.Image:
-    """Genera un disco lunar realista con sombra tridimensional y cráteres según la fase."""
+    """Genera un disco lunar realista con franja blanca luminosa y aura/halo celestial para resaltar en el cosmos."""
     size = radius * 2
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
     cx, cy = radius, radius
 
-    # 1. Base gris perla de la luna
-    draw.ellipse([(0, 0), (size - 1, size - 1)], fill=(228, 233, 242, 255))
+    # 1. Base del cuerpo lunar (esfera 3D visible con mares, en azul noche cósmico)
+    moon_body = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d_body = ImageDraw.Draw(moon_body)
+    d_body.ellipse([(0, 0), (size - 1, size - 1)], fill=(24, 30, 46, 255))
 
-    # 2. Relieve y mares lunares
     scale = radius / 110.0
     manchas = [
-        (cx - int(30 * scale), cy - int(25 * scale), int(38 * scale), int(30 * scale), (160, 168, 180, 220)),
-        (cx + int(25 * scale), cy - int(15 * scale), int(32 * scale), int(28 * scale), (150, 160, 175, 220)),
-        (cx + int(45 * scale), cy + int(5 * scale), int(28 * scale), int(26 * scale), (145, 155, 170, 220)),
-        (cx - int(40 * scale), cy + int(20 * scale), int(36 * scale), int(42 * scale), (155, 165, 178, 220)),
-        (cx + int(10 * scale), cy + int(40 * scale), int(30 * scale), int(25 * scale), (165, 172, 185, 220)),
-        (cx - int(10 * scale), cy - int(50 * scale), int(22 * scale), int(18 * scale), (170, 178, 190, 200)),
+        (cx - int(30 * scale), cy - int(25 * scale), int(38 * scale), int(30 * scale), (32, 40, 60, 255)),
+        (cx + int(25 * scale), cy - int(15 * scale), int(32 * scale), int(28 * scale), (30, 38, 56, 255)),
+        (cx + int(45 * scale), cy + int(5 * scale), int(28 * scale), int(26 * scale), (34, 42, 62, 255)),
+        (cx - int(40 * scale), cy + int(20 * scale), int(36 * scale), int(42 * scale), (28, 36, 54, 255)),
+        (cx + int(10 * scale), cy + int(40 * scale), int(30 * scale), int(25 * scale), (32, 40, 58, 255)),
     ]
     for mx, my, mw, mh, col in manchas:
-        draw.ellipse([(mx - mw // 2, my - mh // 2), (mx + mw // 2, my + mh // 2)], fill=col)
+        d_body.ellipse([(mx - mw // 2, my - mh // 2), (mx + mw // 2, my + mh // 2)], fill=col)
 
-    # 3. Sombra del terminador según iluminación física exacta con luz cenicienta
-    frac = max(0.0, min(1.0, illumination / 100.0))
-    shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    s_draw = ImageDraw.Draw(shadow_layer)
-    # Luz cenicienta (Earthshine): permite vislumbrar sutilmente el cuerpo esférico de la Luna
-    s_color = (6, 8, 14, 235)
+    # 2. Capa de iluminación blanca pura y brillante
+    lit_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d_lit = ImageDraw.Draw(lit_layer)
+    d_lit.ellipse([(0, 0), (size - 1, size - 1)], fill=(255, 255, 255, 255))
+
+    manchas_lit = [
+        (cx + int(25 * scale), cy - int(15 * scale), int(32 * scale), int(28 * scale), (225, 235, 248, 255)),
+        (cx + int(45 * scale), cy + int(5 * scale), int(28 * scale), int(26 * scale), (210, 225, 242, 255)),
+    ]
+    for mx, my, mw, mh, col in manchas_lit:
+        d_lit.ellipse([(mx - mw // 2, my - mh // 2), (mx + mw // 2, my + mh // 2)], fill=col)
+
+    # Máscara del terminador: asegura franja blanca clara y nítida según la fase del día
+    lit_mask = Image.new("L", (size, size), 0)
+    d_m = ImageDraw.Draw(lit_mask)
+    frac = max(0.08, min(0.98, illumination / 100.0))
 
     for y in range(size):
         dy = y - cy
@@ -152,39 +160,51 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
         dx_circle = math.sqrt(radius**2 - dy**2)
         x_left = cx - dx_circle
         x_right = cx + dx_circle
-
         if is_waxing:
             x_term = cx + dx_circle * (1.0 - 2.0 * frac)
-            if x_term > x_left:
-                s_draw.line([(x_left, y), (min(x_right, x_term), y)], fill=s_color)
+            if x_term < x_right:
+                d_m.line([(max(x_left, x_term), y), (x_right, y)], fill=255)
         else:
             x_term = cx + dx_circle * (2.0 * frac - 1.0)
-            if x_term < x_right:
-                s_draw.line([(max(x_left, x_term), y), (x_right, y)], fill=s_color)
+            if x_term > x_left:
+                d_m.line([(x_left, y), (min(x_right, x_term), y)], fill=255)
 
-    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(1.2))
+    lit_mask = lit_mask.filter(ImageFilter.GaussianBlur(1.0))
 
-    # Cortar estrictamente al círculo de la luna
-    mask_circle = Image.new("L", (size, size), 0)
-    m_draw = ImageDraw.Draw(mask_circle)
-    m_draw.ellipse([(0, 0), (size - 1, size - 1)], fill=255)
+    # Combinar cuerpo lunar y zona iluminada
+    final_moon = moon_body.copy()
+    final_moon.paste(lit_layer, (0, 0), mask=lit_mask)
 
-    img.paste(shadow_layer, (0, 0), mask=mask_circle)
+    # Borde celeste de 1px para delimitar suavemente el perfil lunar
+    d_f = ImageDraw.Draw(final_moon)
+    d_f.ellipse([(0, 0), (size - 1, size - 1)], outline=(160, 190, 235, 220), width=1)
 
-    # Delicado borde celeste de 1px para delimitar la esfera lunar en el espacio profundo
-    d_res = ImageDraw.Draw(img)
-    d_res.ellipse([(0, 0), (size - 1, size - 1)], outline=(65, 78, 105, 130), width=1)
+    # 3. HALO Y AURA BLANCA RADIANTE ALREDEDOR DE LA LUNA
+    pad = 40
+    canvas_size = size + pad * 2
+    halo_canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    d_halo = ImageDraw.Draw(halo_canvas)
 
-    # Resplandor suave externo sobre fondo negro para resaltar la luna
-    glow = Image.new("RGBA", (size + 36, size + 36), (0, 0, 0, 0))
-    g_draw = ImageDraw.Draw(glow)
-    g_draw.ellipse([(18, 18), (size + 17, size + 17)], fill=(195, 218, 255, 55))
-    glow = glow.filter(ImageFilter.GaussianBlur(10))
+    # Capa 1: Aura amplia difusa blanca celestial
+    d_halo.ellipse([(pad - 20, pad - 20), (pad + size + 19, pad + size + 19)], fill=(210, 230, 255, 95))
+    halo_canvas = halo_canvas.filter(ImageFilter.GaussianBlur(20))
 
-    result = Image.new("RGBA", (size + 36, size + 36), (0, 0, 0, 0))
-    result.paste(glow, (0, 0))
-    result.paste(img, (18, 18), mask=mask_circle)
-    return result
+    # Capa 2: Aura media luminosa blanca
+    halo_mid = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    d_mid = ImageDraw.Draw(halo_mid)
+    d_mid.ellipse([(pad - 8, pad - 8), (pad + size + 7, pad + size + 7)], fill=(255, 255, 255, 140))
+    halo_mid = halo_mid.filter(ImageFilter.GaussianBlur(8))
+    halo_canvas.paste(halo_mid, (0, 0), mask=halo_mid)
+
+    # Capa 3: Anillo nítido de luz perimetral blanca
+    halo_ring = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    d_ring = ImageDraw.Draw(halo_ring)
+    d_ring.ellipse([(pad - 1, pad - 1), (pad + size, pad + size)], outline=(255, 255, 255, 200), width=2)
+    halo_canvas.paste(halo_ring, (0, 0), mask=halo_ring)
+
+    # Pegar la luna sobre el halo
+    halo_canvas.paste(final_moon, (pad, pad), mask=final_moon)
+    return halo_canvas
 
 
 def wrap_text_balanced(text: str, font: ImageFont.ImageFont, max_width: int, draw: ImageDraw.ImageDraw) -> list[str]:
