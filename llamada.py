@@ -2057,7 +2057,23 @@ async def main() -> None:
             info_catalogo_hoy = pista_actual.get("info")
 
             try:
-                # 0. Si hay preparación de recursos en segundo plano para esta pista, esperarla
+                # 1. Anuncio de voz por Toby antes de la meditación oficial (pista inicial)
+                if pista_idx == 0:
+                    try:
+                        num = (info_catalogo_hoy or {}).get("numero", "")
+                        tit = (info_catalogo_hoy or {}).get("titulo", "Meditación diaria")
+                        maestro = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                        if num:
+                            txt_med = f"A continuación daremos inicio a la meditación diaria número {num}: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
+                        else:
+                            txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
+                        print(f"🧘🎙️ Emitiendo anuncio de meditación #{num or 'diaria'} con voz de Toby...")
+                        await emitir_anuncio_tts(txt_med)
+                        await asyncio.sleep(0.5)
+                    except Exception as e_tts_med:
+                        print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
+
+                # 2. Si hay preparación de recursos en segundo plano para esta pista, esperarla
                 if pista_idx == 0 and tarea_preparacion_recursos and not tarea_preparacion_recursos.done():
                     print("⏳ Esperando que finalice la preparación de recursos (audio HD y video carátula MP4)...")
                     try:
@@ -2065,7 +2081,7 @@ async def main() -> None:
                     except Exception as e_esp:
                         print("Nota esperando tarea de recursos:", e_esp)
 
-                # 1. Obtener audio con gongs (del cache preparado o generándolo)
+                # 3. Obtener audio con gongs (del cache preparado o generándolo)
                 if pista_idx == 0 and recursos_meditacion_preparados.get("audio") and os.path.exists(recursos_meditacion_preparados["audio"]):
                     ruta_a_reproducir = recursos_meditacion_preparados["audio"]
                 else:
@@ -2074,7 +2090,7 @@ async def main() -> None:
                     ruta_a_reproducir = os.path.abspath(ruta_a_reproducir)
                 ruta_activa_audio = ruta_a_reproducir
 
-                # 2. Obtener video carátula MP4 dinámico
+                # 4. Obtener video carátula MP4 dinámico
                 if pista_idx == 0 and recursos_meditacion_preparados.get("video") and os.path.exists(recursos_meditacion_preparados["video"]):
                     ruta_caratula_actual = recursos_meditacion_preparados["video"]
                 else:
@@ -2091,22 +2107,6 @@ async def main() -> None:
                     except Exception as e_car:
                         print("Nota generando carátula:", e_car)
                         ruta_caratula_actual = ""
-
-                # 3. Anuncio de voz por Toby antes de la meditación oficial (pista inicial)
-                if pista_idx == 0:
-                    try:
-                        num = (info_catalogo_hoy or {}).get("numero", "")
-                        tit = (info_catalogo_hoy or {}).get("titulo", "Meditación diaria")
-                        maestro = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
-                        if num:
-                            txt_med = f"A continuación daremos inicio a la meditación diaria número {num}: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
-                        else:
-                            txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
-                        print(f"🧘🎙️ Emitiendo anuncio de meditación #{num or 'diaria'} con voz de Toby...")
-                        await emitir_anuncio_tts(txt_med)
-                        await asyncio.sleep(0.5)
-                    except Exception as e_tts_med:
-                        print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
 
                 # 4. Asegurar que la sala permita la transmisión sin silenciamiento global
                 try:
@@ -2851,6 +2851,7 @@ async def main() -> None:
                             return
                         except Exception as e_res:
                             print("Nota reanudando:", e_res)
+                await responder_admin("🧘 **Iniciando meditación...** Preparando emisión en vivo.")
                 if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
                 if cola_reproduccion and indice_pista_actual >= len(cola_reproduccion):

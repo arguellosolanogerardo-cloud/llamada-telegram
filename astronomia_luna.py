@@ -118,12 +118,94 @@ def calcular_astronomia_lunar(fecha_hora: datetime.datetime = None, lat: float =
     }
 
 
-def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bool = True) -> Image.Image:
-    """Genera un disco lunar realista con franja blanca luminosa y aura/halo celestial para resaltar en el cosmos."""
+def render_moon_disc(radius: int = 110, illumination: float = 84.6, is_waxing: bool = True) -> Image.Image:
+    """Genera un disco lunar hiperrealista con textura fotográfica de alta resolución, mares y cráteres reales, brillo ceniciento 3D y aura celestial."""
     size = radius * 2
     cx, cy = radius, radius
+    tex_path = os.path.join("data", "assets", "luna_real_500.png")
 
-    # 1. Base del cuerpo lunar (esfera 3D visible con mares, en azul noche cósmico)
+    if os.path.exists(tex_path):
+        try:
+            from PIL import ImageEnhance
+            base = Image.open(tex_path).convert("RGBA")
+            base = base.resize((size, size), Image.Resampling.LANCZOS)
+
+            # 1. Lado iluminado: blanco plateado nítido con alto contraste
+            enh_bright = ImageEnhance.Brightness(base).enhance(1.22)
+            lit_moon = ImageEnhance.Contrast(enh_bright).enhance(1.15)
+
+            # 2. Lado oscuro (Brillo Ceniciento / Earthshine): azul pizarra cósmico 3D donde los cráteres y mares siguen siendo perceptibles
+            dark_gray = base.convert("L")
+            dark_moon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            p_gray = dark_gray.load()
+            p_dark = dark_moon.load()
+            for y in range(size):
+                dy = y - cy
+                if abs(dy) >= radius:
+                    continue
+                dx_circle = math.sqrt(max(0, radius**2 - dy**2))
+                x_min = max(0, int(cx - dx_circle))
+                x_max = min(size - 1, int(cx + dx_circle))
+                for x in range(x_min, x_max + 1):
+                    val = p_gray[x, y]
+                    p_dark[x, y] = (int(val * 0.16), int(val * 0.22), min(255, int(val * 0.35) + 12), 255)
+
+            # 3. Máscara del terminador según iluminación exacta del día
+            mask = Image.new("L", (size, size), 0)
+            d_m = ImageDraw.Draw(mask)
+            frac = max(0.04, min(0.96, illumination / 100.0))
+
+            for y in range(size):
+                dy = y - cy
+                if abs(dy) >= radius:
+                    continue
+                dx_circle = math.sqrt(max(0, radius**2 - dy**2))
+                x_left = cx - dx_circle
+                x_right = cx + dx_circle
+                if is_waxing:
+                    x_term = cx + dx_circle * (1.0 - 2.0 * frac)
+                    if x_term < x_right:
+                        d_m.line([(max(x_left, x_term), y), (x_right, y)], fill=255)
+                else:
+                    x_term = cx + dx_circle * (2.0 * frac - 1.0)
+                    if x_term > x_left:
+                        d_m.line([(x_left, y), (min(x_right, x_term), y)], fill=255)
+
+            mask = mask.filter(ImageFilter.GaussianBlur(1.8))
+
+            # Combinar lado iluminado y lado oscuro
+            combined = dark_moon.copy()
+            combined.paste(lit_moon, (0, 0), mask=mask)
+
+            # 4. Aura y halo celestial radiante
+            pad = 42
+            c_size = size + pad * 2
+            halo_canvas = Image.new("RGBA", (c_size, c_size), (0, 0, 0, 0))
+            d_halo = ImageDraw.Draw(halo_canvas)
+
+            # Capa difusa exterior blanca-celeste
+            d_halo.ellipse([(pad - 22, pad - 22), (pad + size + 21, pad + size + 21)], fill=(215, 230, 255, 90))
+            halo_canvas = halo_canvas.filter(ImageFilter.GaussianBlur(22))
+
+            # Capa media luminosa
+            halo_mid = Image.new("RGBA", (c_size, c_size), (0, 0, 0, 0))
+            d_mid = ImageDraw.Draw(halo_mid)
+            d_mid.ellipse([(pad - 8, pad - 8), (pad + size + 7, pad + size + 7)], fill=(255, 255, 255, 140))
+            halo_mid = halo_mid.filter(ImageFilter.GaussianBlur(8))
+            halo_canvas.paste(halo_mid, (0, 0), mask=halo_mid)
+
+            # Anillo nítido de luz perimetral blanca
+            halo_ring = Image.new("RGBA", (c_size, c_size), (0, 0, 0, 0))
+            d_ring = ImageDraw.Draw(halo_ring)
+            d_ring.ellipse([(pad, pad), (pad + size - 1, pad + size - 1)], outline=(225, 240, 255, 200), width=1)
+            halo_canvas.paste(halo_ring, (0, 0), mask=halo_ring)
+
+            halo_canvas.paste(combined, (pad, pad), mask=combined)
+            return halo_canvas
+        except Exception as e_tex:
+            print("Nota usando textura fotográfica lunar, fallback procedural:", e_tex)
+
+    # Fallback procedural
     moon_body = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d_body = ImageDraw.Draw(moon_body)
     d_body.ellipse([(0, 0), (size - 1, size - 1)], fill=(24, 30, 46, 255))
@@ -139,19 +221,10 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
     for mx, my, mw, mh, col in manchas:
         d_body.ellipse([(mx - mw // 2, my - mh // 2), (mx + mw // 2, my + mh // 2)], fill=col)
 
-    # 2. Capa de iluminación blanca pura y brillante
     lit_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d_lit = ImageDraw.Draw(lit_layer)
     d_lit.ellipse([(0, 0), (size - 1, size - 1)], fill=(255, 255, 255, 255))
 
-    manchas_lit = [
-        (cx + int(25 * scale), cy - int(15 * scale), int(32 * scale), int(28 * scale), (225, 235, 248, 255)),
-        (cx + int(45 * scale), cy + int(5 * scale), int(28 * scale), int(26 * scale), (210, 225, 242, 255)),
-    ]
-    for mx, my, mw, mh, col in manchas_lit:
-        d_lit.ellipse([(mx - mw // 2, my - mh // 2), (mx + mw // 2, my + mh // 2)], fill=col)
-
-    # Máscara del terminador: asegura franja blanca clara y nítida según la fase del día
     lit_mask = Image.new("L", (size, size), 0)
     d_m = ImageDraw.Draw(lit_mask)
     frac = max(0.08, min(0.98, illumination / 100.0))
@@ -173,39 +246,15 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
                 d_m.line([(x_left, y), (min(x_right, x_term), y)], fill=255)
 
     lit_mask = lit_mask.filter(ImageFilter.GaussianBlur(1.0))
-
-    # Combinar cuerpo lunar y zona iluminada
     final_moon = moon_body.copy()
     final_moon.paste(lit_layer, (0, 0), mask=lit_mask)
 
-    # Borde celeste de 1px para delimitar suavemente el perfil lunar
-    d_f = ImageDraw.Draw(final_moon)
-    d_f.ellipse([(0, 0), (size - 1, size - 1)], outline=(160, 190, 235, 220), width=1)
-
-    # 3. HALO Y AURA BLANCA RADIANTE ALREDEDOR DE LA LUNA
     pad = 40
     canvas_size = size + pad * 2
     halo_canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
     d_halo = ImageDraw.Draw(halo_canvas)
-
-    # Capa 1: Aura amplia difusa blanca celestial
     d_halo.ellipse([(pad - 20, pad - 20), (pad + size + 19, pad + size + 19)], fill=(210, 230, 255, 95))
     halo_canvas = halo_canvas.filter(ImageFilter.GaussianBlur(20))
-
-    # Capa 2: Aura media luminosa blanca
-    halo_mid = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
-    d_mid = ImageDraw.Draw(halo_mid)
-    d_mid.ellipse([(pad - 8, pad - 8), (pad + size + 7, pad + size + 7)], fill=(255, 255, 255, 140))
-    halo_mid = halo_mid.filter(ImageFilter.GaussianBlur(8))
-    halo_canvas.paste(halo_mid, (0, 0), mask=halo_mid)
-
-    # Capa 3: Anillo nítido de luz perimetral blanca
-    halo_ring = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
-    d_ring = ImageDraw.Draw(halo_ring)
-    d_ring.ellipse([(pad - 1, pad - 1), (pad + size, pad + size)], outline=(255, 255, 255, 200), width=2)
-    halo_canvas.paste(halo_ring, (0, 0), mask=halo_ring)
-
-    # Pegar la luna sobre el halo
     halo_canvas.paste(final_moon, (pad, pad), mask=final_moon)
     return halo_canvas
 
@@ -484,7 +533,7 @@ def generar_video_meditacion_luna(
             astro = calcular_astronomia_lunar()
             moon_cy = max(295, m_y + 112)
             is_waxing = astro["edad"] < 14.765
-            moon_img = render_moon_disc(radius=92, illumination=astro["iluminacion"], is_waxing=is_waxing)
+            moon_img = render_moon_disc(radius=110, illumination=astro["iluminacion"], is_waxing=is_waxing)
             mw, mh = moon_img.size
             fg.paste(moon_img, (640 - mw // 2, moon_cy - mh // 2), mask=moon_img)
 
@@ -670,7 +719,7 @@ def generar_caratula_meditacion_luna(
         # 6. Disco lunar renderizado (adaptativo a la altura de la cabecera)
         moon_cy = max(295, m_y + 112)
         is_waxing = astro["edad"] < 14.765
-        moon_img = render_moon_disc(radius=92, illumination=astro["iluminacion"], is_waxing=is_waxing)
+        moon_img = render_moon_disc(radius=110, illumination=astro["iluminacion"], is_waxing=is_waxing)
         mw, mh = moon_img.size
         moon_x = 640 - mw // 2
         moon_y = moon_cy - mh // 2
