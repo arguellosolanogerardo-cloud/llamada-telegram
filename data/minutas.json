@@ -501,16 +501,15 @@
   },
   "2026-10-13": {
     "fecha": "2026-10-13",
-    "duracion_minutos": 1,
-    "asistentes_count": 6,
+    "duracion_minutos": 15,
+    "asistentes_count": 4,
     "oradores": [
       "GERARDO Argüello 3",
-      "Rafael Salas",
-      "GERARDO ARGUELLO2",
-      "Eduardo Kareka",
-      "Father Gerardo Perez"
+      "Father Gerardo Perez",
+      "Edelio Segovia",
+      "GERARDO ARGUELLO2"
     ],
-    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-13** con una duración de **1 minutos** y un total de **6 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Rafael Salas:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Eduardo Kareka:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-13** con una duración de **15 minutos** y un total de **4 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Edelio Segovia:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
     "ruta_pdf": "data/actas/acta_2026-10-13.pdf",
     "info_catalogo": {
       "numero": 1094,
