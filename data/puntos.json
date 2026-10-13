@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "actualizado": "2026-10-12",
+  "actualizado": "2026-10-13",
   "usuarios": {
     "6207989093": {
       "id": 6207989093,
@@ -1383,5 +1383,5 @@
     }
   },
   "mes_actual": "2026-10",
-  "total_llamadas_mes": 9
+  "total_llamadas_mes": 10
 }

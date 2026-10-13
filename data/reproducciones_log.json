@@ -32,5 +32,12 @@
     "titulo": "Solo aquellos que aprendieron nuestro mensaje estaran con nosotros",
     "indice": 5,
     "fecha_iso": "2026-10-12"
+  },
+  {
+    "fecha": "2026-10-13 08:20:14",
+    "numero": 1094,
+    "titulo": "Este Mensaje se logro con muchos años de preparacion y perseverancia",
+    "indice": 6,
+    "fecha_iso": "2026-10-13"
   }
 ]
