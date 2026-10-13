@@ -423,9 +423,6 @@ def obtener_duracion_segundos(ruta_audio: str) -> float:
 def obtener_sonido_campana_inicio() -> str:
     """Busca el archivo de sonido para el inicio de la meditación o genera uno por defecto."""
     candidatos = [
-        "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3",
-        os.path.join("data", "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3"),
-        os.path.join(CARPETA_MEDITACIONES, "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3"),
         "sonido inicio meditacion.flac",
         "sonido inicio meditacion.wav",
         "sonido inicio meditacion.mp3",
@@ -435,6 +432,9 @@ def obtener_sonido_campana_inicio() -> str:
         os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.flac"),
         os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.wav"),
         os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.mp3"),
+        "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3",
+        os.path.join("data", "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3"),
+        os.path.join(CARPETA_MEDITACIONES, "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3"),
     ]
     for c in candidatos:
         if os.path.exists(c) and os.path.getsize(c) > 1000:
@@ -507,18 +507,23 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
         pass
     try:
         fbin = shutil.which("ffmpeg") or "ffmpeg"
+        filter_str = "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a0];[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];[2:a]aformat=sample_rates=48000:channel_layouts=stereo[a2];[a0][a1][a2]concat=n=3:v=0:a=1[out]"
         cmd = [
             fbin, "-y",
             "-i", s_inicio,
             "-i", ruta_audio,
             "-i", s_salida,
-            "-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1[out]",
+            "-filter_complex", filter_str,
             "-map", "[out]",
+            "-c:a", "libmp3lame", "-b:a", "192k",
             ruta_con_gong
         ]
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
         if res.returncode == 0 and os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 0:
-            print(f"🎵 Audio ensamblado con sonidos: Inicio ({os.path.basename(s_inicio)}) + Meditación + Salida ({os.path.basename(s_salida)})")
+            try:
+                print(f"🎵 Audio ensamblado con sonidos: Inicio ({os.path.basename(s_inicio)}) + Meditación + Salida ({os.path.basename(s_salida)})")
+            except Exception:
+                print("Audio ensamblado con sonidos: Inicio + Meditacion + Salida")
             return ruta_con_gong
     except Exception as e:
         print("Nota combinando gong con audio:", e)
@@ -706,8 +711,14 @@ def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion
     if 0 < dur_s <= 120.0:
         dur_s *= 60.0
 
-    # 1. Intentar generar video animado MP4 en tiempo real (estrellas en movimiento, Orión titilando y reloj en vivo)
+    # 1. Intentar reutilizar video animado MP4 si ya fue generado para esta meditación
     ruta_mp4 = ruta_salida if (ruta_salida and ruta_salida.lower().endswith(".mp4")) else os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.mp4")
+    if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
+        dur_existente = obtener_duracion_segundos(ruta_mp4)
+        if abs(dur_existente - dur_s) <= 15.0:
+            print(f"🎬 Carátula de video MP4 ya existente y sincronizada ({dur_existente:.1f}s), reutilizando.")
+            return ruta_mp4
+
     try:
         from astronomia_luna import generar_video_meditacion_luna
         vid = generar_video_meditacion_luna(
@@ -1852,15 +1863,25 @@ async def main() -> None:
                     print("Error aplicando ecualizador en vivo:", e)
                     return "error"
 
-        if MEJORA_AUDIO and (cola_reproduccion or ruta_meditacion):
-            # Pre-procesa en segundo plano para que los audios estén listos a la hora de reproducir
+        if (cola_reproduccion or ruta_meditacion):
+            # Pre-procesa en segundo plano para que los recursos (audio con gong y video carátula) estén listos
             async def _preparar_meditacion_completa():
                 try:
-                    audio_eq = await preparar_audio_eq()
-                    if audio_eq and os.path.exists(audio_eq):
-                        await asyncio.to_thread(agregar_gongs_al_audio, audio_eq)
+                    audio_base = (await preparar_audio_eq()) if MEJORA_AUDIO else (ruta_meditacion or (cola_reproduccion[0]["ruta"] if cola_reproduccion else ""))
+                    if audio_base and os.path.exists(audio_base):
+                        audio_con_gong = await asyncio.to_thread(agregar_gongs_al_audio, audio_base)
+                        p_act = cola_reproduccion[0] if cola_reproduccion else {}
+                        inf_act = p_act.get("info") or info_catalogo_hoy or {}
+                        n_act = inf_act.get("numero", "")
+                        t_act = inf_act.get("titulo", "Meditación Diaria")
+                        m_act = inf_act.get("maestro", "Alaniso")
+                        dur_e = obtener_duracion_segundos(audio_con_gong if os.path.exists(audio_con_gong) else audio_base)
+                        if dur_e <= 0:
+                            dur_e = 1800.0
+                        await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e)
+                        print("✨ Recursos de meditación (audio con gong y video carátula) pre-generados exitosamente en segundo plano.")
                 except Exception as e_p:
-                    print("Nota pre-procesando meditacion:", e_p)
+                    print("Nota pre-procesando meditacion en segundo plano:", e_p)
             asyncio.create_task(_preparar_meditacion_completa())
 
         async def _watchdog_fin_pista(p_idx: int, dur_s: float, mi_token: int):
@@ -1969,7 +1990,6 @@ async def main() -> None:
                         audio_path=ruta_seek,
                         video_parameters=VideoQuality.HD_720p,
                         audio_parameters=AudioQuality.HIGH,
-                        ffmpeg_parameters="-re",
                     )
                 else:
                     stream_seek = MediaStream(
@@ -2028,7 +2048,28 @@ async def main() -> None:
             info_catalogo_hoy = pista_actual.get("info")
 
             try:
-                # 0. Anuncio de voz por Toby antes de la meditación oficial (pista inicial)
+                # 1. Incorporar campanas tibetanas / gong zen al inicio y final con antelación
+                ruta_base_audio = await preparar_audio_eq(ruta_pista)
+                ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
+                ruta_a_reproducir = os.path.abspath(ruta_a_reproducir)
+                ruta_activa_audio = ruta_a_reproducir
+
+                # 2. Generar o reutilizar carátula de video MP4
+                try:
+                    num_med = (info_catalogo_hoy or {}).get("numero", "")
+                    tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
+                    m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                    dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
+                    if dur_exacta <= 0:
+                        dur_exacta = obtener_duracion_segundos(ruta_pista)
+                    if dur_exacta <= 0:
+                        dur_exacta = 1800.0
+                    ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta)
+                except Exception as e_car:
+                    print("Nota generando carátula:", e_car)
+                    ruta_caratula_actual = ""
+
+                # 3. Anuncio de voz por Toby antes de la meditación oficial (pista inicial)
                 if pista_idx == 0:
                     try:
                         num = (info_catalogo_hoy or {}).get("numero", "")
@@ -2040,22 +2081,17 @@ async def main() -> None:
                             txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
                         print(f"🧘🎙️ Emitiendo anuncio de meditación #{num or 'diaria'} con voz de Toby...")
                         await emitir_anuncio_tts(txt_med)
-                        await asyncio.sleep(0.8)
+                        await asyncio.sleep(0.5)
                     except Exception as e_tts_med:
                         print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
 
-                # 1. Incorporar campanas tibetanas / gong zen al inicio y final con antelación
-                ruta_base_audio = await preparar_audio_eq(ruta_pista)
-                ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
-                ruta_a_reproducir = os.path.abspath(ruta_a_reproducir)
-
-                # 2. Asegurar que la sala permita la transmisión sin silenciamiento global
+                # 4. Asegurar que la sala permita la transmisión sin silenciamiento global
                 try:
                     await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
                 except Exception:
                     pass
 
-                # 3. Inyectar input_call en la caché de PyTgCalls ANTES de cualquier operación
+                # 5. Inyectar input_call en la caché de PyTgCalls ANTES de cualquier operación
                 try:
                     resolved_id = await tgcalls.resolve_chat_id(destino)
                     if hasattr(tgcalls, "_app") and hasattr(tgcalls._app, "_bind_client") and hasattr(tgcalls._app._bind_client, "_cache"):
@@ -2064,7 +2100,7 @@ async def main() -> None:
                 except Exception as e_c:
                     print("Nota registrando input_call:", e_c)
 
-                # 4. Si la llamada ya estaba conectada en PyTgCalls, liberarla
+                # 6. Si la llamada ya estaba conectada en PyTgCalls, liberarla
                 try:
                     calls_activas = await tgcalls._binding.calls()
                     if destino in calls_activas or (isinstance(destino, int) and abs(destino) in calls_activas):
@@ -2083,22 +2119,7 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # 5. Iniciar emisión con pantalla de video HD y audio de alta fidelidad
-                ruta_activa_audio = ruta_a_reproducir
-                try:
-                    num_med = (info_catalogo_hoy or {}).get("numero", "")
-                    tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
-                    m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
-                    dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
-                    if dur_exacta <= 0:
-                        dur_exacta = obtener_duracion_segundos(ruta_pista)
-                    if dur_exacta <= 0:
-                        dur_exacta = 1800.0
-                    ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta)
-                except Exception as e_car:
-                    print("Nota generando carátula:", e_car)
-                    ruta_caratula_actual = ""
-
+                # 7. Iniciar emisión con pantalla de video HD y audio de alta fidelidad (sin -re incompatible)
                 try:
                     from pytgcalls.types import MediaStream, VideoQuality, AudioQuality
                     if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
@@ -2107,7 +2128,6 @@ async def main() -> None:
                             audio_path=ruta_a_reproducir,
                             video_parameters=VideoQuality.HD_720p,
                             audio_parameters=AudioQuality.HIGH,
-                            ffmpeg_parameters="-re",
                         )
                     else:
                         stream_play = MediaStream(
@@ -2115,9 +2135,9 @@ async def main() -> None:
                             audio_parameters=AudioQuality.HIGH,
                         )
                     
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Iniciando tgcalls.play con stream_play (video+audio)...\n")
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write("Iniciando tgcalls.play con stream_play (video+audio)...\n")
                     await tgcalls.play(destino, stream_play)
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"tgcalls.play con video completado exitosamente.\n")
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write("tgcalls.play con video completado exitosamente.\n")
                     print(f"Emisión de pantalla de video y audio iniciada: {ruta_a_reproducir}")
                 except Exception as e_ms:
                     with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Excepcion en play video: {e_ms}, usando audio directo\n")
@@ -2128,28 +2148,27 @@ async def main() -> None:
                         await tgcalls.play(destino, stream_fb)
                     except Exception:
                         await tgcalls.play(destino, ruta_a_reproducir)
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Fallback tgcalls.play completado.\n")
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write("Fallback tgcalls.play completado.\n")
 
                 await asyncio.sleep(0.5)
 
-                # 5. Desmutear PyTgCalls a nivel WebRTC y maximizar volumen de emisión
+                # 8. Desmutear PyTgCalls a nivel WebRTC y maximizar volumen de emisión
                 try:
-                    await tgcalls.unmute(destino)
+                    await asyncio.wait_for(tgcalls.unmute(destino), timeout=3.0)
                 except Exception:
                     pass
                 try:
-                    await tgcalls.resume(destino)
-                except Exception:
-                    pass
-                try:
-                    await tgcalls.change_volume_call(destino, 200)
+                    await asyncio.wait_for(tgcalls.change_volume_call(destino, 200), timeout=2.0)
                 except Exception:
                     pass
 
-                # 6. Desmutear el micrófono del robot en Telegram utilizando InputPeerSelf
+                # 9. Desmutear el micrófono del robot en Telegram utilizando InputPeerSelf
                 try:
                     from telethon.tl.types import InputPeerSelf
-                    await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
+                    await asyncio.wait_for(
+                        client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False)),
+                        timeout=5.0
+                    )
                     print("Micrófono del robot confirmado activo en Telegram (InputPeerSelf).")
                 except Exception as e_me:
                     print("Nota desmuteando robot en Telegram:", e_me)
