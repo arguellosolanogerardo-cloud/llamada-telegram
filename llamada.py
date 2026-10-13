@@ -1377,6 +1377,112 @@ async def main() -> None:
                     pass
         client.loop.create_task(background_admin_refresher())
 
+        ADMINS_OFICIALES_FIJOS = {8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022}
+        for hard_admin in ADMINS_OFICIALES_FIJOS:
+            admin_ids.add(hard_admin)
+
+        async def es_admin_seguro(ev, sender_obj=None) -> bool:
+            """Verificación robusta e inquebrantable de administradores (7 oficiales, canal, anónimos y nombres)."""
+            try:
+                # 1. Chequeo si el emisor es el bot mismo
+                uid = getattr(sender_obj, "id", None) if sender_obj else getattr(ev, "sender_id", None)
+                if uid and (uid == me.id or (BOT_ID and uid == BOT_ID)):
+                    return True
+
+                # 2. Si el mensaje es una publicación del canal o enviado en nombre del grupo (modo anónimo)
+                # En Telegram, SOLO los administradores pueden enviar mensajes en nombre del grupo o como canal anónimo
+                if getattr(ev.message, "post", False):
+                    return True
+
+                # Telegram @GroupAnonymousBot o Servicio de Telegram
+                if uid in (1087968824, 777000):
+                    return True
+
+                # Comparación con IDs del chat/canal (si se envía como el grupo)
+                chat_id = getattr(ev, "chat_id", None)
+                entidad_id = getattr(entidad, "id", None) if hasattr(entidad, "id") else None
+
+                ids_grupo_posibles = set()
+                if chat_id is not None:
+                    ids_grupo_posibles.add(chat_id)
+                    ids_grupo_posibles.add(abs(chat_id))
+                if entidad_id is not None:
+                    ids_grupo_posibles.add(entidad_id)
+                    ids_grupo_posibles.add(-abs(entidad_id))
+                    try:
+                        ids_grupo_posibles.add(int(f"-100{entidad_id}"))
+                    except Exception:
+                        pass
+
+                if uid is not None and uid in ids_grupo_posibles:
+                    return True
+
+                from_id = getattr(ev.message, "from_id", None)
+                if from_id is None and getattr(ev, "is_group", False):
+                    return True
+                if isinstance(from_id, PeerChannel):
+                    p_cid = getattr(from_id, "channel_id", None)
+                    if p_cid and (p_cid == entidad_id or p_cid == abs(chat_id or 0)):
+                        return True
+
+                # 3. Si sender_obj es un Channel o Chat (enviado como canal o identidad de grupo)
+                if sender_obj is None:
+                    try:
+                        sender_obj = await ev.get_sender()
+                    except Exception:
+                        sender_obj = None
+
+                if isinstance(sender_obj, (Channel, Chat)):
+                    s_id = getattr(sender_obj, "id", None)
+                    if s_id and s_id in ids_grupo_posibles:
+                        return True
+                    s_tit = (getattr(sender_obj, "title", "") or "").lower()
+                    if any(k in s_tit for k in ("verdad", "carrillo", "mario", "libres", "gerardo", "claudia", "maricela")):
+                        if s_id:
+                            admin_ids.add(s_id)
+                        return True
+
+                # 4. Chequeo por lista admin_ids o IDs duros de los 7 administradores
+                if uid is not None and (uid in admin_ids or uid in ADMINS_OFICIALES_FIJOS):
+                    admin_ids.add(uid)
+                    return True
+
+                # 5. Chequeo por Nombre, Apellido, Username o Título del emisor
+                if sender_obj:
+                    tokens = [
+                        getattr(sender_obj, "first_name", "") or "",
+                        getattr(sender_obj, "last_name", "") or "",
+                        getattr(sender_obj, "username", "") or "",
+                        getattr(sender_obj, "title", "") or "",
+                    ]
+                    nombre_completo = " ".join(tokens).lower()
+                    if any(k in nombre_completo for k in ("gerardo", "mario", "claudia", "maricela", "carrillo")):
+                        if uid:
+                            admin_ids.add(uid)
+                        return True
+
+                # 6. Verificación dinámica en vivo con Telegram
+                if uid:
+                    for dest_cand in (entidad, chat_id):
+                        if dest_cand is None:
+                            continue
+                        try:
+                            perm_sender = await client.get_permissions(dest_cand, uid)
+                            if (
+                                getattr(perm_sender, "is_admin", False)
+                                or getattr(perm_sender, "is_creator", False)
+                                or getattr(perm_sender, "manage_call", False)
+                                or getattr(perm_sender, "change_info", False)
+                                or getattr(perm_sender, "delete_messages", False)
+                            ):
+                                admin_ids.add(uid)
+                                return True
+                        except Exception:
+                            pass
+            except Exception as e_chk:
+                print("Nota en verificación de admin:", e_chk)
+
+            return False
 
         full_chat = await obtener_full_chat(client, entidad)
         if not full_chat:
@@ -2818,21 +2924,7 @@ async def main() -> None:
                     ids_mensajes_efimeros.add(r.id)
                 return r
 
-            es_admin_emisor = (uid in admin_ids)
-            if not es_admin_emisor:
-                nom_emisor = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".strip().lower()
-                if any(k in nom_emisor for k in ("gerardo", "mario", "claudia", "maricela", "carrillo")):
-                    es_admin_emisor = True
-                    admin_ids.add(uid)
-                else:
-                    try:
-                        perm_sender = await client.get_permissions(entidad, uid)
-                        if getattr(perm_sender, 'is_admin', False) or getattr(perm_sender, 'is_creator', False) or getattr(perm_sender, 'manage_call', False):
-                            es_admin_emisor = True
-                            admin_ids.add(uid)
-                    except Exception:
-                        pass
-
+            es_admin_emisor = await es_admin_seguro(event, sender)
             if not es_admin_emisor:
                 await responder_admin("⛔ Solo los administradores pueden utilizar este comando.")
                 return
@@ -3164,7 +3256,7 @@ async def main() -> None:
                     ids_mensajes_efimeros.add(r.id)
                 return r
 
-            if uid not in admin_ids:
+            if not await es_admin_seguro(event, sender):
                 await resp("⛔ Solo los administradores pueden usar el ecualizador.")
                 return
             if not MEJORA_AUDIO:
@@ -3255,7 +3347,7 @@ async def main() -> None:
                     ids_mensajes_efimeros.add(r.id)
                 return r
 
-            if uid not in admin_ids:
+            if not await es_admin_seguro(event, sender):
                 await resp_q("⛔ Solo los administradores pueden gestionar la lista de reproducción.")
                 return
 
@@ -3364,10 +3456,9 @@ async def main() -> None:
             
 
             sender_id = event.sender_id
-            if sender_id not in admin_ids or sender_id == me.id or (BOT_ID and sender_id == BOT_ID):
+            if sender_id == me.id or (BOT_ID and sender_id == BOT_ID):
                 return
-
-            if hasattr(entidad, "id") and sender_id == entidad.id:
+            if not await es_admin_seguro(event, sender):
                 return
 
             texto_raw = (event.raw_text or "").strip()
@@ -3511,18 +3602,18 @@ async def main() -> None:
             uid = event.sender_id
             r = None
             try:
-                perm = await client.get_permissions(entidad, uid)
-                es_admin = getattr(perm, 'is_admin', False) or getattr(perm, 'is_creator', False) or getattr(perm, 'manage_call', False) or (uid in admin_ids)
+                es_admin = await es_admin_seguro(event)
                 if es_admin:
-                    admin_ids.add(uid)
-                    try:
-                        input_peer = await client.get_input_entity(uid)
-                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
-                    except Exception:
-                        pass
-                    r = await event.reply("✅ Listo. He forzado la actualización de tus permisos. Tu micrófono ya no se bloqueará.")
+                    if uid:
+                        admin_ids.add(uid)
+                        try:
+                            input_peer = await client.get_input_entity(uid)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                        except Exception:
+                            pass
+                    r = await event.reply("✅ Listo. He verificado tu condición de administrador. Tu micrófono está libre.")
                 else:
-                    r = await event.reply("❌ Telegram dice que no eres administrador.")
+                    r = await event.reply("❌ Telegram indica que no eres administrador.")
             except Exception as e:
                 r = await event.reply(f"⚠️ Error al verificar permisos: {e}")
 
@@ -3539,14 +3630,8 @@ async def main() -> None:
         @client.on(events.NewMessage(chats=entidad))
         async def comandos_naturales_admin(event):
             sender = await event.get_sender()
-            
-            sender_id = event.sender_id
-            if sender_id not in admin_ids:
-                nom_s = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".strip().lower()
-                if any(k in nom_s for k in ("gerardo", "mario", "claudia", "maricela", "carrillo")):
-                    admin_ids.add(sender_id)
-                else:
-                    return
+            if not await es_admin_seguro(event, sender):
+                return
             if hasattr(entidad, "id") and sender_id == entidad.id:
                 return
             texto_raw = (event.raw_text or "").strip().lower()
