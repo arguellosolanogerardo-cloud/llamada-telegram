@@ -395,7 +395,7 @@ def generar_video_meditacion_luna(
         os.makedirs(temp_dir, exist_ok=True)
 
         seed_val = int(numero) if numero and str(numero).isdigit() else 1094
-        dur_seg = max(60.0, float(duracion_seg))
+        dur_seg = float(duracion_seg) if duracion_seg and float(duracion_seg) > 0 else 1800.0
 
         # 1. Generar 20 fotogramas para el bucle de 10s de estrellas y Orión titilando
         num_frames = 20
@@ -494,25 +494,44 @@ def generar_video_meditacion_luna(
         fg_path = os.path.join(temp_dir, "overlay_fg.png")
         fg.save(fg_path)
 
-        # 3. Composición FFmpeg a 1 fps (super ligera y ultra rápida)
-        pct_expr = r"(%{{eif\:floor(min(100, 100*t/" + str(dur_seg) + r"))\:d}}\\\%)"
-        time_expr = r"%{{eif\:floor(t/60)\:d\:2}}\:%{{eif\:floor(mod(t,60))\:d\:2}}"
+        # 3. Elementos dinámicos de la barra de progreso
+        # Tira deslizante de 1840x14: 920px activos color ámbar a la izquierda, 920px transparentes a la derecha
+        strip = Image.new("RGBA", (1840, 14), (0, 0, 0, 0))
+        draw_s = ImageDraw.Draw(strip)
+        draw_s.rectangle([(0, 0), (919, 13)], fill=(245, 158, 11, 255))
+        strip_path = os.path.join(temp_dir, "strip.png")
+        strip.save(strip_path)
+
+        # Bolita indicadora luminosa de 28x28 con aura ámbar y núcleo blanco brillante
+        dot = Image.new("RGBA", (28, 28), (0, 0, 0, 0))
+        draw_d = ImageDraw.Draw(dot)
+        draw_d.ellipse([(0, 0), (27, 27)], fill=(245, 158, 11, 70))
+        draw_d.ellipse([(4, 4), (23, 23)], fill=(251, 191, 36, 180))
+        draw_d.ellipse([(7, 7), (20, 20)], fill=(255, 255, 255, 255))
+        dot_path = os.path.join(temp_dir, "dot.png")
+        dot.save(dot_path)
+
+        # 4. Composición FFmpeg a 1 fps (super ligera y ultra rápida, sincrónica al segundo)
+        dur_int = max(1, int(dur_seg))
+        time_expr = r'%{eif\:floor(t/60)\:d\:2}\:%{eif\:floor(mod(t\,60))\:d\:2}'
+        pct_expr = r'(%{eif\:min(100\,100*t/' + str(dur_int) + r')\:d}\\\%)'
         filter_expr = (
-            "[0:v]copy[bg]; "
-            "[bg][1:v]overlay=0:0[scene]; "
-            f"[scene]drawbox=x=180:y=550:w='min(920, 920*t/{dur_seg})':h=14:color=0xF59E0B:t=fill[b1]; "
-            f"[b1]drawbox=x='171 + min(920, 920*t/{dur_seg})':y=542:w=18:h=30:color=0xF59E0B@0.4:t=fill[b2]; "
-            f"[b2]drawbox=x='175 + min(920, 920*t/{dur_seg})':y=545:w=10:h=24:color=white:t=fill[b3]; "
-            f"[b3]drawtext=text='{time_expr}':x=208:y=587:fontcolor=white:fontsize=26[b4]; "
-            f"[b4]drawtext=text='{pct_expr}':x=1028:y=587:fontcolor=0xFBBF24:fontsize=26[out]"
+            "[0:v][1:v]overlay=0:0[s1]; "
+            f"[2:v]crop=w=920:h=14:x='920-min(920, 920*t/{dur_int})':y=0[bar]; "
+            "[s1][bar]overlay=180:550[s2]; "
+            f"[s2][3:v]overlay=x='180 + min(920, 920*t/{dur_int}) - 14':y=543[s3]; "
+            f"[s3]drawtext=text='{time_expr}':x=208:y=587:fontcolor=white:fontsize=26[s4]; "
+            f"[s4]drawtext=text='{pct_expr}':x=1028:y=587:fontcolor=0xFBBF24:fontsize=26[out]"
         )
         cmd_final = [
             "ffmpeg", "-y",
             "-stream_loop", "-1", "-r", "1", "-i", loop_video,
             "-loop", "1", "-r", "1", "-i", fg_path,
+            "-loop", "1", "-r", "1", "-i", strip_path,
+            "-loop", "1", "-r", "1", "-i", dot_path,
             "-filter_complex", filter_expr,
             "-map", "[out]",
-            "-t", str(int(dur_seg)),
+            "-t", str(dur_int),
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
             ruta_salida
         ]
