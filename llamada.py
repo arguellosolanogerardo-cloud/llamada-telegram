@@ -2363,9 +2363,9 @@ async def main() -> None:
                         tit = (info_catalogo_hoy or {}).get("titulo", "Meditación diaria")
                         maestro = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
                         if num:
-                            txt_med = f"A continuación daremos inicio a la meditación diaria número {num}: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
+                            txt_med = f"A continuación daremos inicio a la meditación diaria, Hoy número {num}: {tit}, del maestro {maestro}."
                         else:
-                            txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}. Tomemos una postura cómoda y permanezcamos en paz."
+                            txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}."
                         print(f"🧘🎙️ Emitiendo anuncio de meditación #{num or 'diaria'} con voz de Toby...")
                         await emitir_anuncio_tts(txt_med)
                         await asyncio.sleep(0.5)
