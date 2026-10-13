@@ -474,7 +474,7 @@ def generar_video_meditacion_luna(
             subprocess.run([
                 "ffmpeg", "-y", "-framerate", "2",
                 "-i", os.path.join(temp_dir, "frame_%03d.png"),
-                "-r", "25",
+                "-r", "2",
                 "-pix_fmt", "yuv420p",
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
                 "-threads", "0",
@@ -621,16 +621,16 @@ def generar_video_meditacion_luna(
             cmd_final = [
                 "ffmpeg", "-y",
                 "-stream_loop", "-1", "-i", loop_video,
-                "-loop", "1", "-r", "25", "-i", fg_path,
-                "-loop", "1", "-r", "25", "-i", strip_path,
-                "-loop", "1", "-r", "25", "-i", dot_path,
+                "-loop", "1", "-r", "2", "-i", fg_path,
+                "-loop", "1", "-r", "2", "-i", strip_path,
+                "-loop", "1", "-r", "2", "-i", dot_path,
                 "-filter_complex", filter_expr,
                 "-map", "[out]",
-                "-r", "25",
+                "-r", "2",
                 "-pix_fmt", "yuv420p",
                 "-t", str(dur_int),
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                "-g", "25",
+                "-g", "4",
                 "-threads", "0",
                 ruta_salida
             ]
