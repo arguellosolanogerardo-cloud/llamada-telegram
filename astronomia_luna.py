@@ -181,6 +181,48 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
     return result
 
 
+def wrap_text_balanced(text: str, font: ImageFont.ImageFont, max_width: int, draw: ImageDraw.ImageDraw) -> list[str]:
+    """Divide el texto en líneas armoniosas respetando el ancho máximo y evitando palabras huérfanas."""
+    w_full = draw.textlength(text, font=font) if hasattr(draw, "textlength") else font.getlength(text)
+    if w_full <= max_width:
+        return [text]
+
+    words = text.split()
+    if len(words) <= 1:
+        return [text]
+
+    lines = []
+    curr = []
+    for w in words:
+        test = " ".join(curr + [w])
+        width = draw.textlength(test, font=font) if hasattr(draw, "textlength") else font.getlength(test)
+        if width <= max_width or not curr:
+            curr.append(w)
+        else:
+            lines.append(" ".join(curr))
+            curr = [w]
+    if curr:
+        lines.append(" ".join(curr))
+
+    # Si se divide en 2 líneas y la segunda tiene 1 sola palabra, balancear
+    if len(lines) == 2:
+        words1 = lines[0].split()
+        words2 = lines[1].split()
+        if len(words2) <= 2 and len(words1) > 3:
+            cand1 = " ".join(words1[:-2])
+            cand2 = " ".join(words1[-2:] + words2)
+            w2 = draw.textlength(cand2, font=font) if hasattr(draw, "textlength") else font.getlength(cand2)
+            if w2 <= max_width:
+                return [cand1, cand2]
+            cand1 = " ".join(words1[:-1])
+            cand2 = " ".join(words1[-1:] + words2)
+            w2 = draw.textlength(cand2, font=font) if hasattr(draw, "textlength") else font.getlength(cand2)
+            if w2 <= max_width:
+                return [cand1, cand2]
+
+    return lines
+
+
 def generar_caratula_meditacion_luna(
     numero: str,
     titulo: str,
@@ -206,12 +248,13 @@ def generar_caratula_meditacion_luna(
         draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(38, 42, 56), width=1)
 
         # 3. Fuentes
-        font_med = font_tit = font_sub = font_phase = font_astro = font_time = None
+        font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
         for f_cand in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"]:
             try:
-                font_med = ImageFont.truetype(f_cand, 46)
-                font_tit = ImageFont.truetype(f_cand, 34)
-                font_sub = ImageFont.truetype(f_cand, 24)
+                font_med = ImageFont.truetype(f_cand, 40)
+                font_tit = ImageFont.truetype(f_cand, 30)
+                font_tit_small = ImageFont.truetype(f_cand, 25)
+                font_sub = ImageFont.truetype(f_cand, 22)
                 font_phase = ImageFont.truetype(f_cand, 28)
                 font_astro = ImageFont.truetype(f_cand, 20)
                 font_time = ImageFont.truetype(f_cand, 26)
@@ -219,43 +262,77 @@ def generar_caratula_meditacion_luna(
             except Exception:
                 continue
         if not font_med:
-            font_med = font_tit = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
+            font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
 
-        # 4. Cabecera (Meditación #, Título, Maestro)
+        # 4. Cabecera dinámica (Meditación #, Título multilínea y Maestro)
         num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
-        draw.text((640, 68), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")
+        draw.text((640, 56), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")
 
-        tit_clean = f"«{titulo}»" if not (titulo or "").startswith("«") else titulo
-        draw.text((640, 118), tit_clean, fill=(255, 255, 255), font=font_tit, anchor="mm")
+        tit_raw = (titulo or "").strip()
+        if not tit_raw:
+            tit_raw = "Paz y Quietud Interior"
+        if not tit_raw.startswith("«") and not tit_raw.endswith("»"):
+            tit_clean = f"«{tit_raw}»"
+        else:
+            tit_clean = tit_raw
 
+        # Margen seguro de 920px para evitar cualquier corte en pantallas móviles
+        max_tit_w = 920
+        lineas_tit = wrap_text_balanced(tit_clean, font_tit, max_tit_w, draw)
+        active_font_tit = font_tit
+        if len(lineas_tit) > 2 and font_tit_small:
+            lineas_tit = wrap_text_balanced(tit_clean, font_tit_small, max_tit_w, draw)
+            active_font_tit = font_tit_small
+
+        line_h = 36 if active_font_tit == font_tit else 30
+        if len(lineas_tit) == 1:
+            start_tit_y = 104
+        elif len(lineas_tit) == 2:
+            start_tit_y = 96
+        else:
+            start_tit_y = 90
+
+        for idx, linea in enumerate(lineas_tit):
+            curr_y = start_tit_y + idx * line_h
+            draw.text((640, curr_y), linea, fill=(255, 255, 255), font=active_font_tit, anchor="mm")
+
+        ultimo_tit_y = start_tit_y + (len(lineas_tit) - 1) * line_h
+        m_y = ultimo_tit_y + 34
         m_txt = f"Maestro: {maestro}" if maestro else "Guía: Alaniso"
-        draw.text((640, 160), m_txt, fill=(199, 210, 254), font=font_sub, anchor="mm")
+        draw.text((640, m_y), m_txt, fill=(199, 210, 254), font=font_sub, anchor="mm")
 
         # 5. Cálculos astronómicos de la Luna de hoy
         astro = calcular_astronomia_lunar()
 
-        # 6. Disco lunar renderizado
+        # 6. Disco lunar renderizado (adaptativo a la altura de la cabecera)
+        moon_cy = max(295, m_y + 112)
         is_waxing = astro["edad"] < 14.765
         moon_img = render_moon_disc(radius=92, illumination=astro["iluminacion"], is_waxing=is_waxing)
         mw, mh = moon_img.size
         moon_x = 640 - mw // 2
-        moon_y = 285 - mh // 2
+        moon_y = moon_cy - mh // 2
         img.paste(moon_img, (moon_x, moon_y), mask=moon_img)
 
-        # 7. Cajas laterales de Salida y Puesta
-        draw.rounded_rectangle([(140, 250), (370, 315)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
-        draw.text((255, 270), "🌙  SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
-        draw.text((255, 296), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+        # 7. Cajas laterales de Salida y Puesta (centradas verticalmente con la Luna)
+        box_y1 = moon_cy - 35
+        box_y2 = moon_cy + 30
+        salida_t_y = moon_cy - 15
+        salida_v_y = moon_cy + 11
 
-        draw.rounded_rectangle([(910, 250), (1140, 315)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
-        draw.text((1025, 270), "🌙  PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
-        draw.text((1025, 296), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+        draw.rounded_rectangle([(140, box_y1), (370, box_y2)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
+        draw.text((255, salida_t_y), "🌙  SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
+        draw.text((255, salida_v_y), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+
+        draw.rounded_rectangle([(910, box_y1), (1140, box_y2)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
+        draw.text((1025, salida_t_y), "🌙  PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
+        draw.text((1025, salida_v_y), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
 
         # 8. Nombre de la fase lunar y métricas
-        draw.text((640, 412), astro["fase"], fill=(251, 191, 36), font=font_phase, anchor="mm")
+        fase_y = moon_cy + 120
+        draw.text((640, fase_y), astro["fase"], fill=(251, 191, 36), font=font_phase, anchor="mm")
 
         astro_line = f"Iluminación: {astro['iluminacion']}%   •   Edad: {astro['edad']} días   •   Distancia: {astro['distancia']:,} km".replace(",", ".")
-        draw.text((640, 448), astro_line, fill=(180, 195, 225), font=font_astro, anchor="mm")
+        draw.text((640, fase_y + 36), astro_line, fill=(180, 195, 225), font=font_astro, anchor="mm")
 
         # 9. Zona de Barra de Avance y Tiempos (Espaciosa y sin pie de página)
         bar_x1 = 180
