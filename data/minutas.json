@@ -501,13 +501,16 @@
   },
   "2026-10-13": {
     "fecha": "2026-10-13",
-    "duracion_minutos": 2,
-    "asistentes_count": 2,
+    "duracion_minutos": 38,
+    "asistentes_count": 5,
     "oradores": [
       "GERARDO Argüello 3",
-      "GERARDO ARGUELLO2"
+      "GERARDO ARGUELLO2",
+      "Alexis Gutiérrez",
+      "Maria Pulido",
+      "Nora Monica Gallegos Sanchez"
     ],
-    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-13** con una duración de **2 minutos** y un total de **2 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-13** con una duración de **38 minutos** y un total de **5 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Alexis Gutiérrez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Maria Pulido:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Nora Monica Gallegos Sanchez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
     "ruta_pdf": "data/actas/acta_2026-10-13.pdf",
     "info_catalogo": {
       "numero": 1094,
@@ -515,27 +518,7 @@
       "titulo": "Este Mensaje se logro con muchos años de preparacion y perseverancia",
       "fecha": "09/09/20",
       "maestro": "Alaniso",
-      "detectado_como": "MEDITACION",
-      "fecha_tarea_admin": "13/10/2026",
-      "cola_audios": [
-        {
-          "numero": 1094,
-          "tipo": "MEDITACION",
-          "titulo": "Este Mensaje se logro con muchos años de preparacion y perseverancia",
-          "fecha": "09/09/20",
-          "maestro": "Alaniso",
-          "detectado_como": "MEDITACION",
-          "fecha_tarea_admin": "13/10/2026"
-        },
-        {
-          "numero": 3,
-          "tipo": "MEDITACION",
-          "titulo": "A mi Padre mi Creador",
-          "fecha": "09/03/04",
-          "maestro": "Alaniso",
-          "detectado_como": "MEDITACION"
-        }
-      ]
+      "detectado_como": "MEDITACION"
     }
   }
 }
