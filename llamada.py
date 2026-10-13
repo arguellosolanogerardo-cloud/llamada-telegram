@@ -986,6 +986,8 @@ def guardar_cola_hoy(cola: list[dict], fecha_destino: str = None) -> None:
             info_meta["fecha_tarea_admin"] = fecha
             if len(cola) > 1:
                 info_meta["cola_audios"] = [c.get("info") for c in cola if c.get("info")]
+            else:
+                info_meta.pop("cola_audios", None)
             with open(ruta_meta, "w", encoding="utf-8") as fm:
                 json.dump(info_meta, fm, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -1014,6 +1016,8 @@ def guardar_cola_manana(cola: list[dict], fecha_destino: str = None) -> None:
             info_meta["fecha_tarea_admin"] = fecha
             if len(cola) > 1:
                 info_meta["cola_audios"] = [c.get("info") for c in cola if c.get("info")]
+            else:
+                info_meta.pop("cola_audios", None)
             with open(ruta_meta_manana, "w", encoding="utf-8") as fm:
                 json.dump(info_meta, fm, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -3510,8 +3514,8 @@ async def main() -> None:
 
             asyncio.create_task(_aplicar())
 
-        # Gestionar lista de reproducción: /cola, /playlist, /encolar, /agregar, /limpiarcola
-        @client.on(events.NewMessage(pattern=r"(?i)^/(cola|playlist|encolar|agregar|limpiarcola|vaciarcola)(@\w+)?(\s|$)"))
+        # Gestionar lista de reproducción: /cola, /playlist, /encolar, /agregar, /quitar, /remover, /limpiarcola
+        @client.on(events.NewMessage(pattern=r"(?i)^/(cola|playlist|encolar|agregar|quitar|remover|quitarcola|removercola|limpiarcola|vaciarcola)(@\w+)?(\s|$)"))
         async def gestionar_cola_reproduccion(event):
             sender = await event.get_sender()
             
@@ -3544,7 +3548,7 @@ async def main() -> None:
                         "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
                     })
                 txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
-                txt_ayuda = "\n\n💡 *Comandos disponibles:*\n• `/encolar <número/nombre>` — Añadir audio a la cola\n• `/limpiarcola` — Vaciar la cola\n• `/saltaraudio` — Saltar a la siguiente pista"
+                txt_ayuda = "\n\n💡 *Comandos disponibles:*\n• `/quitar <número/posición>` — Quitar un audio de la cola (ej: `/quitar 3`)\n• `/encolar <número/nombre>` — Añadir audio a la cola\n• `/limpiarcola` — Vaciar la cola completa\n• `/saltaraudio` — Saltar a la siguiente pista"
                 await resp_q(txt_cola + txt_ayuda)
 
             elif cmd_q in ("/limpiarcola", "/vaciarcola"):
@@ -3554,6 +3558,58 @@ async def main() -> None:
                 indice_pista_actual = 0
                 guardar_cola_hoy([])
                 await resp_q("🗑️ **Lista de reproducción vaciada.** Puedes encolar nuevos audios con `/encolar` o enviándolos al grupo.")
+
+            elif cmd_q in ("/quitar", "/remover", "/quitarcola", "/removercola"):
+                if not arg_q:
+                    await resp_q("ℹ️ Uso: `/quitar <número o posición>` (Ejemplo: `/quitar 3` o `/quitar 2`).")
+                    return
+                if not cola_reproduccion and ruta_meditacion:
+                    cola_reproduccion.append({
+                        "ruta": ruta_meditacion,
+                        "info": info_catalogo_hoy,
+                        "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
+                    })
+                if not cola_reproduccion:
+                    await resp_q("ℹ️ La lista de reproducción ya está vacía.")
+                    return
+
+                removido = None
+                # 1. Intentar por posición exacta (1-based index) si el usuario puso posición (ej. 2)
+                try:
+                    pos = int(arg_q)
+                    if 1 <= pos <= len(cola_reproduccion):
+                        removido = cola_reproduccion.pop(pos - 1)
+                except ValueError:
+                    pass
+
+                # 2. Si no fue por posición, buscar por número de audio (ej. #3 o #1094)
+                if not removido:
+                    idx_encontrado = None
+                    for i_c, it_c in enumerate(cola_reproduccion):
+                        num_it = str((it_c.get("info") or {}).get("numero") or "")
+                        tit_it = str(it_c.get("titulo") or "").lower()
+                        if num_it == str(arg_q).strip() or str(arg_q).lower() in tit_it:
+                            idx_encontrado = i_c
+                            break
+                    if idx_encontrado is not None:
+                        removido = cola_reproduccion.pop(idx_encontrado)
+
+                if removido:
+                    if len(cola_reproduccion) == 0:
+                        ruta_meditacion = None
+                        info_catalogo_hoy = None
+                        indice_pista_actual = 0
+                    else:
+                        if indice_pista_actual >= len(cola_reproduccion):
+                            indice_pista_actual = max(0, len(cola_reproduccion) - 1)
+                        ruta_meditacion = cola_reproduccion[indice_pista_actual]["ruta"]
+                        info_catalogo_hoy = cola_reproduccion[indice_pista_actual].get("info")
+
+                    guardar_cola_hoy(cola_reproduccion)
+                    tit_rem = removido.get("titulo") or (removido.get("info") or {}).get("titulo") or "Audio"
+                    await resp_q(f"🗑️ **Audio removido:** «{tit_rem}».\n\n📋 Total restante en cola: **{len(cola_reproduccion)} pistas**.")
+                else:
+                    await resp_q(f"⚠️ No se encontró ningún audio con el número o posición «{arg_q}». Consulta `/cola` para ver la lista actual.")
 
             elif cmd_q in ("/encolar", "/agregar"):
                 if not arg_q:
