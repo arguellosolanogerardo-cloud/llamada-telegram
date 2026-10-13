@@ -19,6 +19,7 @@ data/meditaciones/*.mp3
 data/meditaciones/*.wav
 data/meditaciones/*.png
 data/meditaciones/*.jpg
+data/meditaciones/*.mp4
 data/meditaciones/*.raw
 *.raw
 data/meditaciones/cola_hoy.json

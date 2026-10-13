@@ -20,7 +20,7 @@ jobs:
       - run: pip install telethon py-tgcalls pillow reportlab edge-tts
       - name: Preparar dependencias de audio y enlaces para PyTgCalls
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-freefont-ttf fontconfig
           rm -f ./ffmpeg ./ffprobe
           ln -sf $(which ffmpeg) ./ffmpeg
           ln -sf $(which ffprobe) ./ffprobe

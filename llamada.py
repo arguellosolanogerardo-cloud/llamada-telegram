@@ -1969,6 +1969,7 @@ async def main() -> None:
                         audio_path=ruta_seek,
                         video_parameters=VideoQuality.HD_720p,
                         audio_parameters=AudioQuality.HIGH,
+                        ffmpeg_parameters="-re",
                     )
                 else:
                     stream_seek = MediaStream(
@@ -2106,6 +2107,7 @@ async def main() -> None:
                             audio_path=ruta_a_reproducir,
                             video_parameters=VideoQuality.HD_720p,
                             audio_parameters=AudioQuality.HIGH,
+                            ffmpeg_parameters="-re",
                         )
                     else:
                         stream_play = MediaStream(

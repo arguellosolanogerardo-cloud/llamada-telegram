@@ -405,8 +405,10 @@ def generar_video_meditacion_luna(
 
         loop_video = os.path.join(temp_dir, "stars_loop.mp4")
         subprocess.run([
-            "ffmpeg", "-y", "-r", "2",
+            "ffmpeg", "-y", "-framerate", "2",
             "-i", os.path.join(temp_dir, "frame_%03d.png"),
+            "-r", "25",
+            "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
             loop_video
         ], capture_output=True, check=True)
@@ -511,31 +513,51 @@ def generar_video_meditacion_luna(
         dot_path = os.path.join(temp_dir, "dot.png")
         dot.save(dot_path)
 
-        # 4. Composición FFmpeg a 1 fps (super ligera y ultra rápida, sincrónica al segundo)
+        # 4. Composición FFmpeg a 25 fps (fluido, estándar WebRTC y sincrónico al segundo)
         dur_int = max(1, int(dur_seg))
         time_expr = r'%{eif\:floor(t/60)\:d\:2}\:%{eif\:floor(mod(t\,60))\:d\:2}'
         pct_expr = r'(%{eif\:min(100\,100*t/' + str(dur_int) + r')\:d}\\\%)'
+
+        font_opt = ""
+        for f_path in [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ]:
+            if os.path.exists(f_path):
+                esc_path = f_path.replace(os.sep, "/").replace(":", r"\:")
+                font_opt = f":fontfile='{esc_path}'"
+                break
+
         filter_expr = (
             "[0:v][1:v]overlay=0:0[s1]; "
             f"[2:v]crop=w=920:h=14:x='920-min(920, 920*t/{dur_int})':y=0[bar]; "
             "[s1][bar]overlay=180:550[s2]; "
             f"[s2][3:v]overlay=x='180 + min(920, 920*t/{dur_int}) - 14':y=543[s3]; "
-            f"[s3]drawtext=text='{time_expr}':x=208:y=587:fontcolor=white:fontsize=26[s4]; "
-            f"[s4]drawtext=text='{pct_expr}':x=1028:y=587:fontcolor=0xFBBF24:fontsize=26[out]"
+            f"[s3]drawtext=text='{time_expr}':x=208:y=587{font_opt}:fontcolor=white:fontsize=26[s4]; "
+            f"[s4]drawtext=text='{pct_expr}':x=1028:y=587{font_opt}:fontcolor=0xFBBF24:fontsize=26[out]"
         )
         cmd_final = [
             "ffmpeg", "-y",
-            "-stream_loop", "-1", "-r", "1", "-i", loop_video,
-            "-loop", "1", "-r", "1", "-i", fg_path,
-            "-loop", "1", "-r", "1", "-i", strip_path,
-            "-loop", "1", "-r", "1", "-i", dot_path,
+            "-stream_loop", "-1", "-i", loop_video,
+            "-loop", "1", "-r", "25", "-i", fg_path,
+            "-loop", "1", "-r", "25", "-i", strip_path,
+            "-loop", "1", "-r", "25", "-i", dot_path,
             "-filter_complex", filter_expr,
             "-map", "[out]",
+            "-r", "25",
+            "-pix_fmt", "yuv420p",
             "-t", str(dur_int),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
             ruta_salida
         ]
-        subprocess.run(cmd_final, capture_output=True, check=True)
+        res = subprocess.run(cmd_final, capture_output=True, text=True)
+        if res.returncode != 0:
+            print("ERROR FFMPEG generando video animado:", res.stderr)
+            return None
         return ruta_salida
     except Exception as e:
         print("Nota generando video animado de meditación:", e)
