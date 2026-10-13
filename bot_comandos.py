@@ -2161,6 +2161,24 @@ def escuchar_comandos() -> None:
                     except Exception as e_rad_cmd:
                         enviar_mensaje(chat_id, f"⚠️ Error escaneando canales: {e_rad_cmd}", reply_to_message_id=msg_id)
                     continue
+                elif cmd in ("/luna", "/faseluna", "/lunar"):
+                    try:
+                        from astronomia_luna import calcular_astronomia_lunar
+                        astro = calcular_astronomia_lunar()
+                        txt_luna = (
+                            f"🌕 **FASE LUNAR DE HOY (Bucaramanga, Colombia)**\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"🌓 **Fase:** {astro['fase']}\n"
+                            f"✨ **Iluminación:** {astro['iluminacion']}%\n"
+                            f"📅 **Edad lunar:** {astro['edad']} días\n"
+                            f"🌍 **Distancia:** {astro['distancia']:,} km\n\n"
+                            f"🌙 ↗️ **Salida:** {astro['salida']}\n"
+                            f"🌙 ↘️ **Puesta:** {astro['puesta']}\n"
+                        ).replace(",", ".")
+                        enviar_mensaje(chat_id, txt_luna, reply_to_message_id=msg_id)
+                    except Exception as e_luna_cmd:
+                        enviar_mensaje(chat_id, f"⚠️ Error calculando fase lunar: {e_luna_cmd}", reply_to_message_id=msg_id)
+                    continue
                 elif cmd == "/panel":
                     if not es_mensaje_de_admin(msg, chat_id):
                         enviar_mensaje(chat_id, "🚫 Solo los administradores pueden usar el panel de control.", reply_to_message_id=msg_id)

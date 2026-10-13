@@ -705,62 +705,18 @@ def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion
     if not ruta_salida:
         ruta_salida = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
     try:
-        from PIL import Image, ImageDraw, ImageFont
-        os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
-        width, height = 1280, 720
-        img = Image.new("RGB", (width, height), color=(10, 15, 30))
-        draw = ImageDraw.Draw(img)
-
-        # Gradiente suave vertical cósmico
-        for y in range(height):
-            r = int(10 + (25 - 10) * (y / height))
-            g = int(15 + (20 - 15) * (y / height))
-            b = int(30 + (55 - 30) * (y / height))
-            draw.line([(0, y), (width, y)], fill=(r, g, b))
-
-        font_title = font_num = font_sub = font_author = font_footer = None
-        for font_candidate in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]:
-            try:
-                font_num = ImageFont.truetype(font_candidate, 68)
-                font_title = ImageFont.truetype(font_candidate, 42)
-                font_sub = ImageFont.truetype(font_candidate, 30)
-                font_author = ImageFont.truetype(font_candidate, 32)
-                font_footer = ImageFont.truetype(font_candidate, 24)
-                break
-            except Exception:
-                continue
-        if not font_title:
-            font_title = font_num = font_sub = font_author = font_footer = ImageFont.load_default()
-
-        # Marco exterior con borde dorado
-        draw.rounded_rectangle([(30, 30), (1250, 690)], radius=24, outline=(245, 158, 11), width=3)
-        draw.rounded_rectangle([(42, 42), (1238, 678)], radius=18, outline=(99, 102, 241), width=1)
-
-        num_str = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
-        draw.text((640, 140), num_str, fill=(251, 191, 36), font=font_num, anchor="mm")
-        draw.line([(340, 210), (940, 210)], fill=(245, 158, 11), width=3)
-
-        tit_clean = titulo.strip() if titulo else "Paz y Quietud Interior"
-        if not tit_clean.startswith("«"):
-            tit_clean = f"«{tit_clean}»"
-        draw.text((640, 290), tit_clean, fill=(255, 255, 255), font=font_title, anchor="mm")
-
-        m_str = f"Maestro: {maestro}" if maestro else "Guía: Alaniso"
-        draw.text((640, 385), m_str, fill=(199, 210, 254), font=font_author, anchor="mm")
-
-        # Barra decorativa central con bolita
-        draw.rounded_rectangle([(300, 470), (980, 482)], radius=6, fill=(51, 65, 85))
-        draw.rounded_rectangle([(300, 470), (640, 482)], radius=6, fill=(245, 158, 11))
-        draw.ellipse([(630, 466), (650, 486)], fill=(255, 255, 255), outline=(245, 158, 11), width=2)
-
-        dur_txt = f"Duración estimada: ~{duracion_min} minutos" if duracion_min > 0 else "Transmisión en directo"
-        draw.text((640, 525), dur_txt, fill=(148, 163, 184), font=font_sub, anchor="mm")
-        draw.text((640, 630), "🧘 Comunidad de Meditación Diaria • Silencio y Quietud", fill=(129, 140, 248), font=font_footer, anchor="mm")
-
-        img.save(ruta_salida, format="JPEG", quality=92)
-        return ruta_salida
+        from astronomia_luna import generar_caratula_meditacion_luna
+        dur_s = float(duracion_min * 60) if duracion_min > 0 else 1680.0
+        return generar_caratula_meditacion_luna(
+            numero=numero,
+            titulo=titulo,
+            maestro=maestro,
+            duracion_seg=dur_s,
+            progreso_seg=0.0,
+            ruta_salida=ruta_salida,
+        )
     except Exception as e:
-        print("Nota generando carátula de meditación:", e)
+        print("Nota generando carátula lunar con astronomia_luna:", e)
         return None
 
 
@@ -1961,6 +1917,18 @@ async def main() -> None:
                     if not os.path.exists(ruta_seek) or os.path.getsize(ruta_seek) < 5000:
                         ruta_seek = ruta_activa_audio
 
+                try:
+                    from astronomia_luna import generar_caratula_meditacion_luna
+                    num_m = (info_catalogo_hoy or {}).get("numero", "")
+                    tit_m = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
+                    m_m = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                    ruta_caratula_actual = await asyncio.to_thread(
+                        generar_caratula_meditacion_luna,
+                        num_m, tit_m, m_m, dur_total, nueva_pos, os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
+                    )
+                except Exception as e_car_seek:
+                    print("Nota actualizando carátula en salto:", e_car_seek)
+
                 from pytgcalls.types import MediaStream, VideoQuality, AudioQuality
                 if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
                     stream_seek = MediaStream(
@@ -2617,7 +2585,7 @@ async def main() -> None:
                 print("Nota configurando StreamEnded handler:", e)
 
         # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos, /buscar, /resumen, /acta, /oracion)
-        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta|oracion)"))
+        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta|oracion|luna|faseluna)"))
         async def responder_comandos_en_vivo(event):
             sender = await event.get_sender()
             
@@ -2706,6 +2674,23 @@ async def main() -> None:
                     await responder(f"📄 **Acta Oficial de la Reunión ({minuta['fecha']}):**", file=minuta["ruta_pdf"])
                 else:
                     await responder("ℹ️ No hay un documento PDF de acta disponible para esa fecha.")
+            elif texto_cmd in ("/luna", "/faseluna"):
+                try:
+                    from astronomia_luna import calcular_astronomia_lunar
+                    astro = calcular_astronomia_lunar()
+                    resp = (
+                        f"🌕 **FASE LUNAR DE HOY (Bucaramanga, Colombia)**\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🌓 **Fase:** {astro['fase']}\n"
+                        f"✨ **Iluminación:** {astro['iluminacion']}%\n"
+                        f"📅 **Edad lunar:** {astro['edad']} días\n"
+                        f"🌍 **Distancia:** {astro['distancia']:,} km\n\n"
+                        f"🌙 ↗️ **Salida:** {astro['salida']}\n"
+                        f"🌙 ↘️ **Puesta:** {astro['puesta']}\n"
+                    ).replace(",", ".")
+                    await responder(resp)
+                except Exception as e_l_resp:
+                    await responder(f"⚠️ Error calculando fase lunar: {e_l_resp}")
             elif texto_cmd in ("/oracion",) or (texto_cmd == "/start" and param == "oracion"):
                 resp = (
                     "🕊️ **ORACIÓN Y RECOGIMIENTO COMUNITARIO**\n"
