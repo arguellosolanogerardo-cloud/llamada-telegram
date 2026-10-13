@@ -5,5 +5,24 @@
   "fecha": "09/09/20",
   "maestro": "Alaniso",
   "detectado_como": "MEDITACION",
-  "fecha_tarea_admin": "13/10/2026"
+  "fecha_tarea_admin": "13/10/2026",
+  "cola_audios": [
+    {
+      "numero": 1094,
+      "tipo": "MEDITACION",
+      "titulo": "Este Mensaje se logro con muchos años de preparacion y perseverancia",
+      "fecha": "09/09/20",
+      "maestro": "Alaniso",
+      "detectado_como": "MEDITACION",
+      "fecha_tarea_admin": "13/10/2026"
+    },
+    {
+      "numero": 3,
+      "tipo": "MEDITACION",
+      "titulo": "A mi Padre mi Creador",
+      "fecha": "09/03/04",
+      "maestro": "Alaniso",
+      "detectado_como": "MEDITACION"
+    }
+  ]
 }
