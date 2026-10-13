@@ -138,11 +138,12 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
     for mx, my, mw, mh, col in manchas:
         draw.ellipse([(mx - mw // 2, my - mh // 2), (mx + mw // 2, my + mh // 2)], fill=col)
 
-    # 3. Sombra del terminador según iluminación física exacta
+    # 3. Sombra del terminador según iluminación física exacta con luz cenicienta
     frac = max(0.0, min(1.0, illumination / 100.0))
     shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     s_draw = ImageDraw.Draw(shadow_layer)
-    s_color = (0, 0, 0, 255)
+    # Luz cenicienta (Earthshine): permite vislumbrar sutilmente el cuerpo esférico de la Luna
+    s_color = (6, 8, 14, 235)
 
     for y in range(size):
         dy = y - cy
@@ -170,10 +171,14 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
 
     img.paste(shadow_layer, (0, 0), mask=mask_circle)
 
+    # Delicado borde celeste de 1px para delimitar la esfera lunar en el espacio profundo
+    d_res = ImageDraw.Draw(img)
+    d_res.ellipse([(0, 0), (size - 1, size - 1)], outline=(65, 78, 105, 130), width=1)
+
     # Resplandor suave externo sobre fondo negro para resaltar la luna
     glow = Image.new("RGBA", (size + 36, size + 36), (0, 0, 0, 0))
     g_draw = ImageDraw.Draw(glow)
-    g_draw.ellipse([(18, 18), (size + 17, size + 17)], fill=(195, 218, 255, 45))
+    g_draw.ellipse([(18, 18), (size + 17, size + 17)], fill=(195, 218, 255, 55))
     glow = glow.filter(ImageFilter.GaussianBlur(10))
 
     result = Image.new("RGBA", (size + 36, size + 36), (0, 0, 0, 0))
@@ -224,54 +229,278 @@ def wrap_text_balanced(text: str, font: ImageFont.ImageFont, max_width: int, dra
     return lines
 
 
-def dibujar_campo_estelar(draw: ImageDraw.ImageDraw, width: int = 1280, height: int = 720, seed: int = 42):
-    """Genera un firmamento cósmico con estrellas astronómicas de diferentes magnitudes al estilo Fases de la Luna."""
-    rng = random.Random(seed)
+def crear_universo_con_orion(width: int = 1280, height: int = 720, frame_idx: int = 0, total_frames: int = 20, seed: int = 42) -> Image.Image:
+    """Genera el manto cósmico denso (+650 estrellas) con polvo estelar y la constelación de Orión titilando."""
+    img = Image.new("RGB", (width, height), (1, 2, 7))
 
-    def es_zona_restringida(x: int, y: int) -> bool:
-        # Evitar tapar el centro de la luna
-        if (x - 640) ** 2 + (y - 305) ** 2 < 120 ** 2:
+    # Polvo cósmico y nebulosas sutiles
+    nebula = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    n_draw = ImageDraw.Draw(nebula)
+    n_draw.ellipse([(800, -100), (1350, 400)], fill=(20, 30, 65, 45))
+    n_draw.ellipse([(-100, 200), (450, 750)], fill=(25, 20, 55, 35))
+    n_draw.ellipse([(400, 150), (900, 550)], fill=(15, 25, 50, 25))
+    nebula = nebula.filter(ImageFilter.GaussianBlur(50))
+    img.paste(nebula, (0, 0), mask=nebula)
+    draw = ImageDraw.Draw(img)
+
+    rng = random.Random(seed)
+    drift_x = int((frame_idx / max(1, total_frames)) * width) % width
+
+    def is_forbidden(x, y):
+        if (x - 640) ** 2 + (y - 300) ** 2 < 118 ** 2:
             return True
-        # Evitar cajas laterales de salida/puesta
-        if 130 < x < 380 and 240 < y < 350:
+        if 135 < x < 375 and 245 < y < 345:
             return True
-        if 900 < x < 1150 and 240 < y < 350:
+        if 905 < x < 1145 and 245 < y < 345:
             return True
-        # Evitar zona de barra de avance inferior
         if 160 < x < 1120 and 520 < y < 630:
             return True
-        # Evitar cabecera superior de texto
-        if 180 < x < 1100 and 35 < y < 190:
+        if 200 < x < 1080 and 40 < y < 185:
             return True
         return False
 
-    # 1. 240 estrellas tenues distantes
-    for _ in range(240):
-        x = rng.randint(35, width - 35)
-        y = rng.randint(35, height - 35)
-        if es_zona_restringida(x, y):
+    # 650 micro-estrellas densas
+    for _ in range(650):
+        base_x = rng.randint(0, width)
+        y = rng.randint(25, height - 25)
+        x = (base_x + drift_x) % width
+        if is_forbidden(x, y):
             continue
-        b = rng.randint(90, 180)
-        draw.point((x, y), fill=(b, b, min(255, b + 25)))
+        b = rng.randint(70, 175)
+        draw.point((x, y), fill=(b, b, min(255, b + 30)))
 
-    # 2. 50 estrellas medianas con sutil resplandor blanco-azulado
-    for _ in range(50):
-        x = rng.randint(35, width - 35)
-        y = rng.randint(35, height - 35)
-        if es_zona_restringida(x, y):
+    # 120 estrellas medianas
+    for _ in range(120):
+        base_x = rng.randint(0, width)
+        y = rng.randint(25, height - 25)
+        x = (base_x + drift_x) % width
+        if is_forbidden(x, y):
             continue
-        b = rng.randint(180, 240)
-        draw.ellipse([(x - 1, y - 1), (x + 1, y + 1)], fill=(b, b, 255))
+        b = rng.randint(170, 235)
+        draw.ellipse([(x - 1, y - 1), (x + 1, y + 1)], fill=(b, min(255, b + 10), 255))
 
-    # 3. 12 estrellas prominentes con destellos en cruz de difracción (estilo astrofotografía NASA)
-    for _ in range(12):
-        x = rng.randint(50, width - 50)
-        y = rng.randint(50, height - 50)
-        if es_zona_restringida(x, y):
+    # 25 estrellas prominentes con destellos
+    for _ in range(25):
+        base_x = rng.randint(0, width)
+        y = rng.randint(30, height - 30)
+        x = (base_x + drift_x) % width
+        if is_forbidden(x, y):
             continue
         draw.ellipse([(x - 2, y - 2), (x + 2, y + 2)], fill=(255, 255, 255))
-        draw.line([(x - 4, y), (x + 4, y)], fill=(210, 230, 255, 180))
-        draw.line([(x, y - 4), (x, y + 4)], fill=(210, 230, 255, 180))
+        draw.line([(x - 5, y), (x + 5, y)], fill=(200, 225, 255, 170))
+        draw.line([(x, y - 5), (x, y + 5)], fill=(200, 225, 255, 170))
+
+    # Constelación de Orión (cuadrante superior derecho despejado)
+    twinkle_t = (frame_idx / max(1, total_frames)) * 2 * math.pi
+    ox = 1060 + int(math.sin(twinkle_t * 0.5) * 5)
+    oy = 135
+
+    orion_stars = {
+        "betelgeuse": (-32, -42, (255, 175, 95), 4.0, math.sin(twinkle_t * 3.0)),
+        "bellatrix":  ( 24, -38, (215, 235, 255), 3.0, math.cos(twinkle_t * 2.5)),
+        "mintaka":    (-14,  -2, (240, 245, 255), 2.5, math.sin(twinkle_t * 4.0)),
+        "alnilam":    (  0,   2, (245, 250, 255), 3.0, math.sin(twinkle_t * 3.5 + 1)),
+        "alnitak":    ( 14,   6, (240, 245, 255), 2.5, math.cos(twinkle_t * 4.0)),
+        "saiph":      (-28,  44, (200, 220, 255), 3.0, math.sin(twinkle_t * 2.0)),
+        "rigel":      ( 32,  40, (230, 245, 255), 4.5, math.cos(twinkle_t * 3.2)),
+    }
+
+    # Líneas tenues de la constelación
+    line_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    l_draw = ImageDraw.Draw(line_layer)
+    conexiones = [
+        ("betelgeuse", "bellatrix"),
+        ("betelgeuse", "alnitak"),
+        ("bellatrix", "mintaka"),
+        ("mintaka", "alnilam"),
+        ("alnilam", "alnitak"),
+        ("alnitak", "saiph"),
+        ("mintaka", "rigel"),
+        ("saiph", "rigel"),
+    ]
+    for s1, s2 in conexiones:
+        p1 = (ox + orion_stars[s1][0], oy + orion_stars[s1][1])
+        p2 = (ox + orion_stars[s2][0], oy + orion_stars[s2][1])
+        l_draw.line([p1, p2], fill=(100, 140, 200, 85), width=1)
+
+    img.paste(line_layer, (0, 0), mask=line_layer)
+    draw = ImageDraw.Draw(img)
+
+    for name, (dx, dy, base_rgb, base_r, tw_val) in orion_stars.items():
+        sx = ox + dx
+        sy = oy + dy
+        pulsacion = 0.85 + 0.25 * tw_val
+        cur_r = max(1.5, base_r * pulsacion)
+        cur_col = tuple(min(255, int(c * pulsacion)) for c in base_rgb)
+
+        halo_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        h_draw = ImageDraw.Draw(halo_layer)
+        halo_r = cur_r * 2.8
+        h_draw.ellipse([(sx - halo_r, sy - halo_r), (sx + halo_r, sy + halo_r)], fill=(*base_rgb, int(45 * pulsacion)))
+        halo_layer = halo_layer.filter(ImageFilter.GaussianBlur(3))
+        img.paste(halo_layer, (0, 0), mask=halo_layer)
+        draw = ImageDraw.Draw(img)
+
+        draw.ellipse([(sx - cur_r, sy - cur_r), (sx + cur_r, sy + cur_r)], fill=cur_col)
+        if base_r >= 3:
+            spike_len = int(cur_r * 2.5)
+            draw.line([(sx - spike_len, sy), (sx + spike_len, sy)], fill=(*base_rgb, int(160 * pulsacion)))
+            draw.line([(sx, sy - spike_len), (sx, sy + spike_len)], fill=(*base_rgb, int(160 * pulsacion)))
+
+    try:
+        f_orion = ImageFont.truetype("arial.ttf", 13)
+        draw.text((ox, oy + 58), "ORIÓN", fill=(140, 175, 220, 160), font=f_orion, anchor="mm")
+    except Exception:
+        pass
+
+    return img
+
+
+def generar_video_meditacion_luna(
+    numero: str,
+    titulo: str,
+    maestro: str,
+    duracion_seg: float = 1800.0,
+    ruta_salida: str = None,
+) -> str | None:
+    """Genera el video MP4 HD con estrellas en movimiento, Orión titilando y reloj/barra animados en tiempo real."""
+    if not ruta_salida:
+        os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+        ruta_salida = os.path.join("data", "meditaciones", "caratula_meditacion.mp4")
+
+    try:
+        import subprocess
+        width, height = 1280, 720
+        temp_dir = os.path.join("data", "meditaciones", "temp_frames")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        seed_val = int(numero) if numero and str(numero).isdigit() else 1094
+        dur_seg = max(60.0, float(duracion_seg))
+
+        # 1. Generar 20 fotogramas para el bucle de 10s de estrellas y Orión titilando
+        num_frames = 20
+        for i in range(num_frames):
+            frame = crear_universo_con_orion(width, height, frame_idx=i, total_frames=num_frames, seed=seed_val)
+            frame.save(os.path.join(temp_dir, f"frame_{i:03d}.png"))
+
+        loop_video = os.path.join(temp_dir, "stars_loop.mp4")
+        subprocess.run([
+            "ffmpeg", "-y", "-r", "2",
+            "-i", os.path.join(temp_dir, "frame_%03d.png"),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+            loop_video
+        ], capture_output=True, check=True)
+
+        # 2. Generar capa transparente con la Luna, títulos multilínea, maestro, etc.
+        fg = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(fg)
+
+        # Marco exterior e interior
+        draw.rounded_rectangle([(24, 20), (1256, 700)], radius=22, outline=(245, 158, 11), width=2)
+        draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(42, 48, 64), width=1)
+
+        font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
+        for f_cand in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"]:
+            try:
+                font_med = ImageFont.truetype(f_cand, 40)
+                font_tit = ImageFont.truetype(f_cand, 30)
+                font_tit_small = ImageFont.truetype(f_cand, 25)
+                font_sub = ImageFont.truetype(f_cand, 22)
+                font_phase = ImageFont.truetype(f_cand, 28)
+                font_astro = ImageFont.truetype(f_cand, 20)
+                font_time = ImageFont.truetype(f_cand, 26)
+                break
+            except Exception:
+                continue
+        if not font_med:
+            font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
+
+        # Cabecera dinámica
+        num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
+        draw.text((640, 56), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")
+
+        tit_raw = (titulo or "").strip()
+        tit_clean = f"«{tit_raw}»" if not tit_raw.startswith("«") else tit_raw
+        max_tit_w = 920
+        lineas_tit = wrap_text_balanced(tit_clean, font_tit, max_tit_w, draw)
+        active_font_tit = font_tit
+        if len(lineas_tit) > 2 and font_tit_small:
+            lineas_tit = wrap_text_balanced(tit_clean, font_tit_small, max_tit_w, draw)
+            active_font_tit = font_tit_small
+
+        line_h = 36 if active_font_tit == font_tit else 30
+        start_tit_y = 104 if len(lineas_tit) == 1 else (96 if len(lineas_tit) == 2 else 90)
+        for idx, linea in enumerate(lineas_tit):
+            curr_y = start_tit_y + idx * line_h
+            draw.text((640, curr_y), linea, fill=(255, 255, 255), font=active_font_tit, anchor="mm")
+
+        ultimo_tit_y = start_tit_y + (len(lineas_tit) - 1) * line_h
+        m_y = ultimo_tit_y + 34
+        m_txt = f"Maestro: {maestro}" if maestro else "Guía: Alaniso"
+        draw.text((640, m_y), m_txt, fill=(199, 210, 254), font=font_sub, anchor="mm")
+
+        # Luna
+        astro = calcular_astronomia_lunar()
+        moon_cy = max(295, m_y + 112)
+        is_waxing = astro["edad"] < 14.765
+        moon_img = render_moon_disc(radius=92, illumination=astro["iluminacion"], is_waxing=is_waxing)
+        mw, mh = moon_img.size
+        fg.paste(moon_img, (640 - mw // 2, moon_cy - mh // 2), mask=moon_img)
+
+        # Cajas laterales
+        box_y1 = moon_cy - 35
+        box_y2 = moon_cy + 30
+        draw.rounded_rectangle([(140, box_y1), (370, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
+        draw.text((255, moon_cy - 15), "SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
+        draw.text((255, moon_cy + 11), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+
+        draw.rounded_rectangle([(910, box_y1), (1140, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
+        draw.text((1025, moon_cy - 15), "PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
+        draw.text((1025, moon_cy + 11), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+
+        # Métricas
+        fase_y = moon_cy + 120
+        draw.text((640, fase_y), astro["fase"], fill=(251, 191, 36), font=font_phase, anchor="mm")
+        txt_ast = f"Iluminación: {astro['iluminacion']}%   •   Edad: {astro['edad']} días   •   Distancia: {astro['distancia']:,} km".replace(",", ".")
+        draw.text((640, fase_y + 36), txt_ast, fill=(180, 195, 225), font=font_astro, anchor="mm")
+
+        # Marco de fondo de la barra de progreso
+        draw.rounded_rectangle([(180, 550), (1100, 564)], radius=7, fill=(24, 26, 34, 210), outline=(48, 54, 72), width=1)
+        min_tot, seg_tot = divmod(int(dur_seg), 60)
+        # Triángulo nítido de reproducción y duración total
+        draw.polygon([(182, 592), (196, 600), (182, 608)], fill=(255, 255, 255))
+        draw.text((945, 600), f"{min_tot:02d}:{seg_tot:02d}", fill=(251, 191, 36), font=font_time, anchor="lm")
+
+        fg_path = os.path.join(temp_dir, "overlay_fg.png")
+        fg.save(fg_path)
+
+        # 3. Composición FFmpeg a 1 fps (super ligera y ultra rápida)
+        pct_expr = r"(%{{eif\:floor(min(100, 100*t/" + str(dur_seg) + r"))\:d}}\\\%)"
+        time_expr = r"%{{eif\:floor(t/60)\:d\:2}}\:%{{eif\:floor(mod(t,60))\:d\:2}}"
+        filter_expr = (
+            "[0:v]copy[bg]; "
+            "[bg][1:v]overlay=0:0[scene]; "
+            f"[scene]drawbox=x=180:y=550:w='min(920, 920*t/{dur_seg})':h=14:color=0xF59E0B:t=fill[b1]; "
+            f"[b1]drawbox=x='171 + min(920, 920*t/{dur_seg})':y=542:w=18:h=30:color=0xF59E0B@0.4:t=fill[b2]; "
+            f"[b2]drawbox=x='175 + min(920, 920*t/{dur_seg})':y=545:w=10:h=24:color=white:t=fill[b3]; "
+            f"[b3]drawtext=text='{time_expr}':x=208:y=587:fontcolor=white:fontsize=26[b4]; "
+            f"[b4]drawtext=text='{pct_expr}':x=1028:y=587:fontcolor=0xFBBF24:fontsize=26[out]"
+        )
+        cmd_final = [
+            "ffmpeg", "-y",
+            "-stream_loop", "-1", "-r", "1", "-i", loop_video,
+            "-loop", "1", "-r", "1", "-i", fg_path,
+            "-filter_complex", filter_expr,
+            "-map", "[out]",
+            "-t", str(int(dur_seg)),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+            ruta_salida
+        ]
+        subprocess.run(cmd_final, capture_output=True, check=True)
+        return ruta_salida
+    except Exception as e:
+        print("Nota generando video animado de meditación:", e)
+        return None
 
 
 def generar_caratula_meditacion_luna(
@@ -290,13 +519,10 @@ def generar_caratula_meditacion_luna(
     try:
         os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
         width, height = 1280, 720
-        # 1. Fondo cósmico espacial profundo con campo estelar astronómico
-        img = Image.new("RGB", (width, height), color=(2, 4, 8))
-        draw = ImageDraw.Draw(img)
-
-        # Semilla determinista para estrellas fijas según número de meditación
+        # 1. Fondo cósmico espacial profundo con campo estelar denso y constelación de Orión
         seed_val = int(numero) if numero and str(numero).isdigit() else 1094
-        dibujar_campo_estelar(draw, width, height, seed=seed_val)
+        img = crear_universo_con_orion(width, height, frame_idx=0, total_frames=20, seed=seed_val)
+        draw = ImageDraw.Draw(img)
 
         # 2. Marco exterior elegante
         draw.rounded_rectangle([(24, 20), (1256, 700)], radius=22, outline=(245, 158, 11), width=2)
@@ -375,11 +601,11 @@ def generar_caratula_meditacion_luna(
         salida_v_y = moon_cy + 11
 
         draw.rounded_rectangle([(140, box_y1), (370, box_y2)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
-        draw.text((255, salida_t_y), "🌙  SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
+        draw.text((255, salida_t_y), "SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
         draw.text((255, salida_v_y), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
 
         draw.rounded_rectangle([(910, box_y1), (1140, box_y2)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
-        draw.text((1025, salida_t_y), "🌙  PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
+        draw.text((1025, salida_t_y), "PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
         draw.text((1025, salida_v_y), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
 
         # 8. Nombre de la fase lunar y métricas
@@ -418,10 +644,10 @@ def generar_caratula_meditacion_luna(
         min_dur, seg_dur = divmod(int(dur_total), 60)
         pct_val = int(round(ratio * 100))
 
-        txt_tiempo_izq = f"▶️  {min_prog:02d}:{seg_prog:02d}"
+        # Triángulo nítido de reproducción
+        draw.polygon([(bar_x1 + 2, 592), (bar_x1 + 16, 600), (bar_x1 + 2, 608)], fill=(255, 255, 255))
+        draw.text((bar_x1 + 28, 600), f"{min_prog:02d}:{seg_prog:02d}", fill=(255, 255, 255), font=font_time, anchor="lm")
         txt_tiempo_der = f"{min_dur:02d}:{seg_dur:02d}   ({pct_val}%)"
-
-        draw.text((bar_x1, 600), txt_tiempo_izq, fill=(255, 255, 255), font=font_time, anchor="lm")
         draw.text((bar_x2, 600), txt_tiempo_der, fill=(251, 191, 36), font=font_time, anchor="rm")
 
         img.save(ruta_salida, format="JPEG", quality=95)

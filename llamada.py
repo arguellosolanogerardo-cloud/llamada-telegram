@@ -701,19 +701,38 @@ def formatear_tiempo_mm_ss(segundos: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion_min: int = 0, ruta_salida: str = None) -> str | None:
-    if not ruta_salida:
-        ruta_salida = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
+def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion_seg: float = 0.0, ruta_salida: str = None) -> str | None:
+    dur_s = float(duracion_seg) if duracion_seg > 0 else 1800.0
+    if 0 < dur_s <= 120.0:
+        dur_s *= 60.0
+
+    # 1. Intentar generar video animado MP4 en tiempo real (estrellas en movimiento, Orión titilando y reloj en vivo)
+    ruta_mp4 = ruta_salida if (ruta_salida and ruta_salida.lower().endswith(".mp4")) else os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.mp4")
+    try:
+        from astronomia_luna import generar_video_meditacion_luna
+        vid = generar_video_meditacion_luna(
+            numero=numero,
+            titulo=titulo,
+            maestro=maestro,
+            duracion_seg=dur_s,
+            ruta_salida=ruta_mp4,
+        )
+        if vid and os.path.exists(vid) and os.path.getsize(vid) > 5000:
+            return vid
+    except Exception as e_v:
+        print("Nota generando video animado de meditación, usando fallback a carátula estática:", e_v)
+
+    # 2. Fallback a imagen estática JPG de alta calidad
     try:
         from astronomia_luna import generar_caratula_meditacion_luna
-        dur_s = float(duracion_min * 60) if duracion_min > 0 else 1680.0
+        ruta_jpg = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
         return generar_caratula_meditacion_luna(
             numero=numero,
             titulo=titulo,
             maestro=maestro,
             duracion_seg=dur_s,
             progreso_seg=0.0,
-            ruta_salida=ruta_salida,
+            ruta_salida=ruta_jpg,
         )
     except Exception as e:
         print("Nota generando carátula lunar con astronomia_luna:", e)
@@ -1729,7 +1748,7 @@ async def main() -> None:
             nonlocal msg_panel_meditacion_id
             while reproduciendo_meditacion:
                 try:
-                    await asyncio.sleep(4)
+                    await asyncio.sleep(2)
                     if not reproduciendo_meditacion:
                         break
                     await actualizar_panel_progreso(forzar=False)
@@ -1918,14 +1937,28 @@ async def main() -> None:
                         ruta_seek = ruta_activa_audio
 
                 try:
-                    from astronomia_luna import generar_caratula_meditacion_luna
                     num_m = (info_catalogo_hoy or {}).get("numero", "")
                     tit_m = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
                     m_m = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
-                    ruta_caratula_actual = await asyncio.to_thread(
-                        generar_caratula_meditacion_luna,
-                        num_m, tit_m, m_m, dur_total, nueva_pos, os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
-                    )
+                    ruta_video_base = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.mp4")
+                    destino_video_seek = os.path.join(CARPETA_MEDITACIONES, "caratula_seek.mp4")
+                    if os.path.exists(ruta_video_base) and os.path.getsize(ruta_video_base) > 5000:
+                        import subprocess
+                        cmd_seek_vid = [
+                            "ffmpeg", "-y", "-ss", str(nueva_pos), "-i", ruta_video_base,
+                            "-c", "copy", destino_video_seek
+                        ]
+                        await asyncio.to_thread(subprocess.run, cmd_seek_vid, capture_output=True)
+                        if os.path.exists(destino_video_seek) and os.path.getsize(destino_video_seek) > 5000:
+                            ruta_caratula_actual = destino_video_seek
+                        else:
+                            ruta_caratula_actual = ruta_video_base
+                    else:
+                        from astronomia_luna import generar_caratula_meditacion_luna
+                        ruta_caratula_actual = await asyncio.to_thread(
+                            generar_caratula_meditacion_luna,
+                            num_m, tit_m, m_m, dur_total, nueva_pos, os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
+                        )
                 except Exception as e_car_seek:
                     print("Nota actualizando carátula en salto:", e_car_seek)
 
@@ -2055,8 +2088,12 @@ async def main() -> None:
                     num_med = (info_catalogo_hoy or {}).get("numero", "")
                     tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
                     m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
-                    dur_est = int(round(obtener_duracion_segundos(ruta_pista) / 60))
-                    ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_est)
+                    dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
+                    if dur_exacta <= 0:
+                        dur_exacta = obtener_duracion_segundos(ruta_pista)
+                    if dur_exacta <= 0:
+                        dur_exacta = 1800.0
+                    ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta)
                 except Exception as e_car:
                     print("Nota generando carátula:", e_car)
                     ruta_caratula_actual = ""
