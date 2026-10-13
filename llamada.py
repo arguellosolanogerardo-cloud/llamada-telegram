@@ -3876,10 +3876,19 @@ async def main() -> None:
                 break
             except Exception as e:
                 print("Error de conexión al consultar llamada:", e)
-                await asyncio.sleep(2)
-                try:
-                    call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
-                except Exception:
+                recuperado = False
+                for intento in range(5):
+                    await asyncio.sleep(3)
+                    try:
+                        if not client.is_connected():
+                            await client.connect()
+                        call_info = await client(GetGroupCallRequest(call=input_call, limit=100))
+                        recuperado = True
+                        break
+                    except Exception as e_rec:
+                        print(f"Reintentando reconexión con Telegram ({intento + 1}/5):", e_rec)
+                if not recuperado:
+                    print("No se pudo restablecer la conexión con Telegram.")
                     cerrado_por_admin = True
                     motivo_cierre = "admin"
                     break
@@ -4823,7 +4832,13 @@ async def main() -> None:
         except Exception as e_reg:
             print("Nota registrando reproduccion en log oficial:", e_reg)
 
-        me = await client.get_me()
+        try:
+            if not client.is_connected():
+                await client.connect()
+            me = await client.get_me()
+        except Exception as e_me_disc:
+            print("Nota obteniendo me al finalizar:", e_me_disc)
+            me = None
         if me:
             try:
                 for bloque in dividir_mensaje(reporte_privado):
