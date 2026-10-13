@@ -933,16 +933,16 @@
       "id": 5399812998,
       "nombre": "Maria",
       "username": "",
-      "puntos_mes": 550,
-      "puntos_totales": 550,
+      "puntos_mes": 645,
+      "puntos_totales": 645,
       "racha_actual": 1,
       "mejor_racha": 4,
-      "racha_podio": 1,
-      "racha_voz": 5,
-      "asistencias_mes": 5,
-      "asistencias_totales": 5,
-      "minutos_mes": 332,
-      "minutos_totales": 332,
+      "racha_podio": 2,
+      "racha_voz": 6,
+      "asistencias_mes": 6,
+      "asistencias_totales": 6,
+      "minutos_mes": 352,
+      "minutos_totales": 352,
       "meditaciones_mes": 5,
       "meditaciones_totales": 5,
       "medallas": [],
@@ -1387,5 +1387,5 @@
     }
   },
   "mes_actual": "2026-10",
-  "total_llamadas_mes": 15
+  "total_llamadas_mes": 16
 }
