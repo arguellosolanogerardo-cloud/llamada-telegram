@@ -5,7 +5,7 @@ on:
 
 concurrency:
   group: llamada-telegram
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   abrir-llamada:

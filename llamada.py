@@ -4914,11 +4914,11 @@ async def main() -> None:
             except Exception:
                 pass
 
-        # Esperar 1 hora (o MINUTOS_ESPERA_LIMPIEZA) para limpiar ventanas y avisos temporales de la sala
-        minutos_espera_limpieza = int(os.environ.get("MINUTOS_ESPERA_LIMPIEZA", "60"))
-        segundos_espera_limpieza = max(0, minutos_espera_limpieza * 60)
+        # Espera breve para limpiar ventanas y avisos temporales de la sala
+        minutos_espera_limpieza = int(os.environ.get("MINUTOS_ESPERA_LIMPIEZA", "1"))
+        segundos_espera_limpieza = 5 if cerrado_por_admin else max(0, minutos_espera_limpieza * 60)
         if segundos_espera_limpieza > 0:
-            print(f"⏳ Sala concluida y reportes entregados. Esperando {minutos_espera_limpieza} min ({segundos_espera_limpieza}s) para limpiar ventanas y avisos temporales de la sala...")
+            print(f"⏳ Sala concluida y reportes entregados. Esperando {segundos_espera_limpieza}s para limpiar ventanas y avisos temporales de la sala...")
             await asyncio.sleep(segundos_espera_limpieza)
         print(f"🧹 Iniciando limpieza de ventanas y notificaciones temporales ({len(ids_mensajes_efimeros)} mensajes)...")
         await limpiar_mensajes_temporales(client, entidad, ids_mensajes_efimeros)
