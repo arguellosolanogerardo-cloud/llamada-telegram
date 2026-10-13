@@ -141,7 +141,7 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
     frac = max(0.0, min(1.0, illumination / 100.0))
     shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     s_draw = ImageDraw.Draw(shadow_layer)
-    s_color = (10, 16, 30, 245)
+    s_color = (0, 0, 0, 255)
 
     for y in range(size):
         dy = y - cy
@@ -169,15 +169,15 @@ def render_moon_disc(radius: int = 92, illumination: float = 84.6, is_waxing: bo
 
     img.paste(shadow_layer, (0, 0), mask=mask_circle)
 
-    # Resplandor suave externo
-    glow = Image.new("RGBA", (size + 30, size + 30), (0, 0, 0, 0))
+    # Resplandor suave externo sobre fondo negro para resaltar la luna
+    glow = Image.new("RGBA", (size + 36, size + 36), (0, 0, 0, 0))
     g_draw = ImageDraw.Draw(glow)
-    g_draw.ellipse([(15, 15), (size + 14, size + 14)], fill=(180, 210, 255, 35))
-    glow = glow.filter(ImageFilter.GaussianBlur(8))
+    g_draw.ellipse([(18, 18), (size + 17, size + 17)], fill=(195, 218, 255, 45))
+    glow = glow.filter(ImageFilter.GaussianBlur(10))
 
-    result = Image.new("RGBA", (size + 30, size + 30), (0, 0, 0, 0))
+    result = Image.new("RGBA", (size + 36, size + 36), (0, 0, 0, 0))
     result.paste(glow, (0, 0))
-    result.paste(img, (15, 15), mask=mask_circle)
+    result.paste(img, (18, 18), mask=mask_circle)
     return result
 
 
@@ -197,19 +197,13 @@ def generar_caratula_meditacion_luna(
     try:
         os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
         width, height = 1280, 720
-        img = Image.new("RGB", (width, height), color=(8, 12, 24))
+        # 1. Fondo negro espacial profundo (0, 0, 0) para máximo contraste y realce de la Luna
+        img = Image.new("RGB", (width, height), color=(0, 0, 0))
         draw = ImageDraw.Draw(img)
-
-        # 1. Fondo azul cósmico profundo con gradiente vertical suave
-        for y in range(height):
-            r = int(8 + (18 - 8) * (y / height))
-            g = int(12 + (16 - 12) * (y / height))
-            b = int(24 + (46 - 24) * (y / height))
-            draw.line([(0, y), (width, y)], fill=(r, g, b))
 
         # 2. Marco exterior elegante
         draw.rounded_rectangle([(24, 20), (1256, 700)], radius=22, outline=(245, 158, 11), width=2)
-        draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(60, 75, 115), width=1)
+        draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(38, 42, 56), width=1)
 
         # 3. Fuentes
         font_med = font_tit = font_sub = font_phase = font_astro = font_time = None
@@ -249,11 +243,11 @@ def generar_caratula_meditacion_luna(
         img.paste(moon_img, (moon_x, moon_y), mask=moon_img)
 
         # 7. Cajas laterales de Salida y Puesta
-        draw.rounded_rectangle([(140, 250), (370, 315)], radius=14, fill=(18, 26, 46), outline=(79, 70, 229), width=1)
+        draw.rounded_rectangle([(140, 250), (370, 315)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
         draw.text((255, 270), "🌙  SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
         draw.text((255, 296), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
 
-        draw.rounded_rectangle([(910, 250), (1140, 315)], radius=14, fill=(18, 26, 46), outline=(79, 70, 229), width=1)
+        draw.rounded_rectangle([(910, 250), (1140, 315)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
         draw.text((1025, 270), "🌙  PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
         draw.text((1025, 296), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
 
@@ -275,7 +269,7 @@ def generar_caratula_meditacion_luna(
         progress_w = int(bar_w * ratio)
 
         # Fondo de la barra
-        draw.rounded_rectangle([(bar_x1, bar_y), (bar_x2, bar_y + bar_h)], radius=7, fill=(35, 45, 68), outline=(55, 68, 98), width=1)
+        draw.rounded_rectangle([(bar_x1, bar_y), (bar_x2, bar_y + bar_h)], radius=7, fill=(24, 26, 34), outline=(48, 54, 72), width=1)
 
         # Barra llena activa (dorado ámbar)
         if progress_w > 0:
