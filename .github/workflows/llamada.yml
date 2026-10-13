@@ -3,6 +3,10 @@ name: Llamada diaria Telegram
 on:
   workflow_dispatch:   # Ejecutado exclusivamente por cron-job.org a las 7:56 PM Colombia
 
+concurrency:
+  group: llamada-telegram
+  cancel-in-progress: false
+
 jobs:
   abrir-llamada:
     runs-on: ubuntu-latest
