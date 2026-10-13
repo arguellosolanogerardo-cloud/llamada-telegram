@@ -6,6 +6,7 @@ y horas de salida/puesta de la Luna para Bucaramanga (Colombia).
 """
 import math
 import os
+import random
 import datetime
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -223,6 +224,56 @@ def wrap_text_balanced(text: str, font: ImageFont.ImageFont, max_width: int, dra
     return lines
 
 
+def dibujar_campo_estelar(draw: ImageDraw.ImageDraw, width: int = 1280, height: int = 720, seed: int = 42):
+    """Genera un firmamento cósmico con estrellas astronómicas de diferentes magnitudes al estilo Fases de la Luna."""
+    rng = random.Random(seed)
+
+    def es_zona_restringida(x: int, y: int) -> bool:
+        # Evitar tapar el centro de la luna
+        if (x - 640) ** 2 + (y - 305) ** 2 < 120 ** 2:
+            return True
+        # Evitar cajas laterales de salida/puesta
+        if 130 < x < 380 and 240 < y < 350:
+            return True
+        if 900 < x < 1150 and 240 < y < 350:
+            return True
+        # Evitar zona de barra de avance inferior
+        if 160 < x < 1120 and 520 < y < 630:
+            return True
+        # Evitar cabecera superior de texto
+        if 180 < x < 1100 and 35 < y < 190:
+            return True
+        return False
+
+    # 1. 240 estrellas tenues distantes
+    for _ in range(240):
+        x = rng.randint(35, width - 35)
+        y = rng.randint(35, height - 35)
+        if es_zona_restringida(x, y):
+            continue
+        b = rng.randint(90, 180)
+        draw.point((x, y), fill=(b, b, min(255, b + 25)))
+
+    # 2. 50 estrellas medianas con sutil resplandor blanco-azulado
+    for _ in range(50):
+        x = rng.randint(35, width - 35)
+        y = rng.randint(35, height - 35)
+        if es_zona_restringida(x, y):
+            continue
+        b = rng.randint(180, 240)
+        draw.ellipse([(x - 1, y - 1), (x + 1, y + 1)], fill=(b, b, 255))
+
+    # 3. 12 estrellas prominentes con destellos en cruz de difracción (estilo astrofotografía NASA)
+    for _ in range(12):
+        x = rng.randint(50, width - 50)
+        y = rng.randint(50, height - 50)
+        if es_zona_restringida(x, y):
+            continue
+        draw.ellipse([(x - 2, y - 2), (x + 2, y + 2)], fill=(255, 255, 255))
+        draw.line([(x - 4, y), (x + 4, y)], fill=(210, 230, 255, 180))
+        draw.line([(x, y - 4), (x, y + 4)], fill=(210, 230, 255, 180))
+
+
 def generar_caratula_meditacion_luna(
     numero: str,
     titulo: str,
@@ -239,13 +290,17 @@ def generar_caratula_meditacion_luna(
     try:
         os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
         width, height = 1280, 720
-        # 1. Fondo negro espacial profundo (0, 0, 0) para máximo contraste y realce de la Luna
-        img = Image.new("RGB", (width, height), color=(0, 0, 0))
+        # 1. Fondo cósmico espacial profundo con campo estelar astronómico
+        img = Image.new("RGB", (width, height), color=(2, 4, 8))
         draw = ImageDraw.Draw(img)
+
+        # Semilla determinista para estrellas fijas según número de meditación
+        seed_val = int(numero) if numero and str(numero).isdigit() else 1094
+        dibujar_campo_estelar(draw, width, height, seed=seed_val)
 
         # 2. Marco exterior elegante
         draw.rounded_rectangle([(24, 20), (1256, 700)], radius=22, outline=(245, 158, 11), width=2)
-        draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(38, 42, 56), width=1)
+        draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(42, 48, 64), width=1)
 
         # 3. Fuentes
         font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
