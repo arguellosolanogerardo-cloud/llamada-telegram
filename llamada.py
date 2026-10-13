@@ -226,18 +226,20 @@ def dividir_mensaje(texto: str, limite: int = 3500) -> list:
 ids_mensajes_efimeros = set()
 
 
-def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None, es_efimero: bool = False) -> list[int]:
+def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None, es_efimero: bool = False, parse_mode: str = None) -> list[int]:
     if not BOT_TOKEN:
         return []
     texto = texto.replace("{CA}", hora_california())
-    # El bot envía texto plano: quitar marcas Markdown para que no se vean asteriscos
-    texto = texto.replace("**", "").replace("`", "")
+    if not parse_mode:
+        texto = texto.replace("**", "").replace("`", "")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     bloques = dividir_mensaje(texto)
     ids_enviados = []
     for idx, bloque in enumerate(bloques):
         payload = {"chat_id": CHAT_ID, "text": bloque}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
 
         if idx == 0:
             if reply_markup:
@@ -279,6 +281,34 @@ def avisar_con_bot(texto: str, boton_url: str = None, reply_markup: dict = None,
         ids_mensajes_efimeros.update(ids_enviados)
 
     return ids_enviados
+
+
+def editar_mensaje_bot_sync(message_id: int, texto: str, reply_markup: dict = None, parse_mode: str = "Markdown") -> bool:
+    if not BOT_TOKEN or not message_id or not CHAT_ID:
+        return False
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+    payload = {
+        "chat_id": CHAT_ID,
+        "message_id": message_id,
+        "text": texto,
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    try:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json; charset=utf-8"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError:
+        return False
+    except Exception:
+        return False
+
+
+async def editar_mensaje_bot(message_id: int, texto: str, reply_markup: dict = None, parse_mode: str = "Markdown") -> bool:
+    return await asyncio.to_thread(editar_mensaje_bot_sync, message_id, texto, reply_markup, parse_mode)
 
 
 async def limpiar_mensajes_temporales(client, entidad, ids_a_borrar: set) -> None:
@@ -643,6 +673,94 @@ def generar_imagen_podio(fecha_str: str, duracion_min: int, total_personas: int,
         return ruta_salida
     except Exception as e:
         print("Nota generando imagen del podio:", e)
+        return None
+
+
+def generar_barra_progreso(segundos_actual: float, segundos_total: float, ancho: int = 14) -> str:
+    if segundos_total <= 0:
+        return "🔘" + "─" * (ancho - 1)
+    ratio = max(0.0, min(1.0, segundos_actual / segundos_total))
+    pos_bolita = int(round(ratio * (ancho - 1)))
+    barra = ""
+    for i in range(ancho):
+        if i == pos_bolita:
+            barra += "🔘"
+        elif i < pos_bolita:
+            barra += "━"
+        else:
+            barra += "─"
+    return barra
+
+
+def formatear_tiempo_mm_ss(segundos: float) -> str:
+    s = max(0, int(round(segundos)))
+    m, s = divmod(s, 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion_min: int = 0, ruta_salida: str = None) -> str | None:
+    if not ruta_salida:
+        ruta_salida = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
+        width, height = 1280, 720
+        img = Image.new("RGB", (width, height), color=(10, 15, 30))
+        draw = ImageDraw.Draw(img)
+
+        # Gradiente suave vertical cósmico
+        for y in range(height):
+            r = int(10 + (25 - 10) * (y / height))
+            g = int(15 + (20 - 15) * (y / height))
+            b = int(30 + (55 - 30) * (y / height))
+            draw.line([(0, y), (width, y)], fill=(r, g, b))
+
+        font_title = font_num = font_sub = font_author = font_footer = None
+        for font_candidate in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]:
+            try:
+                font_num = ImageFont.truetype(font_candidate, 68)
+                font_title = ImageFont.truetype(font_candidate, 42)
+                font_sub = ImageFont.truetype(font_candidate, 30)
+                font_author = ImageFont.truetype(font_candidate, 32)
+                font_footer = ImageFont.truetype(font_candidate, 24)
+                break
+            except Exception:
+                continue
+        if not font_title:
+            font_title = font_num = font_sub = font_author = font_footer = ImageFont.load_default()
+
+        # Marco exterior con borde dorado
+        draw.rounded_rectangle([(30, 30), (1250, 690)], radius=24, outline=(245, 158, 11), width=3)
+        draw.rounded_rectangle([(42, 42), (1238, 678)], radius=18, outline=(99, 102, 241), width=1)
+
+        num_str = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
+        draw.text((640, 140), num_str, fill=(251, 191, 36), font=font_num, anchor="mm")
+        draw.line([(340, 210), (940, 210)], fill=(245, 158, 11), width=3)
+
+        tit_clean = titulo.strip() if titulo else "Paz y Quietud Interior"
+        if not tit_clean.startswith("«"):
+            tit_clean = f"«{tit_clean}»"
+        draw.text((640, 290), tit_clean, fill=(255, 255, 255), font=font_title, anchor="mm")
+
+        m_str = f"Maestro: {maestro}" if maestro else "Guía: Alaniso"
+        draw.text((640, 385), m_str, fill=(199, 210, 254), font=font_author, anchor="mm")
+
+        # Barra decorativa central con bolita
+        draw.rounded_rectangle([(300, 470), (980, 482)], radius=6, fill=(51, 65, 85))
+        draw.rounded_rectangle([(300, 470), (640, 482)], radius=6, fill=(245, 158, 11))
+        draw.ellipse([(630, 466), (650, 486)], fill=(255, 255, 255), outline=(245, 158, 11), width=2)
+
+        dur_txt = f"Duración estimada: ~{duracion_min} minutos" if duracion_min > 0 else "Transmisión en directo"
+        draw.text((640, 525), dur_txt, fill=(148, 163, 184), font=font_sub, anchor="mm")
+        draw.text((640, 630), "🧘 Comunidad de Meditación Diaria • Silencio y Quietud", fill=(129, 140, 248), font=font_footer, anchor="mm")
+
+        img.save(ruta_salida, format="JPEG", quality=92)
+        return ruta_salida
+    except Exception as e:
+        print("Nota generando carátula de meditación:", e)
         return None
 
 
@@ -1581,6 +1699,88 @@ async def main() -> None:
         }
         lock_eq = asyncio.Lock()
         DURACION_GONG_SEG = obtener_duracion_segundos(obtener_sonido_campana_inicio())  # duración real del audio de inicio (s)
+        volumen_actual = 200
+        dur_pista_actual = 0.0
+        ruta_activa_audio = ""
+        ruta_caratula_actual = ""
+        msg_panel_meditacion_id = None
+        ultimo_texto_panel = ""
+        tarea_panel_progreso = None
+
+        def construir_teclado_reproduccion(en_pausa: bool):
+            boton_play_pausa = (
+                {"text": "▶️ Reanudar", "callback_data": "panel_play"}
+                if en_pausa else
+                {"text": "⏸️ Pausa", "callback_data": "panel_pausa"}
+            )
+            return {
+                "inline_keyboard": [
+                    [
+                        {"text": "⏪ -30s", "callback_data": "panel_rewind"},
+                        boton_play_pausa,
+                        {"text": "⏩ +30s", "callback_data": "panel_forward"},
+                    ],
+                    [
+                        {"text": "🔉 Vol -", "callback_data": "panel_voldown"},
+                        {"text": "⏹️ Detener", "callback_data": "panel_stop"},
+                        {"text": "🔊 Vol +", "callback_data": "panel_volup"},
+                    ]
+                ]
+            }
+
+        def construir_texto_panel(pos_s: float, dur_s: float, info: dict, en_pausa: bool, vol: int = 100) -> str:
+            num = (info or {}).get("numero", "")
+            tit = (info or {}).get("titulo", "Meditación Diaria")
+            maestro = (info or {}).get("maestro", "Alaniso")
+
+            icono_estado = "⏸️ *(En pausa)*" if en_pausa else "▶️ *(En reproducción)*"
+            barra = generar_barra_progreso(pos_s, dur_s, ancho=14)
+            t_act = formatear_tiempo_mm_ss(pos_s)
+            t_tot = formatear_tiempo_mm_ss(dur_s)
+            pct = int(round((pos_s / max(1.0, dur_s)) * 100))
+            pct = max(0, min(100, pct))
+
+            encabezado = f"🧘 **MEDITACIÓN #{num}** — *{tit}*" if num else f"🧘 **{tit}**"
+
+            return (
+                f"{encabezado}\n"
+                f"👤 **Maestro:** {maestro}\n"
+                f"🔊 **Volumen:** {vol}%\n\n"
+                f"{icono_estado}\n"
+                f"`{t_act}`  {barra}  `{t_tot}` ({pct}%)\n\n"
+                f"*(Controles táctiles solo para administradores)*"
+            )
+
+        async def actualizar_panel_progreso(forzar: bool = False):
+            nonlocal msg_panel_meditacion_id, ultimo_texto_panel
+            if not msg_panel_meditacion_id:
+                return
+            try:
+                pos = posicion_actual()
+                dur = dur_pista_actual or 1800.0
+                en_pausa = eq_estado.get("t_pausa") is not None
+                vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
+                nuevo_texto = construir_texto_panel(pos, dur, info_catalogo_hoy, en_pausa, vol_pct)
+                if forzar or nuevo_texto != ultimo_texto_panel:
+                    nuevo_teclado = construir_teclado_reproduccion(en_pausa)
+                    exito = await editar_mensaje_bot(msg_panel_meditacion_id, nuevo_texto, reply_markup=nuevo_teclado)
+                    if exito:
+                        ultimo_texto_panel = nuevo_texto
+            except Exception as e_pnl:
+                print("Nota actualizando panel progreso:", e_pnl)
+
+        async def _bucle_panel_progreso():
+            nonlocal msg_panel_meditacion_id
+            while reproduciendo_meditacion:
+                try:
+                    await asyncio.sleep(4)
+                    if not reproduciendo_meditacion:
+                        break
+                    await actualizar_panel_progreso(forzar=False)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e_bucle:
+                    print("Nota en bucle de panel de progreso:", e_bucle)
 
         def eq_efectivo():
             if not MEJORA_AUDIO:
@@ -1688,6 +1888,108 @@ async def main() -> None:
                     print("Nota pre-procesando meditacion:", e_p)
             asyncio.create_task(_preparar_meditacion_completa())
 
+        async def _watchdog_fin_pista(p_idx: int, dur_s: float, mi_token: int):
+            margen = 8.0
+            espera = max(10.0, dur_s + margen)
+            print(f"⏱️ Watchdog armado para pista {p_idx + 1}: dur={dur_s:.1f}s, espera={espera:.1f}s.")
+            await asyncio.sleep(espera)
+            nonlocal reproduciendo_meditacion, indice_pista_actual, token_reproduccion, tarea_panel_progreso, msg_panel_meditacion_id
+            if reproduciendo_meditacion and indice_pista_actual == p_idx and mi_token == token_reproduccion:
+                print(f"⏰ Watchdog: Tiempo cumplido para pista {p_idx + 1} ({dur_s:.1f}s). Finalizando automáticamente...")
+                if tarea_panel_progreso and not tarea_panel_progreso.done():
+                    tarea_panel_progreso.cancel()
+                if msg_panel_meditacion_id:
+                    try:
+                        t_tot_str = formatear_tiempo_mm_ss(dur_s)
+                        num_med = (info_catalogo_hoy or {}).get("numero", "")
+                        txt_fin = (
+                            f"🧘 **MEDITACIÓN #{num_med} CONCLUIDA**\n\n"
+                            f"⏱️ **Duración:** {t_tot_str}\n"
+                            f"🔓 **Micrófonos restablecidos.** ¡Gracias por su práctica y presencia!"
+                        )
+                        await editar_mensaje_bot(msg_panel_meditacion_id, txt_fin, reply_markup={"inline_keyboard": []})
+                    except Exception:
+                        pass
+                    msg_panel_meditacion_id = None
+                if indice_pista_actual + 1 < len(cola_reproduccion):
+                    sig_idx = indice_pista_actual + 1
+                    print(f"Watchdog pasando a pista {sig_idx + 1} de {len(cola_reproduccion)}...")
+                    siguiente_item = cola_reproduccion[sig_idx]
+                    inf_sig = siguiente_item.get("info")
+                    txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"🧘 **Audio #{sig_idx + 1}:** {siguiente_item.get('titulo', 'Meditación')}"
+                    avisar_con_bot(
+                        f"🔔 **Pista {p_idx + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {len(cola_reproduccion)}:**\n{txt_sig}\n\n🧘 Por favor continúen en silencio...",
+                        es_efimero=True
+                    )
+                    await reproducir_meditacion(sig_idx)
+                else:
+                    reproduciendo_meditacion = False
+                    print("Watchdog: Sesión de meditación concluida exitosamente.")
+                    await desbloquear_todos_los_participantes()
+                    avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
+                    if tgcalls:
+                        try:
+                            await tgcalls.leave_call(destino)
+                        except Exception:
+                            pass
+                    if not grabacion_cancelada and not grabacion_pausada:
+                        if ruta_grabacion_post not in segmentos_grabados:
+                            segmentos_grabados.append(ruta_grabacion_post)
+                        try:
+                            from pytgcalls.types import RecordStream
+                            os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_post)), exist_ok=True)
+                            await tgcalls.record(destino, RecordStream(ruta_grabacion_post))
+                            print(f"🎙️ Grabación post-meditación iniciada vía watchdog -> {ruta_grabacion_post}")
+                        except Exception as e_rec:
+                            print("Nota reanudando grabación vía watchdog:", e_rec)
+
+
+        async def saltar_a_posicion(nueva_pos: float) -> bool:
+            nonlocal token_reproduccion, dur_pista_actual, ruta_activa_audio, ruta_caratula_actual
+            if not (tgcalls and reproduciendo_meditacion and ruta_activa_audio):
+                return False
+            try:
+                en_pausa = eq_estado.get("t_pausa") is not None
+                dur_total = dur_pista_actual or 1800.0
+                nueva_pos = max(0.0, min(max(0.0, dur_total - 5.0), nueva_pos))
+                destino_seek = os.path.join(CARPETA_MEDITACIONES, "meditacion_seek.mp3")
+
+                if nueva_pos <= 1.0:
+                    ruta_seek = ruta_activa_audio
+                else:
+                    ruta_seek = await recortar_desde_async(ruta_activa_audio, nueva_pos, destino_seek)
+                    if not os.path.exists(ruta_seek) or os.path.getsize(ruta_seek) < 5000:
+                        ruta_seek = ruta_activa_audio
+
+                from pytgcalls.types import MediaStream, VideoQuality, AudioQuality
+                if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
+                    stream_seek = MediaStream(
+                        ruta_caratula_actual,
+                        audio_path=ruta_seek,
+                        video_parameters=VideoQuality.HD_720p,
+                        audio_parameters=AudioQuality.HIGH,
+                    )
+                else:
+                    stream_seek = MediaStream(
+                        ruta_seek,
+                        audio_parameters=AudioQuality.HIGH,
+                    )
+
+                await tgcalls.play(destino, stream_seek)
+                iniciar_seguimiento_posicion(nueva_pos)
+                if en_pausa:
+                    await tgcalls.pause(destino)
+                    marcar_pausa()
+
+                token_reproduccion += 1
+                dur_restante = max(5.0, dur_total - nueva_pos)
+                client.loop.create_task(_watchdog_fin_pista(indice_pista_actual, dur_restante, token_reproduccion))
+                await actualizar_panel_progreso(forzar=True)
+                return True
+            except Exception as e_seek:
+                print("Error en saltar_a_posicion:", e_seek)
+                return False
+
         ultimo_error_reproduccion = ""
 
         async def reproducir_meditacion(pista_idx: int = 0):
@@ -1779,35 +2081,47 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                # 5. Iniciar emisión de audio con PyTgCalls
+                # 5. Iniciar emisión con pantalla de video HD y audio de alta fidelidad
+                ruta_activa_audio = ruta_a_reproducir
                 try:
-                    ruta_pcm = await asyncio.to_thread(convertir_audio_a_pcm, ruta_a_reproducir)
-                    if ruta_pcm and ruta_pcm.endswith(".raw") and os.path.exists(ruta_pcm):
-                        from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
-                        from ntgcalls import MediaSource
-                        stream_play = Stream(
-                            microphone=AudioStream(
-                                media_source=MediaSource.FILE,
-                                path=os.path.abspath(ruta_pcm),
-                                parameters=AudioParameters(48000, 2)
-                            )
+                    num_med = (info_catalogo_hoy or {}).get("numero", "")
+                    tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
+                    m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                    dur_est = int(round(obtener_duracion_segundos(ruta_pista) / 60))
+                    ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_est)
+                except Exception as e_car:
+                    print("Nota generando carátula:", e_car)
+                    ruta_caratula_actual = ""
+
+                try:
+                    from pytgcalls.types import MediaStream, VideoQuality, AudioQuality
+                    if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
+                        stream_play = MediaStream(
+                            ruta_caratula_actual,
+                            audio_path=ruta_a_reproducir,
+                            video_parameters=VideoQuality.HD_720p,
+                            audio_parameters=AudioQuality.HIGH,
                         )
                     else:
-                        from pytgcalls.types import MediaStream, AudioQuality
                         stream_play = MediaStream(
                             ruta_a_reproducir,
                             audio_parameters=AudioQuality.HIGH,
                         )
                     
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Iniciando tgcalls.play con stream_play...\\n")
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Iniciando tgcalls.play con stream_play (video+audio)...\n")
                     await tgcalls.play(destino, stream_play)
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"tgcalls.play completado exitosamente.\\n")
-                    print(f"Emisión de audio iniciada con Stream: {ruta_a_reproducir}")
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"tgcalls.play con video completado exitosamente.\n")
+                    print(f"Emisión de pantalla de video y audio iniciada: {ruta_a_reproducir}")
                 except Exception as e_ms:
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Excepcion en play 1: {e_ms}\\n")
-                    print("Nota reproduciendo audio, usando fallback:", e_ms)
-                    await tgcalls.play(destino, ruta_a_reproducir)
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Fallback tgcalls.play completado.\\n")
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Excepcion en play video: {e_ms}, usando audio directo\n")
+                    print("Nota reproduciendo video en pantalla, usando fallback de audio:", e_ms)
+                    try:
+                        from pytgcalls.types import MediaStream, AudioQuality
+                        stream_fb = MediaStream(ruta_a_reproducir, audio_parameters=AudioQuality.HIGH)
+                        await tgcalls.play(destino, stream_fb)
+                    except Exception:
+                        await tgcalls.play(destino, ruta_a_reproducir)
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Fallback tgcalls.play completado.\n")
 
                 await asyncio.sleep(0.5)
 
@@ -1891,54 +2205,33 @@ async def main() -> None:
                 else:
                     txt_act = formatear_info_audio(info_act) if info_act else f"🧘 **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Meditación')}"
                     avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
-                # Watchdog automático de fin de pista / meditación
+                # Determinar duración total de la pista
                 dur_audio = obtener_duracion_segundos(ruta_a_reproducir)
                 if dur_audio <= 0:
                     dur_audio = obtener_duracion_segundos(ruta_pista)
                 if dur_audio <= 0:
                     dur_audio = 1800.0
+                dur_pista_actual = dur_audio
 
-                async def _watchdog_fin_pista(p_idx: int, dur_s: float, mi_token: int):
-                    margen = 8.0
-                    espera = max(10.0, dur_s + margen)
-                    print(f"⏱️ Watchdog armado para pista {p_idx + 1}: dur={dur_s:.1f}s, espera={espera:.1f}s.")
-                    await asyncio.sleep(espera)
-                    nonlocal reproduciendo_meditacion, indice_pista_actual, token_reproduccion
-                    if reproduciendo_meditacion and indice_pista_actual == p_idx and mi_token == token_reproduccion:
-                        print(f"⏰ Watchdog: Tiempo cumplido para pista {p_idx + 1} ({dur_s:.1f}s). Finalizando automáticamente...")
-                        if indice_pista_actual + 1 < len(cola_reproduccion):
-                            sig_idx = indice_pista_actual + 1
-                            print(f"Watchdog pasando a pista {sig_idx + 1} de {len(cola_reproduccion)}...")
-                            siguiente_item = cola_reproduccion[sig_idx]
-                            inf_sig = siguiente_item.get("info")
-                            txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"🧘 **Audio #{sig_idx + 1}:** {siguiente_item.get('titulo', 'Meditación')}"
-                            avisar_con_bot(
-                                f"🔔 **Pista {p_idx + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {len(cola_reproduccion)}:**\n{txt_sig}\n\n🧘 Por favor continúen en silencio...",
-                                es_efimero=True
-                            )
-                            await reproducir_meditacion(sig_idx)
-                        else:
-                            reproduciendo_meditacion = False
-                            print("Watchdog: Sesión de meditación concluida exitosamente.")
-                            await desbloquear_todos_los_participantes()
-                            avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
-                            if tgcalls:
-                                try:
-                                    await tgcalls.leave_call(destino)
-                                except Exception:
-                                    pass
-                            if not grabacion_cancelada and not grabacion_pausada:
-                                if ruta_grabacion_post not in segmentos_grabados:
-                                    segmentos_grabados.append(ruta_grabacion_post)
-                                try:
-                                    from pytgcalls.types import RecordStream
-                                    os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_post)), exist_ok=True)
-                                    await tgcalls.record(destino, RecordStream(ruta_grabacion_post))
-                                    print(f"🎙️ Grabación post-meditación iniciada vía watchdog -> {ruta_grabacion_post}")
-                                except Exception as e_rec:
-                                    print("Nota reanudando grabación vía watchdog:", e_rec)
+                # Publicar el panel de control interactivo con barra de progreso en vivo (Opción B)
+                try:
+                    vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
+                    txt_panel = construir_texto_panel(0.0, dur_pista_actual, info_act, en_pausa=False, vol=vol_pct)
+                    teclado_panel = construir_teclado_reproduccion(en_pausa=False)
+                    ids_pnl = avisar_con_bot(txt_panel, reply_markup=teclado_panel, parse_mode="Markdown")
+                    if ids_pnl:
+                        msg_panel_meditacion_id = ids_pnl[0]
+                        ultimo_texto_panel = txt_panel
+                except Exception as e_pnl_init:
+                    print("Nota publicando panel interactivo de meditación:", e_pnl_init)
 
-                asyncio.create_task(_watchdog_fin_pista(pista_idx, dur_audio, token_reproduccion))
+                # Iniciar bucle de actualización en vivo del progreso
+                if tarea_panel_progreso and not tarea_panel_progreso.done():
+                    tarea_panel_progreso.cancel()
+                tarea_panel_progreso = client.loop.create_task(_bucle_panel_progreso())
+
+                # Armar el watchdog automático para la pista actual
+                asyncio.create_task(_watchdog_fin_pista(pista_idx, dur_pista_actual, token_reproduccion))
 
                 with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"reproducir_meditacion termino todo y retorna True.\\n")
                 return True
@@ -2429,7 +2722,7 @@ async def main() -> None:
                 await responder(resp)
 
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|desbloquearadmins|liberaradmins|blindaradmins|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
+        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|atrasar|retroceder|rewind|adelantar|avanzar|forward|volup|masvolumen|voldown|menosvolumen|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|desbloquearadmins|liberaradmins|blindaradmins|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             
@@ -2465,8 +2758,18 @@ async def main() -> None:
 
             partes_cmd = event.raw_text.strip().split()
             cmd = partes_cmd[0].lower().split("@")[0]
+            nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, reproduciendo_meditacion, volumen_actual
             if cmd in ("/reproducir", "/play"):
-                nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, reproduciendo_meditacion
+                if reproduciendo_meditacion and eq_estado.get("t_pausa") is not None:
+                    if tgcalls:
+                        try:
+                            await tgcalls.resume(destino)
+                            marcar_reanudacion()
+                            await actualizar_panel_progreso(forzar=True)
+                            await responder_admin("▶️ Meditación reanudada en el segundo actual.")
+                            return
+                        except Exception as e_res:
+                            print("Nota reanudando:", e_res)
                 if not cola_reproduccion and (not ruta_meditacion or not os.path.exists(ruta_meditacion)):
                     ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
                 if cola_reproduccion and indice_pista_actual >= len(cola_reproduccion):
@@ -2490,30 +2793,97 @@ async def main() -> None:
                     if tgcalls:
                         await tgcalls.leave_call(destino)
                     reproduciendo_meditacion = False
+                    if tarea_panel_progreso and not tarea_panel_progreso.done():
+                        tarea_panel_progreso.cancel()
+                    if msg_panel_meditacion_id:
+                        try:
+                            await editar_mensaje_bot(
+                                msg_panel_meditacion_id,
+                                "⏹️ **REPRODUCCIÓN FINALIZADA**\n🔓 Micrófonos desbloqueados.",
+                                reply_markup={"inline_keyboard": []}
+                            )
+                        except Exception:
+                            pass
+                        msg_panel_meditacion_id = None
                     await desbloquear_todos_los_participantes()
                     await responder_admin("⏹️ Reproducción finalizada y micrófonos desbloqueados.")
             elif cmd in ("/pausar", "/pause"):
-                if tgcalls:
+                if tgcalls and reproduciendo_meditacion:
                     try:
                         await tgcalls.pause(destino)
                         marcar_pausa()
+                        await actualizar_panel_progreso(forzar=True)
                         await responder_admin("⏸️ Meditación pausada.")
                     except Exception as e:
                         await responder_admin(f"Error al pausar: {e}")
+                else:
+                    await responder_admin("⚠️ No hay reproducción activa para pausar.")
             elif cmd in ("/continuar", "/resume"):
-                if tgcalls:
+                if tgcalls and reproduciendo_meditacion:
                     try:
                         await tgcalls.resume(destino)
                         marcar_reanudacion()
+                        await actualizar_panel_progreso(forzar=True)
                         await responder_admin("▶️ Meditación reanudada.")
                     except Exception as e:
                         await responder_admin(f"Error al reanudar: {e}")
+                else:
+                    await responder_admin("⚠️ No hay reproducción en pausa para reanudar.")
+            elif cmd in ("/atrasar", "/retroceder", "/rewind"):
+                if not reproduciendo_meditacion:
+                    await responder_admin("⚠️ No hay reproducción activa para retroceder.")
+                else:
+                    delta = 30.0
+                    if len(partes_cmd) > 1 and partes_cmd[1].replace("-", "").isdigit():
+                        delta = float(partes_cmd[1].replace("-", ""))
+                    pos_act = posicion_actual()
+                    nueva_pos = max(0.0, pos_act - delta)
+                    ok = await saltar_a_posicion(nueva_pos)
+                    if ok:
+                        await responder_admin(f"⏪ Retrocedido a `{formatear_tiempo_mm_ss(nueva_pos)}` (-{int(delta)}s).")
+                    else:
+                        await responder_admin("⚠️ No se pudo retroceder la reproducción.")
+            elif cmd in ("/adelantar", "/avanzar", "/forward"):
+                if not reproduciendo_meditacion:
+                    await responder_admin("⚠️ No hay reproducción activa para adelantar.")
+                else:
+                    delta = 30.0
+                    if len(partes_cmd) > 1 and partes_cmd[1].replace("+", "").isdigit():
+                        delta = float(partes_cmd[1].replace("+", ""))
+                    pos_act = posicion_actual()
+                    dur_tot = dur_pista_actual or 1800.0
+                    nueva_pos = min(max(0.0, dur_tot - 5.0), pos_act + delta)
+                    ok = await saltar_a_posicion(nueva_pos)
+                    if ok:
+                        await responder_admin(f"⏩ Adelantado a `{formatear_tiempo_mm_ss(nueva_pos)}` (+{int(delta)}s).")
+                    else:
+                        await responder_admin("⚠️ No se pudo adelantar la reproducción.")
+            elif cmd in ("/voldown", "/menosvolumen"):
+                volumen_actual = max(10, volumen_actual - 20)
+                if tgcalls:
+                    try:
+                        await tgcalls.change_volume_call(destino, volumen_actual)
+                        await actualizar_panel_progreso(forzar=True)
+                        await responder_admin(f"🔉 Volumen: **{int(round(volumen_actual/2))}%**")
+                    except Exception as e:
+                        await responder_admin(f"Error al ajustar volumen: {e}")
+            elif cmd in ("/volup", "/masvolumen"):
+                volumen_actual = min(200, volumen_actual + 20)
+                if tgcalls:
+                    try:
+                        await tgcalls.change_volume_call(destino, volumen_actual)
+                        await actualizar_panel_progreso(forzar=True)
+                        await responder_admin(f"🔊 Volumen: **{int(round(volumen_actual/2))}%**")
+                    except Exception as e:
+                        await responder_admin(f"Error al ajustar volumen: {e}")
             elif cmd in ("/volumen", "/vol"):
                 if len(partes_cmd) > 1 and partes_cmd[1].isdigit():
                     nuevo_vol = max(1, min(200, int(partes_cmd[1])))
+                    volumen_actual = nuevo_vol
                     if tgcalls:
                         try:
                             await tgcalls.change_volume_call(destino, nuevo_vol)
+                            await actualizar_panel_progreso(forzar=True)
                             await responder_admin(f"🔊 Volumen ajustado a **{nuevo_vol}%**.")
                         except Exception as e:
                             await responder_admin(f"Error al ajustar volumen: {e}")
@@ -2525,6 +2895,18 @@ async def main() -> None:
                 reproduciendo_meditacion = False
                 segundos_inactividad_mic.clear()
                 avisados_auto_mute.clear()
+                if tarea_panel_progreso and not tarea_panel_progreso.done():
+                    tarea_panel_progreso.cancel()
+                if msg_panel_meditacion_id:
+                    try:
+                        await editar_mensaje_bot(
+                            msg_panel_meditacion_id,
+                            "⏹️ **REPRODUCCIÓN DETENIDA POR ADMINISTRACIÓN**\n🔓 Los micrófonos han sido desbloqueados.",
+                            reply_markup={"inline_keyboard": []}
+                        )
+                    except Exception:
+                        pass
+                    msg_panel_meditacion_id = None
                 if tgcalls:
                     try:
                         await tgcalls.leave_call(destino)

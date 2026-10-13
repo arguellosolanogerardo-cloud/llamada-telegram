@@ -1612,13 +1612,43 @@ def escuchar_comandos() -> None:
 
                         accion = cb_data.split("_")[1]
                         comando = ""
-                        if accion == "play": comando = "/reproducir"
-                        elif accion == "pausa": comando = "/pausar"
-                        elif accion == "nextaudio": comando = "/saltaraudio"
-                        elif accion == "nextturno": comando = "/siguiente"
-                        elif accion == "desmutear": comando = "/desmuteartodos"
-                        elif accion == "limpiar": comando = "/limpiarsala"
-                        elif accion == "stoprec": comando = "/detenergrabacion"
+                        texto_feedback = ""
+                        if accion == "play":
+                            comando = "/reproducir"
+                            texto_feedback = "▶️ Reanudando / Reproduciendo..."
+                        elif accion == "pausa":
+                            comando = "/pausar"
+                            texto_feedback = "⏸️ Pausando..."
+                        elif accion == "rewind":
+                            comando = "/atrasar 30"
+                            texto_feedback = "⏪ Retrocediendo 30 segundos..."
+                        elif accion == "forward":
+                            comando = "/adelantar 30"
+                            texto_feedback = "⏩ Adelantando 30 segundos..."
+                        elif accion == "voldown":
+                            comando = "/voldown"
+                            texto_feedback = "🔉 Reduciendo volumen..."
+                        elif accion == "volup":
+                            comando = "/volup"
+                            texto_feedback = "🔊 Aumentando volumen..."
+                        elif accion == "stop":
+                            comando = "/detener"
+                            texto_feedback = "⏹️ Deteniendo reproducción..."
+                        elif accion == "nextaudio":
+                            comando = "/saltaraudio"
+                            texto_feedback = "⏭️ Siguiente audio..."
+                        elif accion == "nextturno":
+                            comando = "/siguiente"
+                            texto_feedback = "🎤 Siguiente turno..."
+                        elif accion == "desmutear":
+                            comando = "/desmuteartodos"
+                            texto_feedback = "🔓 Desbloqueando micrófonos..."
+                        elif accion == "limpiar":
+                            comando = "/limpiarsala"
+                            texto_feedback = "🧹 Limpiando mensajes..."
+                        elif accion == "stoprec":
+                            comando = "/detenergrabacion"
+                            texto_feedback = "🛑 Deteniendo grabación..."
                         
                         if comando and chat_id_cb:
                             m_id_cmd = enviar_mensaje(chat_id_cb, comando)
@@ -1628,7 +1658,7 @@ def escuchar_comandos() -> None:
                         
                         try:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-                            req_ans = urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": f"Ejecutado: {comando}"}).encode(), headers={"Content-Type": "application/json"})
+                            req_ans = urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": texto_feedback or f"Ejecutado: {comando}"}).encode(), headers={"Content-Type": "application/json"})
                             urllib.request.urlopen(req_ans, timeout=10)
                         except Exception:
                             pass
@@ -2137,8 +2167,9 @@ def escuchar_comandos() -> None:
                         continue
                     teclado_panel = {
                         "inline_keyboard": [
-                            [{"text": "▶️ Play", "callback_data": "panel_play"}, {"text": "⏸️ Pausa", "callback_data": "panel_pausa"}, {"text": "⏭️ Siguiente", "callback_data": "panel_nextaudio"}],
-                            [{"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}],
+                            [{"text": "⏪ -30s", "callback_data": "panel_rewind"}, {"text": "⏯️ Pausa / Play", "callback_data": "panel_play"}, {"text": "⏩ +30s", "callback_data": "panel_forward"}],
+                            [{"text": "🔉 Vol -", "callback_data": "panel_voldown"}, {"text": "⏹️ Detener", "callback_data": "panel_stop"}, {"text": "🔊 Vol +", "callback_data": "panel_volup"}],
+                            [{"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}, {"text": "⏭️ Sig. Audio", "callback_data": "panel_nextaudio"}],
                             [{"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}]
                         ]
                     }
