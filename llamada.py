@@ -4952,10 +4952,10 @@ async def main() -> None:
 
                     if reconex == 0:
                         txt_calidad_senal = "🟢 **Excelente (100% estable, 0 caídas)**"
-                        txt_diagnostico_red = ""
+                        txt_diagnostico_red = "\n\n📶 **Estabilidad de señal:** ¡Excelente! Tu conexión se mantuvo 100% fluida y sin interrupciones."
                     elif reconex == 1:
-                        txt_calidad_senal = "🟡 **Buena (1 micro-desconexión breve)**"
-                        txt_diagnostico_red = ""
+                        txt_calidad_senal = "🟡 **Buena (1 micro-corte breve)**"
+                        txt_diagnostico_red = "\n\n💡 **Nota de conexión:** Registraste 1 micro-corte breve. Te sugerimos poner Telegram en _'Sin restricciones'_ en Batería para evitar que la pantalla suspenda la llamada."
                     else:
                         txt_calidad_senal = f"⚠️ **Inestable ({reconex} micro-desconexiones)**"
                         if hubo_caida_masiva_sala:
@@ -4965,12 +4965,13 @@ async def main() -> None:
                             )
                         else:
                             txt_diagnostico_red = (
-                                f"\n\n⚠️ **ESTABILIDAD DE TU CONEXIÓN:**\n"
+                                f"\n\n⚠️ **AUDITORÍA DE TU CONEXIÓN:**\n"
                                 f"Registraste **{reconex} salidas de la sala** (mientras el resto de la comunidad se mantuvo estable).\n\n"
-                                f"💡 **¿Telegram te saca frecuentemente de la llamada? Sigue estos pasos:**\n"
+                                f"💡 **Consejos prácticos para mejorar tu próxima reunión:**\n"
                                 f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (evita que el celular cierre la llamada al apagar la pantalla).\n"
-                                f"2. 📶 **Señal:** Procura no alternar entre WiFi y datos móviles durante la reunión.\n"
-                                f"3. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_."
+                                f"2. 📶 **Señal:** Procura no alternar entre Wi-Fi y datos móviles durante la reunión.\n"
+                                f"3. 🔁 **Llamadas Peer-to-peer:** En Telegram ve a _Ajustes > Privacidad y seguridad > Llamadas > Peer-to-peer_ y selecciona **'Nunca'**.\n"
+                                f"4. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_."
                             )
 
                     seg_hablo = p.get("segundos_hablando", 0.0)
@@ -5023,15 +5024,16 @@ async def main() -> None:
                         txt_mic_fugaz = f"• Micrófono: **{round(seg_hablo)} seg**\n" if seg_hablo > 0 else ""
                         txt_visita_red = (
                             f"👋 ¡Hola **{p['nombre']}**!\n\n"
-                            f"📡 **Reporte de conexión de la llamada de hoy:**\n"
+                            f"📡 **Auditoría de conexión de tu llamada de hoy:**\n"
                             f"• Tiempo en sala: **{p['minutos']} minutos** ({p['porcentaje']}% de la sesión)\n"
                             f"• Desconexiones registradas: **{reconex} salidas de la sala**\n"
                             f"{txt_mic_fugaz}"
-                            f"• Lamentablemente tu conexión fue inestable y no lograste alcanzar los 10 minutos mínimos para sumar puntos hoy.\n\n"
-                            f"💡 **¿Telegram te saca frecuentemente de la llamada? Sigue estos 3 pasos:**\n"
+                            f"• Tu conexión fue inestable y no alcanzaste los 10 minutos mínimos para sumar puntos hoy.\n\n"
+                            f"💡 **Consejos prácticos para mejorar tu próxima reunión:**\n"
                             f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (evita que el celular cierre la llamada al apagar la pantalla).\n"
-                            f"2. 📶 **Señal:** Procura no alternar entre WiFi y datos móviles durante la llamada.\n"
-                            f"3. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_.\n\n"
+                            f"2. 📶 **Señal:** Procura no alternar entre Wi-Fi y datos móviles durante la llamada.\n"
+                            f"3. 🔁 **Llamadas Peer-to-peer:** En Telegram ve a _Ajustes > Privacidad y seguridad > Llamadas > Peer-to-peer_ y selecciona **'Nunca'**.\n"
+                            f"4. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_.\n\n"
                             f"✨ ¡Te esperamos mañana a las 7:56 PM para compartir juntos!"
                         )
                         url_usr = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
