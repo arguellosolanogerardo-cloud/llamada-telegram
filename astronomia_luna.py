@@ -8,8 +8,11 @@ import math
 import os
 import random
 import datetime
+import threading
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+_lock_video = threading.Lock()
 
 
 def calcular_astronomia_lunar(fecha_hora: datetime.datetime = None, lat: float = 7.1254, lon: float = -73.1198) -> dict:
@@ -390,175 +393,193 @@ def generar_video_meditacion_luna(
 
     try:
         import subprocess
-        width, height = 1280, 720
-        temp_dir = os.path.join("data", "meditaciones", "temp_frames")
-        os.makedirs(temp_dir, exist_ok=True)
-
-        seed_val = int(numero) if numero and str(numero).isdigit() else 1094
+        import json
         dur_seg = float(duracion_seg) if duracion_seg and float(duracion_seg) > 0 else 1800.0
 
-        # 1. Generar 20 fotogramas para el bucle de 10s de estrellas y Orión titilando
-        num_frames = 20
-        for i in range(num_frames):
-            frame = crear_universo_con_orion(width, height, frame_idx=i, total_frames=num_frames, seed=seed_val)
-            frame.save(os.path.join(temp_dir, f"frame_{i:03d}.png"))
+        with _lock_video:
+            if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 50000:
+                try:
+                    probe = subprocess.run(
+                        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", ruta_salida],
+                        capture_output=True, text=True
+                    )
+                    dur_actual = float(json.loads(probe.stdout)["format"]["duration"])
+                    if abs(dur_actual - dur_seg) <= 15.0:
+                        return ruta_salida
+                except Exception:
+                    pass
 
-        loop_video = os.path.join(temp_dir, "stars_loop.mp4")
-        subprocess.run([
-            "ffmpeg", "-y", "-framerate", "2",
-            "-i", os.path.join(temp_dir, "frame_%03d.png"),
-            "-r", "25",
-            "-pix_fmt", "yuv420p",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
-            loop_video
-        ], capture_output=True, check=True)
+            width, height = 1280, 720
+            temp_dir = os.path.join("data", "meditaciones", "temp_frames")
+            os.makedirs(temp_dir, exist_ok=True)
 
-        # 2. Generar capa transparente con la Luna, títulos multilínea, maestro, etc.
-        fg = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(fg)
+            seed_val = int(numero) if numero and str(numero).isdigit() else 1094
 
-        # Marco exterior e interior
-        draw.rounded_rectangle([(24, 20), (1256, 700)], radius=22, outline=(245, 158, 11), width=2)
-        draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(42, 48, 64), width=1)
+            # 1. Generar 20 fotogramas para el bucle de 10s de estrellas y Orión titilando
+            num_frames = 20
+            for i in range(num_frames):
+                frame = crear_universo_con_orion(width, height, frame_idx=i, total_frames=num_frames, seed=seed_val)
+                frame.save(os.path.join(temp_dir, f"frame_{i:03d}.png"))
 
-        font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
-        for f_cand in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"]:
-            try:
-                font_med = ImageFont.truetype(f_cand, 40)
-                font_tit = ImageFont.truetype(f_cand, 30)
-                font_tit_small = ImageFont.truetype(f_cand, 25)
-                font_sub = ImageFont.truetype(f_cand, 22)
-                font_phase = ImageFont.truetype(f_cand, 28)
-                font_astro = ImageFont.truetype(f_cand, 20)
-                font_time = ImageFont.truetype(f_cand, 26)
-                break
-            except Exception:
-                continue
-        if not font_med:
-            font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
+            loop_video = os.path.join(temp_dir, "stars_loop.mp4")
+            subprocess.run([
+                "ffmpeg", "-y", "-framerate", "2",
+                "-i", os.path.join(temp_dir, "frame_%03d.png"),
+                "-r", "25",
+                "-pix_fmt", "yuv420p",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-threads", "0",
+                loop_video
+            ], capture_output=True, check=True)
 
-        # Cabecera dinámica
-        num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
-        draw.text((640, 56), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")
+            # 2. Generar capa transparente con la Luna, títulos multilínea, maestro, etc.
+            fg = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(fg)
 
-        tit_raw = (titulo or "").strip()
-        tit_clean = f"«{tit_raw}»" if not tit_raw.startswith("«") else tit_raw
-        max_tit_w = 920
-        lineas_tit = wrap_text_balanced(tit_clean, font_tit, max_tit_w, draw)
-        active_font_tit = font_tit
-        if len(lineas_tit) > 2 and font_tit_small:
-            lineas_tit = wrap_text_balanced(tit_clean, font_tit_small, max_tit_w, draw)
-            active_font_tit = font_tit_small
+            # Marco exterior e interior
+            draw.rounded_rectangle([(24, 20), (1256, 700)], radius=22, outline=(245, 158, 11), width=2)
+            draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(42, 48, 64), width=1)
 
-        line_h = 36 if active_font_tit == font_tit else 30
-        start_tit_y = 104 if len(lineas_tit) == 1 else (96 if len(lineas_tit) == 2 else 90)
-        for idx, linea in enumerate(lineas_tit):
-            curr_y = start_tit_y + idx * line_h
-            draw.text((640, curr_y), linea, fill=(255, 255, 255), font=active_font_tit, anchor="mm")
+            font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
+            for f_cand in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"]:
+                try:
+                    font_med = ImageFont.truetype(f_cand, 40)
+                    font_tit = ImageFont.truetype(f_cand, 30)
+                    font_tit_small = ImageFont.truetype(f_cand, 25)
+                    font_sub = ImageFont.truetype(f_cand, 22)
+                    font_phase = ImageFont.truetype(f_cand, 28)
+                    font_astro = ImageFont.truetype(f_cand, 20)
+                    font_time = ImageFont.truetype(f_cand, 26)
+                    break
+                except Exception:
+                    continue
+            if not font_med:
+                font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
 
-        ultimo_tit_y = start_tit_y + (len(lineas_tit) - 1) * line_h
-        m_y = ultimo_tit_y + 34
-        m_txt = f"Maestro: {maestro}" if maestro else "Guía: Alaniso"
-        draw.text((640, m_y), m_txt, fill=(199, 210, 254), font=font_sub, anchor="mm")
+            # Cabecera dinámica
+            num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
+            draw.text((640, 56), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")
 
-        # Luna
-        astro = calcular_astronomia_lunar()
-        moon_cy = max(295, m_y + 112)
-        is_waxing = astro["edad"] < 14.765
-        moon_img = render_moon_disc(radius=92, illumination=astro["iluminacion"], is_waxing=is_waxing)
-        mw, mh = moon_img.size
-        fg.paste(moon_img, (640 - mw // 2, moon_cy - mh // 2), mask=moon_img)
+            tit_raw = (titulo or "").strip()
+            tit_clean = f"«{tit_raw}»" if not tit_raw.startswith("«") else tit_raw
+            max_tit_w = 920
+            lineas_tit = wrap_text_balanced(tit_clean, font_tit, max_tit_w, draw)
+            active_font_tit = font_tit
+            if len(lineas_tit) > 2 and font_tit_small:
+                lineas_tit = wrap_text_balanced(tit_clean, font_tit_small, max_tit_w, draw)
+                active_font_tit = font_tit_small
 
-        # Cajas laterales
-        box_y1 = moon_cy - 35
-        box_y2 = moon_cy + 30
-        draw.rounded_rectangle([(140, box_y1), (370, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
-        draw.text((255, moon_cy - 15), "SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
-        draw.text((255, moon_cy + 11), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+            line_h = 36 if active_font_tit == font_tit else 30
+            start_tit_y = 104 if len(lineas_tit) == 1 else (96 if len(lineas_tit) == 2 else 90)
+            for idx, linea in enumerate(lineas_tit):
+                curr_y = start_tit_y + idx * line_h
+                draw.text((640, curr_y), linea, fill=(255, 255, 255), font=active_font_tit, anchor="mm")
 
-        draw.rounded_rectangle([(910, box_y1), (1140, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
-        draw.text((1025, moon_cy - 15), "PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
-        draw.text((1025, moon_cy + 11), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+            ultimo_tit_y = start_tit_y + (len(lineas_tit) - 1) * line_h
+            m_y = ultimo_tit_y + 34
+            m_txt = f"Maestro: {maestro}" if maestro else "Guía: Alaniso"
+            draw.text((640, m_y), m_txt, fill=(199, 210, 254), font=font_sub, anchor="mm")
 
-        # Métricas
-        fase_y = moon_cy + 120
-        draw.text((640, fase_y), astro["fase"], fill=(251, 191, 36), font=font_phase, anchor="mm")
-        txt_ast = f"Iluminación: {astro['iluminacion']}%   •   Edad: {astro['edad']} días   •   Distancia: {astro['distancia']:,} km".replace(",", ".")
-        draw.text((640, fase_y + 36), txt_ast, fill=(180, 195, 225), font=font_astro, anchor="mm")
+            # Luna
+            astro = calcular_astronomia_lunar()
+            moon_cy = max(295, m_y + 112)
+            is_waxing = astro["edad"] < 14.765
+            moon_img = render_moon_disc(radius=92, illumination=astro["iluminacion"], is_waxing=is_waxing)
+            mw, mh = moon_img.size
+            fg.paste(moon_img, (640 - mw // 2, moon_cy - mh // 2), mask=moon_img)
 
-        # Marco de fondo de la barra de progreso
-        draw.rounded_rectangle([(180, 550), (1100, 564)], radius=7, fill=(24, 26, 34, 210), outline=(48, 54, 72), width=1)
-        min_tot, seg_tot = divmod(int(dur_seg), 60)
-        # Triángulo nítido de reproducción y duración total
-        draw.polygon([(182, 592), (196, 600), (182, 608)], fill=(255, 255, 255))
-        draw.text((945, 600), f"{min_tot:02d}:{seg_tot:02d}", fill=(251, 191, 36), font=font_time, anchor="lm")
+            # Cajas laterales
+            box_y1 = moon_cy - 35
+            box_y2 = moon_cy + 30
+            draw.rounded_rectangle([(140, box_y1), (370, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
+            draw.text((255, moon_cy - 15), "SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
+            draw.text((255, moon_cy + 11), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
 
-        fg_path = os.path.join(temp_dir, "overlay_fg.png")
-        fg.save(fg_path)
+            draw.rounded_rectangle([(910, box_y1), (1140, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
+            draw.text((1025, moon_cy - 15), "PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
+            draw.text((1025, moon_cy + 11), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
 
-        # 3. Elementos dinámicos de la barra de progreso
-        # Tira deslizante de 1840x14: 920px activos color ámbar a la izquierda, 920px transparentes a la derecha
-        strip = Image.new("RGBA", (1840, 14), (0, 0, 0, 0))
-        draw_s = ImageDraw.Draw(strip)
-        draw_s.rectangle([(0, 0), (919, 13)], fill=(245, 158, 11, 255))
-        strip_path = os.path.join(temp_dir, "strip.png")
-        strip.save(strip_path)
+            # Métricas
+            fase_y = moon_cy + 120
+            draw.text((640, fase_y), astro["fase"], fill=(251, 191, 36), font=font_phase, anchor="mm")
+            txt_ast = f"Iluminación: {astro['iluminacion']}%   •   Edad: {astro['edad']} días   •   Distancia: {astro['distancia']:,} km".replace(",", ".")
+            draw.text((640, fase_y + 36), txt_ast, fill=(180, 195, 225), font=font_astro, anchor="mm")
 
-        # Bolita indicadora luminosa de 28x28 con aura ámbar y núcleo blanco brillante
-        dot = Image.new("RGBA", (28, 28), (0, 0, 0, 0))
-        draw_d = ImageDraw.Draw(dot)
-        draw_d.ellipse([(0, 0), (27, 27)], fill=(245, 158, 11, 70))
-        draw_d.ellipse([(4, 4), (23, 23)], fill=(251, 191, 36, 180))
-        draw_d.ellipse([(7, 7), (20, 20)], fill=(255, 255, 255, 255))
-        dot_path = os.path.join(temp_dir, "dot.png")
-        dot.save(dot_path)
+            # Marco de fondo de la barra de progreso
+            draw.rounded_rectangle([(180, 550), (1100, 564)], radius=7, fill=(24, 26, 34, 210), outline=(48, 54, 72), width=1)
+            min_tot, seg_tot = divmod(int(dur_seg), 60)
+            # Triángulo nítido de reproducción y duración total
+            draw.polygon([(182, 592), (196, 600), (182, 608)], fill=(255, 255, 255))
+            draw.text((945, 600), f"{min_tot:02d}:{seg_tot:02d}", fill=(251, 191, 36), font=font_time, anchor="lm")
 
-        # 4. Composición FFmpeg a 25 fps (fluido, estándar WebRTC y sincrónico al segundo)
-        dur_int = max(1, int(dur_seg))
-        time_expr = r'%{eif\:floor(t/60)\:d\:2}\:%{eif\:floor(mod(t\,60))\:d\:2}'
-        pct_expr = r'(%{eif\:min(100\,100*t/' + str(dur_int) + r')\:d}\\\%)'
+            fg_path = os.path.join(temp_dir, "overlay_fg.png")
+            fg.save(fg_path)
 
-        font_opt = ""
-        for f_path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-            "C:/Windows/Fonts/segoeuib.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-            "C:/Windows/Fonts/arial.ttf",
-        ]:
-            if os.path.exists(f_path):
-                esc_path = f_path.replace(os.sep, "/").replace(":", r"\:")
-                font_opt = f":fontfile='{esc_path}'"
-                break
+            # 3. Elementos dinámicos de la barra de progreso
+            # Tira deslizante de 1840x14: 920px activos color ámbar a la izquierda, 920px transparentes a la derecha
+            strip = Image.new("RGBA", (1840, 14), (0, 0, 0, 0))
+            draw_s = ImageDraw.Draw(strip)
+            draw_s.rectangle([(0, 0), (919, 13)], fill=(245, 158, 11, 255))
+            strip_path = os.path.join(temp_dir, "strip.png")
+            strip.save(strip_path)
 
-        filter_expr = (
-            "[0:v][1:v]overlay=0:0[s1]; "
-            f"[2:v]crop=w=920:h=14:x='920-min(920, 920*t/{dur_int})':y=0[bar]; "
-            "[s1][bar]overlay=180:550[s2]; "
-            f"[s2][3:v]overlay=x='180 + min(920, 920*t/{dur_int}) - 14':y=543[s3]; "
-            f"[s3]drawtext=text='{time_expr}':x=208:y=587{font_opt}:fontcolor=white:fontsize=26[s4]; "
-            f"[s4]drawtext=text='{pct_expr}':x=1028:y=587{font_opt}:fontcolor=0xFBBF24:fontsize=26[out]"
-        )
-        cmd_final = [
-            "ffmpeg", "-y",
-            "-stream_loop", "-1", "-i", loop_video,
-            "-loop", "1", "-r", "25", "-i", fg_path,
-            "-loop", "1", "-r", "25", "-i", strip_path,
-            "-loop", "1", "-r", "25", "-i", dot_path,
-            "-filter_complex", filter_expr,
-            "-map", "[out]",
-            "-r", "25",
-            "-pix_fmt", "yuv420p",
-            "-t", str(dur_int),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-            ruta_salida
-        ]
-        res = subprocess.run(cmd_final, capture_output=True, text=True)
-        if res.returncode != 0:
-            print("ERROR FFMPEG generando video animado:", res.stderr)
-            return None
-        return ruta_salida
+            # Bolita indicadora luminosa de 28x28 con aura ámbar y núcleo blanco brillante
+            dot = Image.new("RGBA", (28, 28), (0, 0, 0, 0))
+            draw_d = ImageDraw.Draw(dot)
+            draw_d.ellipse([(0, 0), (27, 27)], fill=(245, 158, 11, 70))
+            draw_d.ellipse([(4, 4), (23, 23)], fill=(251, 191, 36, 180))
+            draw_d.ellipse([(7, 7), (20, 20)], fill=(255, 255, 255, 255))
+            dot_path = os.path.join(temp_dir, "dot.png")
+            dot.save(dot_path)
+
+            # 4. Composición FFmpeg a 25 fps (fluido, estándar WebRTC y sincrónico al segundo)
+            dur_int = max(1, int(dur_seg))
+            time_expr = r'%{eif\:floor(t/60)\:d\:2}\:%{eif\:floor(mod(t\,60))\:d\:2}'
+            pct_expr = r'(%{eif\:min(100\,100*t/' + str(dur_int) + r')\:d}\\\%)'
+
+            font_opt = ""
+            for f_path in [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+                "C:/Windows/Fonts/segoeuib.ttf",
+                "C:/Windows/Fonts/arialbd.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+            ]:
+                if os.path.exists(f_path):
+                    esc_path = f_path.replace(os.sep, "/").replace(":", r"\:")
+                    font_opt = f":fontfile='{esc_path}'"
+                    break
+
+            filter_expr = (
+                "[0:v][1:v]overlay=0:0[s1]; "
+                f"[2:v]crop=w=920:h=14:x='920-min(920, 920*t/{dur_int})':y=0[bar]; "
+                "[s1][bar]overlay=180:550[s2]; "
+                f"[s2][3:v]overlay=x='180 + min(920, 920*t/{dur_int}) - 14':y=543[s3]; "
+                f"[s3]drawtext=text='{time_expr}':x=208:y=587{font_opt}:fontcolor=white:fontsize=26[s4]; "
+                f"[s4]drawtext=text='{pct_expr}':x=1028:y=587{font_opt}:fontcolor=0xFBBF24:fontsize=26[out]"
+            )
+            cmd_final = [
+                "ffmpeg", "-y",
+                "-stream_loop", "-1", "-i", loop_video,
+                "-loop", "1", "-r", "25", "-i", fg_path,
+                "-loop", "1", "-r", "25", "-i", strip_path,
+                "-loop", "1", "-r", "25", "-i", dot_path,
+                "-filter_complex", filter_expr,
+                "-map", "[out]",
+                "-r", "25",
+                "-pix_fmt", "yuv420p",
+                "-t", str(dur_int),
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                "-g", "25",
+                "-threads", "0",
+                ruta_salida
+            ]
+            res = subprocess.run(cmd_final, capture_output=True, text=True)
+            if res.returncode != 0:
+                print("ERROR FFMPEG generando video animado:", res.stderr)
+                return None
+            return ruta_salida
     except Exception as e:
         print("Nota generando video animado de meditación:", e)
         return None

@@ -22,6 +22,7 @@ data/meditaciones/*.jpg
 data/meditaciones/*.mp4
 data/meditaciones/*.raw
 *.raw
+data/meditaciones/temp_frames/
 data/meditaciones/cola_hoy.json
 data/meditaciones/cola_manana.json
 data/meditaciones/meta_manana.json

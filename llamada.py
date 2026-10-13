@@ -1692,6 +1692,8 @@ async def main() -> None:
         msg_panel_meditacion_id = None
         ultimo_texto_panel = ""
         tarea_panel_progreso = None
+        tarea_preparacion_recursos: asyncio.Task | None = None
+        recursos_meditacion_preparados: dict = {}
 
         def construir_teclado_reproduccion(en_pausa: bool):
             boton_play_pausa = (
@@ -1867,9 +1869,14 @@ async def main() -> None:
             # Pre-procesa en segundo plano para que los recursos (audio con gong y video carátula) estén listos
             async def _preparar_meditacion_completa():
                 try:
+                    nonlocal ruta_caratula_actual, ruta_activa_audio
                     audio_base = (await preparar_audio_eq()) if MEJORA_AUDIO else (ruta_meditacion or (cola_reproduccion[0]["ruta"] if cola_reproduccion else ""))
                     if audio_base and os.path.exists(audio_base):
                         audio_con_gong = await asyncio.to_thread(agregar_gongs_al_audio, audio_base)
+                        audio_con_gong = os.path.abspath(audio_con_gong)
+                        recursos_meditacion_preparados["audio"] = audio_con_gong
+                        ruta_activa_audio = audio_con_gong
+
                         p_act = cola_reproduccion[0] if cola_reproduccion else {}
                         inf_act = p_act.get("info") or info_catalogo_hoy or {}
                         n_act = inf_act.get("numero", "")
@@ -1878,11 +1885,14 @@ async def main() -> None:
                         dur_e = obtener_duracion_segundos(audio_con_gong if os.path.exists(audio_con_gong) else audio_base)
                         if dur_e <= 0:
                             dur_e = 1800.0
-                        await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e)
-                        print("✨ Recursos de meditación (audio con gong y video carátula) pre-generados exitosamente en segundo plano.")
+                        vid = await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e)
+                        if vid and os.path.exists(vid) and vid.lower().endswith(".mp4"):
+                            recursos_meditacion_preparados["video"] = os.path.abspath(vid)
+                            ruta_caratula_actual = recursos_meditacion_preparados["video"]
+                        print("✨ Recursos de meditación (audio con gong y video carátula MP4) pre-generados exitosamente en segundo plano.")
                 except Exception as e_p:
                     print("Nota pre-procesando meditacion en segundo plano:", e_p)
-            asyncio.create_task(_preparar_meditacion_completa())
+            tarea_preparacion_recursos = asyncio.create_task(_preparar_meditacion_completa())
 
         async def _watchdog_fin_pista(p_idx: int, dur_s: float, mi_token: int):
             margen = 8.0
@@ -1975,10 +1985,9 @@ async def main() -> None:
                         else:
                             ruta_caratula_actual = ruta_video_base
                     else:
-                        from astronomia_luna import generar_caratula_meditacion_luna
                         ruta_caratula_actual = await asyncio.to_thread(
-                            generar_caratula_meditacion_luna,
-                            num_m, tit_m, m_m, dur_total, nueva_pos, os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
+                            generar_caratula_meditacion,
+                            num_m, tit_m, m_m, dur_total
                         )
                 except Exception as e_car_seek:
                     print("Nota actualizando carátula en salto:", e_car_seek)
@@ -2048,26 +2057,40 @@ async def main() -> None:
             info_catalogo_hoy = pista_actual.get("info")
 
             try:
-                # 1. Incorporar campanas tibetanas / gong zen al inicio y final con antelación
-                ruta_base_audio = await preparar_audio_eq(ruta_pista)
-                ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
-                ruta_a_reproducir = os.path.abspath(ruta_a_reproducir)
+                # 0. Si hay preparación de recursos en segundo plano para esta pista, esperarla
+                if pista_idx == 0 and tarea_preparacion_recursos and not tarea_preparacion_recursos.done():
+                    print("⏳ Esperando que finalice la preparación de recursos (audio HD y video carátula MP4)...")
+                    try:
+                        await asyncio.wait_for(asyncio.shield(tarea_preparacion_recursos), timeout=120.0)
+                    except Exception as e_esp:
+                        print("Nota esperando tarea de recursos:", e_esp)
+
+                # 1. Obtener audio con gongs (del cache preparado o generándolo)
+                if pista_idx == 0 and recursos_meditacion_preparados.get("audio") and os.path.exists(recursos_meditacion_preparados["audio"]):
+                    ruta_a_reproducir = recursos_meditacion_preparados["audio"]
+                else:
+                    ruta_base_audio = await preparar_audio_eq(ruta_pista)
+                    ruta_a_reproducir = await asyncio.to_thread(agregar_gongs_al_audio, ruta_base_audio)
+                    ruta_a_reproducir = os.path.abspath(ruta_a_reproducir)
                 ruta_activa_audio = ruta_a_reproducir
 
-                # 2. Generar o reutilizar carátula de video MP4
-                try:
-                    num_med = (info_catalogo_hoy or {}).get("numero", "")
-                    tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
-                    m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
-                    dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
-                    if dur_exacta <= 0:
-                        dur_exacta = obtener_duracion_segundos(ruta_pista)
-                    if dur_exacta <= 0:
-                        dur_exacta = 1800.0
-                    ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta)
-                except Exception as e_car:
-                    print("Nota generando carátula:", e_car)
-                    ruta_caratula_actual = ""
+                # 2. Obtener video carátula MP4 dinámico
+                if pista_idx == 0 and recursos_meditacion_preparados.get("video") and os.path.exists(recursos_meditacion_preparados["video"]):
+                    ruta_caratula_actual = recursos_meditacion_preparados["video"]
+                else:
+                    try:
+                        num_med = (info_catalogo_hoy or {}).get("numero", "")
+                        tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
+                        m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                        dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
+                        if dur_exacta <= 0:
+                            dur_exacta = obtener_duracion_segundos(ruta_pista)
+                        if dur_exacta <= 0:
+                            dur_exacta = 1800.0
+                        ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta)
+                    except Exception as e_car:
+                        print("Nota generando carátula:", e_car)
+                        ruta_caratula_actual = ""
 
                 # 3. Anuncio de voz por Toby antes de la meditación oficial (pista inicial)
                 if pista_idx == 0:
