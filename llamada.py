@@ -311,6 +311,27 @@ async def editar_mensaje_bot(message_id: int, texto: str, reply_markup: dict = N
     return await asyncio.to_thread(editar_mensaje_bot_sync, message_id, texto, reply_markup, parse_mode)
 
 
+def responder_callback_query_sync(callback_query_id: str, texto: str = None, alert: bool = False) -> bool:
+    if not BOT_TOKEN or not callback_query_id:
+        return False
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+    payload = {"callback_query_id": callback_query_id}
+    if texto:
+        payload["text"] = texto
+        payload["show_alert"] = alert
+    try:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json; charset=utf-8"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+async def responder_callback_query(callback_query_id: str, texto: str = None, alert: bool = False) -> bool:
+    return await asyncio.to_thread(responder_callback_query_sync, callback_query_id, texto, alert)
+
+
 async def limpiar_mensajes_temporales(client, entidad, ids_a_borrar: set) -> None:
     if not ids_a_borrar:
         return
@@ -1804,6 +1825,7 @@ async def main() -> None:
         msg_panel_meditacion_id = None
         ultimo_texto_panel = ""
         tarea_panel_progreso = None
+        tarea_callbacks_bot = None
         tarea_preparacion_recursos: asyncio.Task | None = None
         recursos_meditacion_preparados: dict = {}
 
@@ -2070,7 +2092,8 @@ async def main() -> None:
                 en_pausa = eq_estado.get("t_pausa") is not None
                 dur_total = dur_pista_actual or 1800.0
                 nueva_pos = max(0.0, min(max(0.0, dur_total - 5.0), nueva_pos))
-                destino_seek = os.path.join(CARPETA_MEDITACIONES, "meditacion_seek.mp3")
+                token_seek = int(time.time() * 1000) % 1000000
+                destino_seek = os.path.join(CARPETA_MEDITACIONES, f"meditacion_seek_{token_seek}.mp3")
 
                 if nueva_pos <= 1.0:
                     ruta_seek = ruta_activa_audio
@@ -2084,7 +2107,7 @@ async def main() -> None:
                     tit_m = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
                     m_m = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
                     ruta_video_base = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.mp4")
-                    destino_video_seek = os.path.join(CARPETA_MEDITACIONES, "caratula_seek.mp4")
+                    destino_video_seek = os.path.join(CARPETA_MEDITACIONES, f"caratula_seek_{token_seek}.mp4")
                     if os.path.exists(ruta_video_base) and os.path.getsize(ruta_video_base) > 5000:
                         import subprocess
                         cmd_seek_vid = [
@@ -2118,11 +2141,21 @@ async def main() -> None:
                         audio_parameters=AudioQuality.HIGH,
                     )
 
-                await tgcalls.play(destino, stream_seek)
-                iniciar_seguimiento_posicion(nueva_pos)
-                if en_pausa:
-                    await tgcalls.pause(destino)
-                    marcar_pausa()
+                eq_estado["cambiando"] = True
+                try:
+                    await tgcalls.play(destino, stream_seek)
+                    iniciar_seguimiento_posicion(nueva_pos)
+                    try:
+                        await tgcalls.unmute(destino)
+                        await tgcalls.change_volume_call(destino, volumen_actual)
+                    except Exception:
+                        pass
+                    if en_pausa:
+                        await tgcalls.pause(destino)
+                        marcar_pausa()
+                    await asyncio.sleep(1.0)
+                finally:
+                    eq_estado["cambiando"] = False
 
                 token_reproduccion += 1
                 dur_restante = max(5.0, dur_total - nueva_pos)
@@ -2132,6 +2165,156 @@ async def main() -> None:
             except Exception as e_seek:
                 print("Error en saltar_a_posicion:", e_seek)
                 return False
+
+        lock_panel_seek = asyncio.Lock()
+
+        async def _bucle_callbacks_bot():
+            """Escucha clics en botones inline del panel de control de meditación y los ejecuta en tiempo real."""
+            if not BOT_TOKEN:
+                return
+            offset = 0
+            url_base = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+            try:
+                # Drenar updates viejos al iniciar para no procesar clics acumulados
+                req_clean = urllib.request.Request(f"{url_base}?offset=-1", headers={"User-Agent": "BotLlamadas"})
+                def _drenar():
+                    try:
+                        with urllib.request.urlopen(req_clean, timeout=5) as r:
+                            return json.loads(r.read().decode())
+                    except Exception:
+                        return None
+                d_init = await asyncio.to_thread(_drenar)
+                if d_init and d_init.get("result"):
+                    offset = d_init["result"][-1]["update_id"] + 1
+            except Exception:
+                pass
+
+            print("🔘 Sistema de botones interactivos del panel (⏪ -30s, ⏩ +30s, ▶️, ⏸️) activo y escuchando.")
+
+            while True:
+                try:
+                    url_updates = f"{url_base}?offset={offset}&timeout=2&allowed_updates=[\"callback_query\"]"
+                    req = urllib.request.Request(url_updates, headers={"User-Agent": "BotLlamadas"})
+
+                    def _fetch():
+                        try:
+                            with urllib.request.urlopen(req, timeout=8) as resp:
+                                return json.loads(resp.read().decode())
+                        except Exception:
+                            return None
+
+                    res_json = await asyncio.to_thread(_fetch)
+                    if res_json and res_json.get("ok"):
+                        for upd in res_json.get("result", []):
+                            offset = max(offset, upd["update_id"] + 1)
+                            cq = upd.get("callback_query")
+                            if not cq:
+                                continue
+
+                            cq_id = cq["id"]
+                            cq_data = cq.get("data", "")
+                            sender = cq.get("from", {})
+                            sender_id = sender.get("id")
+
+                            nom_sender = f"{sender.get('first_name', '')} {sender.get('last_name', '')}".strip() or "Admin"
+                            es_adm = (
+                                sender_id in admin_ids
+                                or sender_id in ADMINS_OFICIALES_FIJOS
+                                or any(k in nom_sender.lower() for k in ("gerardo", "mario", "claudia", "maricela", "carrillo"))
+                            )
+
+                            if not es_adm:
+                                await responder_callback_query(cq_id, "⛔ Solo administradores pueden usar estos controles.", alert=True)
+                                continue
+
+                            nonlocal volumen_actual, reproduciendo_meditacion
+
+                            if cq_data == "panel_rewind":
+                                await responder_callback_query(cq_id, "⏪ Retrocediendo 30 segundos...", alert=False)
+                                async with lock_panel_seek:
+                                    if reproduciendo_meditacion:
+                                        pos_act = posicion_actual()
+                                        nueva_pos = max(0.0, pos_act - 30.0)
+                                        print(f"⏪ Botón [-30s] presionado por {nom_sender} ({sender_id}). De {pos_act:.1f}s a {nueva_pos:.1f}s.")
+                                        await saltar_a_posicion(nueva_pos)
+                            elif cq_data == "panel_forward":
+                                await responder_callback_query(cq_id, "⏩ Adelantando 30 segundos...", alert=False)
+                                async with lock_panel_seek:
+                                    if reproduciendo_meditacion:
+                                        pos_act = posicion_actual()
+                                        dur_tot = dur_pista_actual or 1800.0
+                                        nueva_pos = min(max(0.0, dur_tot - 5.0), pos_act + 30.0)
+                                        print(f"⏩ Botón [+30s] presionado por {nom_sender} ({sender_id}). De {pos_act:.1f}s a {nueva_pos:.1f}s.")
+                                        await saltar_a_posicion(nueva_pos)
+                            elif cq_data == "panel_pausa":
+                                await responder_callback_query(cq_id, "⏸️ Pausado", alert=False)
+                                if tgcalls and reproduciendo_meditacion:
+                                    try:
+                                        await tgcalls.pause(destino)
+                                        marcar_pausa()
+                                        await actualizar_panel_progreso(forzar=True)
+                                        print(f"⏸️ Botón [Pausa] presionado por {nom_sender} ({sender_id}).")
+                                    except Exception as e_p:
+                                        print("Error pausando desde botón:", e_p)
+                            elif cq_data == "panel_play":
+                                await responder_callback_query(cq_id, "▶️ Reanudando", alert=False)
+                                if tgcalls and reproduciendo_meditacion:
+                                    try:
+                                        await tgcalls.resume(destino)
+                                        marcar_reanudacion()
+                                        await actualizar_panel_progreso(forzar=True)
+                                        print(f"▶️ Botón [Reanudar] presionado por {nom_sender} ({sender_id}).")
+                                    except Exception as e_r:
+                                        print("Error reanudando desde botón:", e_r)
+                            elif cq_data == "panel_voldown":
+                                volumen_actual = max(10, volumen_actual - 20)
+                                vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
+                                await responder_callback_query(cq_id, f"🔉 Volumen: {vol_pct}%", alert=False)
+                                if tgcalls:
+                                    try:
+                                        await tgcalls.change_volume_call(destino, volumen_actual)
+                                        await actualizar_panel_progreso(forzar=True)
+                                        print(f"🔉 Botón [Vol -] presionado por {nom_sender}: {vol_pct}%.")
+                                    except Exception:
+                                        pass
+                            elif cq_data == "panel_volup":
+                                volumen_actual = min(200, volumen_actual + 20)
+                                vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
+                                await responder_callback_query(cq_id, f"🔊 Volumen: {vol_pct}%", alert=False)
+                                if tgcalls:
+                                    try:
+                                        await tgcalls.change_volume_call(destino, volumen_actual)
+                                        await actualizar_panel_progreso(forzar=True)
+                                        print(f"🔊 Botón [Vol +] presionado por {nom_sender}: {vol_pct}%.")
+                                    except Exception:
+                                        pass
+                            elif cq_data == "panel_stop":
+                                await responder_callback_query(cq_id, "⏹️ Deteniendo reproducción...", alert=False)
+                                reproduciendo_meditacion = False
+                                print(f"⏹️ Botón [Detener] presionado por {nom_sender} ({sender_id}).")
+                                if tgcalls:
+                                    try:
+                                        await tgcalls.leave_call(destino)
+                                    except Exception:
+                                        pass
+                                if tarea_panel_progreso and not tarea_panel_progreso.done():
+                                    tarea_panel_progreso.cancel()
+                                if msg_panel_meditacion_id:
+                                    try:
+                                        await editar_mensaje_bot(
+                                            msg_panel_meditacion_id,
+                                            "⏹️ **REPRODUCCIÓN DETENIDA POR ADMINISTRADOR**\n🔓 Micrófonos desbloqueados.",
+                                            reply_markup={"inline_keyboard": []}
+                                        )
+                                    except Exception:
+                                        pass
+                                    msg_panel_meditacion_id = None
+                except asyncio.CancelledError:
+                    break
+                except Exception as e_cb_loop:
+                    await asyncio.sleep(1)
+
+        tarea_callbacks_bot = asyncio.create_task(_bucle_callbacks_bot())
 
         ultimo_error_reproduccion = ""
 
@@ -5039,6 +5222,9 @@ async def main() -> None:
                     os.remove(f_raw)
             except Exception:
                 pass
+
+        if tarea_callbacks_bot and not tarea_callbacks_bot.done():
+            tarea_callbacks_bot.cancel()
 
         # Espera breve para limpiar ventanas y avisos temporales de la sala
         minutos_espera_limpieza = int(os.environ.get("MINUTOS_ESPERA_LIMPIEZA", "1"))

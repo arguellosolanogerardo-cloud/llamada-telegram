@@ -320,17 +320,24 @@ def mejorar_audio(ruta_entrada: str, ruta_salida: str | None = None,
 
 
 def recortar_desde(ruta: str, segundos: float, salida: str) -> str:
-    """Copia `ruta` desde `segundos` (sin re-codificar). Devuelve `ruta` si falla."""
+    """Copia `ruta` desde `segundos`. Devuelve `ruta` si falla."""
     try:
         if segundos <= 1:
             return ruta
+        # 1. Intentar corte ultra rápido con stream copy
         res = _ejecutar([_bin("ffmpeg"), "-hide_banner", "-nostdin", "-y",
-                         "-ss", f"{segundos:.2f}", "-i", ruta, "-c", "copy", salida], 120)
+                         "-ss", f"{segundos:.2f}", "-i", ruta, "-c", "copy", salida], 15)
         if res.returncode == 0 and os.path.exists(salida) and os.path.getsize(salida) > 5000:
             return salida
+        # 2. Si copy falla (por ejemplo por discrepancia de contenedor), codificar mp3 rápido
+        res2 = _ejecutar([_bin("ffmpeg"), "-hide_banner", "-nostdin", "-y",
+                          "-ss", f"{segundos:.2f}", "-i", ruta,
+                          "-c:a", "libmp3lame", "-b:a", "192k", salida], 30)
+        if res2.returncode == 0 and os.path.exists(salida) and os.path.getsize(salida) > 5000:
+            return salida
         _log(f"Recorte falló: {res.stderr[-200:]}")
-    except ErrorProcesamientoAudio as e:
-        _log(f"Recorte falló: {e}")
+    except Exception as e:
+        _log(f"Recorte falló con excepción: {e}")
     return ruta
 
 
