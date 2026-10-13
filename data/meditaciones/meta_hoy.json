@@ -1,11 +1,9 @@
 {
-  "numero": 1095,
+  "numero": 1094,
   "tipo": "MEDITACION",
-  "titulo": "Solo aquellos que aprendieron nuestro mensaje estaran con nosotros",
-  "fecha": "09/11/20",
+  "titulo": "Este Mensaje se logro con muchos años de preparacion y perseverancia",
+  "fecha": "09/09/20",
   "maestro": "Alaniso",
   "detectado_como": "MEDITACION",
-  "fecha_tarea_admin": "12/10/2026",
-  "fecha_iso": "2026-10-12",
-  "indice_secuencia": 5
+  "fecha_tarea_admin": "13/10/2026"
 }
