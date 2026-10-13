@@ -1382,10 +1382,16 @@ async def main() -> None:
             admin_ids.add(hard_admin)
 
         async def es_admin_seguro(ev, sender_obj=None) -> bool:
-            """Verificación robusta e inquebrantable de administradores (7 oficiales, canal, anónimos y nombres)."""
             try:
+                # 0. Chequeo directo si ev es un ID numérico
+                if isinstance(ev, int):
+                    if ev in admin_ids or ev in ADMINS_OFICIALES_FIJOS:
+                        return True
+                    uid = ev
+                else:
+                    uid = getattr(sender_obj, "id", None) if sender_obj else getattr(ev, "sender_id", None)
+
                 # 1. Chequeo si el emisor es el bot mismo
-                uid = getattr(sender_obj, "id", None) if sender_obj else getattr(ev, "sender_id", None)
                 if uid and (uid == me.id or (BOT_ID and uid == BOT_ID)):
                     return True
 
@@ -1531,11 +1537,11 @@ async def main() -> None:
         users_cache = {}  # uid -> User
         chats_cache = {}  # cid -> Chat / Channel
 
-        def es_admin_seguro(uid, nombre="", peer=None) -> bool:
+        def es_participante_admin(uid, nombre="", peer=None) -> bool:
             """True si hay CUALQUIER indicio de que el participante es administrador (o una identidad
             no-usuario como canal/anónimo). Estos participantes NUNCA se silencian."""
             try:
-                if uid in admin_ids:
+                if uid in admin_ids or uid in ADMINS_OFICIALES_FIJOS:
                     return True
                 # Identidad de canal/chat/anónimo en la llamada: no se puede verificar permisos -> proteger
                 if peer is not None and not isinstance(peer, PeerUser):
@@ -1551,7 +1557,7 @@ async def main() -> None:
                         admin_ids.add(uid)
                         return True
             except Exception as e_adm:
-                print("Nota en es_admin_seguro (se protege por defecto):", e_adm)
+                print("Nota en es_participante_admin (se protege por defecto):", e_adm)
                 return True
             return False
         cola_turnos = []  # [{"id": uid, "nombre": nom, "username": usr}]
@@ -2179,11 +2185,11 @@ async def main() -> None:
                     except Exception as e_tts_med:
                         print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
 
-                # 2. Si hay preparación de recursos en segundo plano para esta pista, esperarla
+                # 2. Si hay preparación de recursos en segundo plano para esta pista, esperarla (máximo 6s)
                 if pista_idx == 0 and tarea_preparacion_recursos and not tarea_preparacion_recursos.done():
                     print("⏳ Esperando que finalice la preparación de recursos (audio HD y video carátula MP4)...")
                     try:
-                        await asyncio.wait_for(asyncio.shield(tarea_preparacion_recursos), timeout=120.0)
+                        await asyncio.wait_for(asyncio.shield(tarea_preparacion_recursos), timeout=6.0)
                     except Exception as e_esp:
                         print("Nota esperando tarea de recursos:", e_esp)
 
@@ -2228,16 +2234,6 @@ async def main() -> None:
                         tgcalls._app._bind_client._cache.set_cache(destino, input_call)
                 except Exception as e_c:
                     print("Nota registrando input_call:", e_c)
-
-                # 6. Si la llamada ya estaba conectada en PyTgCalls, liberarla
-                try:
-                    calls_activas = await tgcalls._binding.calls()
-                    if destino in calls_activas or (isinstance(destino, int) and abs(destino) in calls_activas):
-                        await tgcalls.leave_call(destino)
-                        await asyncio.sleep(0.5)
-                        print("Llamada previa liberada en PyTgCalls para reiniciar en modo emisión.")
-                except Exception as e_lv:
-                    print("Nota liberando llamada previa en PyTgCalls:", e_lv)
 
                 # Re-inyectar input_call en PyTgCalls para play
                 try:
@@ -2326,7 +2322,7 @@ async def main() -> None:
                             continue
                         u_m = users_cache.get(p_uid)
                         nom_m = f"{getattr(u_m, 'first_name', '') or ''} {getattr(u_m, 'last_name', '') or ''}".strip() if u_m else ""
-                        if es_admin_seguro(p_uid, nom_m, p.peer):
+                        if es_participante_admin(p_uid, nom_m, p.peer):
                             continue
                         try:
                             input_peer = await client.get_input_entity(p.peer)
@@ -2787,7 +2783,7 @@ async def main() -> None:
                 print("Nota configurando StreamEnded handler:", e)
 
         # Escuchar comandos de usuarios (/puntos, /ranking, /reglas, /ayuda, /meditacion, /turno, /ceder, /turnos, /buscar, /resumen, /acta, /oracion)
-        @client.on(events.NewMessage(pattern=r"^/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta|oracion|luna|faseluna)"))
+        @client.on(events.NewMessage(pattern=r"(?i)^\s*/(puntos|miperfil|ranking|top|ayuda|reglas|start|meditacion|audio|turno|pedirturno|mano|ceder|turnos|buscar|resumen|acta|oracion|luna|faseluna)"))
         async def responder_comandos_en_vivo(event):
             sender = await event.get_sender()
             
@@ -2909,7 +2905,7 @@ async def main() -> None:
                 await responder(resp)
 
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"^/(reproducir|play|pausar|pause|continuar|resume|atrasar|retroceder|rewind|adelantar|avanzar|forward|volup|masvolumen|voldown|menosvolumen|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|desbloquearadmins|liberaradmins|blindaradmins|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
+        @client.on(events.NewMessage(pattern=r"(?i)^\s*/(reproducir|play|pausar|pause|continuar|resume|atrasar|retroceder|rewind|adelantar|avanzar|forward|volup|masvolumen|voldown|menosvolumen|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|desbloquearadmins|liberaradmins|blindaradmins|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             
@@ -3854,7 +3850,7 @@ async def main() -> None:
                             continue
                         u_or = users_cache.get(p_uid)
                         nom_or = f"{getattr(u_or, 'first_name', '') or ''} {getattr(u_or, 'last_name', '') or ''}".strip() if u_or else ""
-                        if es_admin_seguro(p_uid, nom_or, p.peer):
+                        if es_participante_admin(p_uid, nom_or, p.peer):
                             continue
                         try:
                             input_peer = await client.get_input_entity(p.peer)
@@ -4182,7 +4178,7 @@ async def main() -> None:
                         hubo_cambio_turnos = True
 
                 # Moderación de micrófonos en vivo: clasificación de administradores por MÚLTIPLES señales
-                es_adm = es_admin_seguro(uid, nombre, p.peer)
+                es_adm = es_participante_admin(uid, nombre, p.peer)
                 if not es_adm and uid not in checked_admins_cache:
                     checked_admins_cache.add(uid)
                     try:
@@ -4236,7 +4232,7 @@ async def main() -> None:
                                         es_admin_final = True
                                 except Exception as e_pf:
                                     print(f"Nota verificando permisos finales de {nombre} ({uid}): {e_pf}")
-                                if es_admin_final or es_admin_seguro(uid, nombre, p.peer):
+                                if es_admin_final or es_participante_admin(uid, nombre, p.peer):
                                     admin_ids.add(uid)
                                     segundos_mic_abierto_med.pop(uid, None)
                                     print(f"👑 Rescate final de administrador: {nombre} ({uid}). NO se silencia.")

@@ -286,7 +286,7 @@ def _procesar(entrada: str, salida: str, aj: AjusteEQ, cfg: ConfigAudio,
 # --------------------------------------------------------------------------- #
 def mejorar_audio(ruta_entrada: str, ruta_salida: str | None = None,
                   ajuste: AjusteEQ | None = None, forzar: bool = False,
-                  dos_pasadas: bool = True, cfg: ConfigAudio | None = None) -> str:
+                  dos_pasadas: bool = False, cfg: ConfigAudio | None = None) -> str:
     """
     Devuelve la ruta del audio mejorado, o `ruta_entrada` si algo falla.
     `ajuste=None` => análisis automático. El resultado se cachea por ajuste.
@@ -335,7 +335,7 @@ def recortar_desde(ruta: str, segundos: float, salida: str) -> str:
 
 
 async def mejorar_audio_async(ruta: str, ajuste: AjusteEQ | None = None,
-                              forzar: bool = False, dos_pasadas: bool = True) -> str:
+                              forzar: bool = False, dos_pasadas: bool = False) -> str:
     """Igual que mejorar_audio pero SIN bloquear el bucle de asyncio del bot."""
     return await asyncio.to_thread(mejorar_audio, ruta, None, ajuste, forzar, dos_pasadas)
 
