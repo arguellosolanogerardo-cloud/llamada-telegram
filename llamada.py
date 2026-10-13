@@ -82,6 +82,10 @@ MIN_MINUTOS_ASISTENCIA = int(os.environ.get("MIN_MINUTOS_ASISTENCIA", "10"))
 AUTO_CIERRE_MIN_USUARIOS = int(os.environ.get("AUTO_CIERRE_MIN_USUARIOS", "2"))
 AUTO_CIERRE_ESPERA_MINUTOS = int(os.environ.get("AUTO_CIERRE_ESPERA_MINUTOS", "45"))
 SEGUNDOS_INACTIVIDAD_MUTE = int(os.environ.get("SEGUNDOS_INACTIVIDAD_MUTE", "30"))  # 30s de silencio antes de auto-cerrar mic por olvido
+# Durante la meditación, un usuario NORMAL con el micrófono abierto solo se silencia tras esta gracia continua (no a los 2s)
+SEGUNDOS_GRACIA_MUTE_MEDITACION = int(os.environ.get("SEGUNDOS_GRACIA_MUTE_MEDITACION", "25"))
+# Nombres de los administradores principales: jamás se silencian
+NOMBRES_ADMIN_PROTEGIDOS = ("gerardo", "mario", "claudia", "maricela", "carrillo")
 DURACION_BLOQUEO_MUTE_SEGUNDOS = int(os.environ.get("DURACION_BLOQUEO_MUTE_SEGUNDOS", "5"))  # Solo 5s de bloqueo antes de auto-desbloquear
 MAX_ORADORES_SIMULTANEOS = int(os.environ.get("MAX_ORADORES_SIMULTANEOS", "2"))   # Máx 2 personas hablando
 
@@ -1316,6 +1320,30 @@ async def main() -> None:
         participantes_conectados = set()  # uids actualmente conectados a la sala
         users_cache = {}  # uid -> User
         chats_cache = {}  # cid -> Chat / Channel
+
+        def es_admin_seguro(uid, nombre="", peer=None) -> bool:
+            """True si hay CUALQUIER indicio de que el participante es administrador (o una identidad
+            no-usuario como canal/anónimo). Estos participantes NUNCA se silencian."""
+            try:
+                if uid in admin_ids:
+                    return True
+                # Identidad de canal/chat/anónimo en la llamada: no se puede verificar permisos -> proteger
+                if peer is not None and not isinstance(peer, PeerUser):
+                    return True
+                nom = (nombre or "").lower()
+                if any(k in nom for k in NOMBRES_ADMIN_PROTEGIDOS):
+                    admin_ids.add(uid)
+                    return True
+                u_obj = users_cache.get(uid)
+                if u_obj is not None:
+                    nom_u = f"{getattr(u_obj, 'first_name', '') or ''} {getattr(u_obj, 'last_name', '') or ''}".lower()
+                    if any(k in nom_u for k in NOMBRES_ADMIN_PROTEGIDOS):
+                        admin_ids.add(uid)
+                        return True
+            except Exception as e_adm:
+                print("Nota en es_admin_seguro (se protege por defecto):", e_adm)
+                return True
+            return False
         cola_turnos = []  # [{"id": uid, "nombre": nom, "username": usr}]
         oradores_activos = set()  # uids actualmente hablando
         segundos_inactividad_mic = {}  # uid -> segundos con mic abierto y sin voz
@@ -1531,6 +1559,8 @@ async def main() -> None:
         ruta_meditacion, info_catalogo_hoy, cola_reproduccion = await buscar_audio_meditacion(client, entidad, admin_ids)
         indice_pista_actual = 0
         reproduciendo_meditacion = False
+        token_reproduccion = 0  # Se incrementa en cada reproducción; invalida watchdogs de reproducciones anteriores
+        segundos_mic_abierto_med = {}  # uid -> segundos continuos con mic abierto durante la meditación (usuarios normales)
         reproduccion_iniciada = False
         aviso_oracion_enviado = False
         aviso_espera_enviado = False
@@ -1662,7 +1692,7 @@ async def main() -> None:
 
         async def reproducir_meditacion(pista_idx: int = 0):
             with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"\\n--- Iniciando reproducir_meditacion {pista_idx} ---\\n")
-            nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy, ultimo_error_reproduccion
+            nonlocal reproduciendo_meditacion, meditacion_activa_hoy, indice_pista_actual, ruta_meditacion, info_catalogo_hoy, ultimo_error_reproduccion, token_reproduccion
             ultimo_error_reproduccion = ""
             if not tgcalls:
                 ultimo_error_reproduccion = "Servicio PyTgCalls no disponible"
@@ -1813,15 +1843,21 @@ async def main() -> None:
                             pass
                 print("Todos los administradores confirmados con permiso de voz libre y desbloqueado.")
 
-                # 8. Silenciar TODOS los no-admins durante la meditación (incluyendo los que no hablaron antes)
+                # 8. Silenciar a los usuarios NORMALES durante la meditación (los administradores quedan SIEMPRE libres)
                 try:
-                    parts_med, _, _ = await obtener_todos_participantes_llamada(client, input_call)
+                    parts_med, users_med, chats_med = await obtener_todos_participantes_llamada(client, input_call)
+                    users_cache.update(users_med)
+                    chats_cache.update(chats_med)
                     silenciados_med = 0
                     for p in parts_med:
                         if getattr(p, "left", False):
                             continue
                         p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
-                        if not p_uid or p_uid == me.id or p_uid in admin_ids:
+                        if not p_uid or p_uid == me.id:
+                            continue
+                        u_m = users_cache.get(p_uid)
+                        nom_m = f"{getattr(u_m, 'first_name', '') or ''} {getattr(u_m, 'last_name', '') or ''}".strip() if u_m else ""
+                        if es_admin_seguro(p_uid, nom_m, p.peer):
                             continue
                         try:
                             input_peer = await client.get_input_entity(p.peer)
@@ -1829,16 +1865,19 @@ async def main() -> None:
                             silenciados_med += 1
                         except Exception:
                             pass
-                    # Asegurar que nuevos participantes entren silenciados durante la meditación
+                    # NO se activa join_muted: ese candado de Telegram puede dejar a un administrador sin poder abrir
+                    # el micrófono. Se asegura que esté desactivado; los usuarios nuevos se moderan con gracia en el ciclo.
                     try:
-                        await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
+                        await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
                     except Exception:
                         pass
-                    print(f"🔇 Meditación: {silenciados_med} participantes silenciados. Solo admins pueden hablar.")
+                    print(f"🔇 Meditación: {silenciados_med} participantes normales silenciados. Administradores siempre libres.")
                 except Exception as e:
                     print("Nota silenciando participantes para meditación:", e)
 
                 iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
+                token_reproduccion += 1
+                segundos_mic_abierto_med.clear()
                 reproduciendo_meditacion = True
                 meditacion_activa_hoy = True
 
@@ -1859,13 +1898,13 @@ async def main() -> None:
                 if dur_audio <= 0:
                     dur_audio = 1800.0
 
-                async def _watchdog_fin_pista(p_idx: int, dur_s: float):
+                async def _watchdog_fin_pista(p_idx: int, dur_s: float, mi_token: int):
                     margen = 8.0
                     espera = max(10.0, dur_s + margen)
                     print(f"⏱️ Watchdog armado para pista {p_idx + 1}: dur={dur_s:.1f}s, espera={espera:.1f}s.")
                     await asyncio.sleep(espera)
-                    nonlocal reproduciendo_meditacion, indice_pista_actual
-                    if reproduciendo_meditacion and indice_pista_actual == p_idx:
+                    nonlocal reproduciendo_meditacion, indice_pista_actual, token_reproduccion
+                    if reproduciendo_meditacion and indice_pista_actual == p_idx and mi_token == token_reproduccion:
                         print(f"⏰ Watchdog: Tiempo cumplido para pista {p_idx + 1} ({dur_s:.1f}s). Finalizando automáticamente...")
                         if indice_pista_actual + 1 < len(cola_reproduccion):
                             sig_idx = indice_pista_actual + 1
@@ -1899,7 +1938,7 @@ async def main() -> None:
                                 except Exception as e_rec:
                                     print("Nota reanudando grabación vía watchdog:", e_rec)
 
-                asyncio.create_task(_watchdog_fin_pista(pista_idx, dur_audio))
+                asyncio.create_task(_watchdog_fin_pista(pista_idx, dur_audio, token_reproduccion))
 
                 with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"reproducir_meditacion termino todo y retorna True.\\n")
                 return True
@@ -2494,7 +2533,23 @@ async def main() -> None:
                 await desbloquear_todos_los_participantes()
                 await responder_admin("⏹️ **Reproducción finalizada.** Modo meditación desactivado y micrófonos restablecidos para todos.")
                 avisar_con_bot("⏹️ **Reproducción finalizada.** Los micrófonos han sido restablecidos.", es_efimero=True)
-            elif cmd in ("/desbloquearadmins", "/liberaradmins", "/blindaradmins", "/desmuteartodos", "/abrir", "/desbloquear"):
+            elif cmd in ("/desbloquearadmins", "/liberaradmins", "/blindaradmins"):
+                # Solo libera/blinda a los administradores. NO detiene la meditación ni toca a los usuarios normales.
+                desbloqueados_count = 0
+                for aid in list(admin_ids):
+                    if aid != me.id:
+                        try:
+                            admin_peer = await client.get_input_entity(aid)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                            desbloqueados_count += 1
+                        except Exception:
+                            pass
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                except Exception:
+                    pass
+                await responder_admin(f"🔓 **Administradores liberados** ({desbloqueados_count}). La meditación/reproducción continúa sin interrupción y el candado global de la sala fue retirado.")
+            elif cmd in ("/desmuteartodos", "/abrir", "/desbloquear"):
                 reproduciendo_meditacion = False
                 segundos_inactividad_mic.clear()
                 avisados_auto_mute.clear()
@@ -3238,13 +3293,19 @@ async def main() -> None:
                 # Silenciar micrófonos de TODOS los no-admins en la sala para garantizar silencio en oración
                 try:
                     # 1. Obtener lista completa de participantes activos en la llamada
-                    parts_oracion, _, _ = await obtener_todos_participantes_llamada(client, input_call)
+                    parts_oracion, users_or, chats_or = await obtener_todos_participantes_llamada(client, input_call)
+                    users_cache.update(users_or)
+                    chats_cache.update(chats_or)
                     silenciados_oracion = 0
                     for p in parts_oracion:
                         if getattr(p, "left", False):
                             continue
                         p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
-                        if not p_uid or p_uid == me.id or p_uid in admin_ids:
+                        if not p_uid or p_uid == me.id:
+                            continue
+                        u_or = users_cache.get(p_uid)
+                        nom_or = f"{getattr(u_or, 'first_name', '') or ''} {getattr(u_or, 'last_name', '') or ''}".strip() if u_or else ""
+                        if es_admin_seguro(p_uid, nom_or, p.peer):
                             continue
                         try:
                             input_peer = await client.get_input_entity(p.peer)
@@ -3562,23 +3623,20 @@ async def main() -> None:
                         print(f"⏳ la mano en Telegram y fue añadido a la lista de turnos.")
                         hubo_cambio_turnos = True
 
-                # Moderación de micrófonos en vivo: asegurar detección infalible de administradores
-                if uid not in admin_ids:
-                    nom_lower = nombre.lower()
-                    # Protección por nombre inquebrantable para los administradores principales
-                    if any(k in nom_lower for k in ("gerardo", "mario", "claudia", "maricela", "carrillo")):
-                        admin_ids.add(uid)
-                        print(f"👑 Administrador detectado por nombre: {nombre} ({uid}). Añadido a admin_ids permanentemente.")
-                    elif uid not in checked_admins_cache:
-                        checked_admins_cache.add(uid)
-                        try:
-                            perm = await client.get_permissions(entidad, uid)
-                            if getattr(perm, 'is_admin', False) or getattr(perm, 'is_creator', False):
-                                admin_ids.add(uid)
-                        except Exception:
-                            checked_admins_cache.discard(uid)
-                
-                if uid in admin_ids:
+                # Moderación de micrófonos en vivo: clasificación de administradores por MÚLTIPLES señales
+                es_adm = es_admin_seguro(uid, nombre, p.peer)
+                if not es_adm and uid not in checked_admins_cache:
+                    checked_admins_cache.add(uid)
+                    try:
+                        perm = await client.get_permissions(entidad, uid)
+                        if getattr(perm, 'is_admin', False) or getattr(perm, 'is_creator', False) or getattr(perm, 'manage_call', False):
+                            admin_ids.add(uid)
+                            es_adm = True
+                            print(f"👑 Administrador detectado por permisos de Telegram: {nombre} ({uid}).")
+                    except Exception:
+                        checked_admins_cache.discard(uid)
+
+                if es_adm:
                     # ADMINISTRADORES: NUNCA SILENCIADOS BAJO NINGUNA CIRCUNSTANCIA
                     # Si Telegram le impone candado o silencio administrativo, retirarlo inmediatamente
                     if uid == me.id:
@@ -3591,6 +3649,8 @@ async def main() -> None:
                             except Exception:
                                 pass
                     else:
+                        segundos_mic_abierto_med.pop(uid, None)
+                        segundos_inactividad_mic.pop(uid, None)
                         # Para administradores humanos: retirar cualquier restricción de micrófono impuesta por Telegram
                         if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
                             try:
@@ -3604,34 +3664,36 @@ async def main() -> None:
                                 pass
                 else:
                     if reproduciendo_meditacion:
-                        # Durante la meditación, silenciar a cualquier participante regular que tenga el micrófono abierto
+                        # Durante la meditación, a un usuario NORMAL con el micrófono abierto se le da una gracia
+                        # continua (SEGUNDOS_GRACIA_MUTE_MEDITACION) antes de silenciarlo: nada de cortes a los 2 segundos.
                         if not p_muted:
-                            # Verificación de rescate: Si es admin por nombre o permisos, blindarlo y jamás silenciarlo
-                            nom_check = nombre.lower()
-                            es_admin_rescate = False
-                            if any(k in nom_check for k in ("gerardo", "mario", "claudia", "maricela", "carrillo")):
-                                es_admin_rescate = True
-                            else:
+                            seg_abierto = segundos_mic_abierto_med.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
+                            segundos_mic_abierto_med[uid] = seg_abierto
+                            if seg_abierto >= SEGUNDOS_GRACIA_MUTE_MEDITACION:
+                                # Verificación final en vivo de permisos justo antes de silenciar (último blindaje)
+                                es_admin_final = False
                                 try:
-                                    perm_part = await client.get_permissions(entidad, uid)
-                                    if getattr(perm_part, 'is_admin', False) or getattr(perm_part, 'is_creator', False) or getattr(perm_part, 'manage_call', False):
-                                        es_admin_rescate = True
-                                except Exception:
-                                    pass
-
-                            if es_admin_rescate:
-                                admin_ids.add(uid)
-                                print(f"👑 Rescate de administrador: {nombre} ({uid}) confirmado como admin. Micrófono respetado.")
-                                continue
-
-                            try:
-                                input_peer = await client.get_input_entity(uid)
-                                await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                oradores_activos.discard(uid)
-                                hubo_cambio_turnos = True
-                                print(f"Silenciado participante {nombre} ({uid}) durante la reproducción de meditación.")
-                            except Exception as e:
-                                print(f"Nota silenciando en meditación a {nombre}:", e)
+                                    perm_f = await client.get_permissions(entidad, uid)
+                                    if getattr(perm_f, 'is_admin', False) or getattr(perm_f, 'is_creator', False) or getattr(perm_f, 'manage_call', False):
+                                        es_admin_final = True
+                                except Exception as e_pf:
+                                    print(f"Nota verificando permisos finales de {nombre} ({uid}): {e_pf}")
+                                if es_admin_final or es_admin_seguro(uid, nombre, p.peer):
+                                    admin_ids.add(uid)
+                                    segundos_mic_abierto_med.pop(uid, None)
+                                    print(f"👑 Rescate final de administrador: {nombre} ({uid}). NO se silencia.")
+                                else:
+                                    try:
+                                        input_peer = await client.get_input_entity(uid)
+                                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
+                                        oradores_activos.discard(uid)
+                                        segundos_mic_abierto_med[uid] = 0
+                                        hubo_cambio_turnos = True
+                                        print(f"🔇 Usuario normal silenciado tras {seg_abierto}s con mic abierto en meditación: {nombre} ({uid}) [admin_ids={uid in admin_ids}, can_self_unmute={getattr(p, 'can_self_unmute', None)}]")
+                                    except Exception as e:
+                                        print(f"Nota silenciando en meditación a {nombre}:", e)
+                        else:
+                            segundos_mic_abierto_med.pop(uid, None)
                     else:
                         if not p_muted:
                             # Micrófono abierto: permitir hablar libremente sin cortes abruptos a los 2 segundos
