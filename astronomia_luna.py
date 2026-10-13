@@ -490,20 +490,25 @@ def generar_video_meditacion_luna(
             draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(42, 48, 64), width=1)
 
             font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
+            font_card_tit = font_card_val = font_astro_det = None
             for f_cand in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"]:
                 try:
                     font_med = ImageFont.truetype(f_cand, 40)
                     font_tit = ImageFont.truetype(f_cand, 30)
                     font_tit_small = ImageFont.truetype(f_cand, 25)
                     font_sub = ImageFont.truetype(f_cand, 22)
-                    font_phase = ImageFont.truetype(f_cand, 28)
-                    font_astro = ImageFont.truetype(f_cand, 20)
+                    font_phase = ImageFont.truetype(f_cand, 34)
+                    font_card_tit = ImageFont.truetype(f_cand, 25)
+                    font_card_val = ImageFont.truetype(f_cand, 23)
+                    font_astro_det = ImageFont.truetype(f_cand, 24)
+                    font_astro = ImageFont.truetype(f_cand, 22)
                     font_time = ImageFont.truetype(f_cand, 26)
                     break
                 except Exception:
                     continue
             if not font_med:
                 font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
+                font_card_tit = font_card_val = font_astro_det = font_med
 
             # Cabecera dinámica
             num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
@@ -537,22 +542,27 @@ def generar_video_meditacion_luna(
             mw, mh = moon_img.size
             fg.paste(moon_img, (640 - mw // 2, moon_cy - mh // 2), mask=moon_img)
 
-            # Cajas laterales
-            box_y1 = moon_cy - 35
-            box_y2 = moon_cy + 30
-            draw.rounded_rectangle([(140, box_y1), (370, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
-            draw.text((255, moon_cy - 15), "SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
-            draw.text((255, moon_cy + 11), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+            # Cajas laterales ampliadas (SALIDA y PUESTA)
+            box_y1 = moon_cy - 41
+            box_y2 = moon_cy + 39
+            salida_t_y = moon_cy - 17
+            salida_v_y = moon_cy + 17
 
-            draw.rounded_rectangle([(910, box_y1), (1140, box_y2)], radius=14, fill=(14, 16, 22, 230), outline=(50, 58, 80), width=1)
-            draw.text((1025, moon_cy - 15), "PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
-            draw.text((1025, moon_cy + 11), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+            # Caja izquierda (SALIDA): ancho 270px
+            draw.rounded_rectangle([(115, box_y1), (385, box_y2)], radius=16, fill=(14, 16, 22, 235), outline=(55, 65, 90), width=1)
+            draw.text((250, salida_t_y), "SALIDA", fill=(251, 191, 36), font=font_card_tit, anchor="mm")
+            draw.text((250, salida_v_y), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
+
+            # Caja derecha (PUESTA): ancho 270px
+            draw.rounded_rectangle([(895, box_y1), (1165, box_y2)], radius=16, fill=(14, 16, 22, 235), outline=(55, 65, 90), width=1)
+            draw.text((1030, salida_t_y), "PUESTA", fill=(148, 163, 184), font=font_card_tit, anchor="mm")
+            draw.text((1030, salida_v_y), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
 
             # Métricas
-            fase_y = moon_cy + 120
+            fase_y = moon_cy + 124
             draw.text((640, fase_y), astro["fase"], fill=(251, 191, 36), font=font_phase, anchor="mm")
             txt_ast = f"Iluminación: {astro['iluminacion']}%   •   Edad: {astro['edad']} días   •   Distancia: {astro['distancia']:,} km".replace(",", ".")
-            draw.text((640, fase_y + 36), txt_ast, fill=(180, 195, 225), font=font_astro, anchor="mm")
+            draw.text((640, fase_y + 40), txt_ast, fill=(255, 255, 255), font=font_astro_det, anchor="mm")
 
             # Marco de fondo de la barra de progreso
             draw.rounded_rectangle([(180, 550), (1100, 564)], radius=7, fill=(24, 26, 34, 210), outline=(48, 54, 72), width=1)
@@ -565,18 +575,18 @@ def generar_video_meditacion_luna(
             fg.save(fg_path)
 
             # 3. Elementos dinámicos de la barra de progreso
-            # Tira deslizante de 1840x14: 920px activos color ámbar a la izquierda, 920px transparentes a la derecha
+            # Tira deslizante de 1840x14: 920px activos color verde neón vívido a la izquierda, 920px transparentes a la derecha
             strip = Image.new("RGBA", (1840, 14), (0, 0, 0, 0))
             draw_s = ImageDraw.Draw(strip)
-            draw_s.rectangle([(0, 0), (919, 13)], fill=(245, 158, 11, 255))
+            draw_s.rectangle([(0, 0), (919, 13)], fill=(0, 255, 102, 255))
             strip_path = os.path.join(temp_dir, "strip.png")
             strip.save(strip_path)
 
-            # Bolita indicadora luminosa de 28x28 con aura ámbar y núcleo blanco brillante
+            # Bolita indicadora luminosa de 28x28 con aura verde neón y núcleo blanco brillante
             dot = Image.new("RGBA", (28, 28), (0, 0, 0, 0))
             draw_d = ImageDraw.Draw(dot)
-            draw_d.ellipse([(0, 0), (27, 27)], fill=(245, 158, 11, 70))
-            draw_d.ellipse([(4, 4), (23, 23)], fill=(251, 191, 36, 180))
+            draw_d.ellipse([(0, 0), (27, 27)], fill=(0, 255, 102, 70))
+            draw_d.ellipse([(4, 4), (23, 23)], fill=(0, 255, 102, 200))
             draw_d.ellipse([(7, 7), (20, 20)], fill=(255, 255, 255, 255))
             dot_path = os.path.join(temp_dir, "dot.png")
             dot.save(dot_path)
@@ -661,20 +671,25 @@ def generar_caratula_meditacion_luna(
 
         # 3. Fuentes
         font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
+        font_card_tit = font_card_val = font_astro_det = None
         for f_cand in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"]:
             try:
                 font_med = ImageFont.truetype(f_cand, 40)
                 font_tit = ImageFont.truetype(f_cand, 30)
                 font_tit_small = ImageFont.truetype(f_cand, 25)
                 font_sub = ImageFont.truetype(f_cand, 22)
-                font_phase = ImageFont.truetype(f_cand, 28)
-                font_astro = ImageFont.truetype(f_cand, 20)
+                font_phase = ImageFont.truetype(f_cand, 34)
+                font_card_tit = ImageFont.truetype(f_cand, 25)
+                font_card_val = ImageFont.truetype(f_cand, 23)
+                font_astro_det = ImageFont.truetype(f_cand, 24)
+                font_astro = ImageFont.truetype(f_cand, 22)
                 font_time = ImageFont.truetype(f_cand, 26)
                 break
             except Exception:
                 continue
         if not font_med:
             font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
+            font_card_tit = font_card_val = font_astro_det = font_med
 
         # 4. Cabecera dinámica (Meditación #, Título multilínea y Maestro)
         num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
@@ -725,26 +740,28 @@ def generar_caratula_meditacion_luna(
         moon_y = moon_cy - mh // 2
         img.paste(moon_img, (moon_x, moon_y), mask=moon_img)
 
-        # 7. Cajas laterales de Salida y Puesta (centradas verticalmente con la Luna)
-        box_y1 = moon_cy - 35
-        box_y2 = moon_cy + 30
-        salida_t_y = moon_cy - 15
-        salida_v_y = moon_cy + 11
+        # 7. Cajas laterales de Salida y Puesta ampliadas (centradas verticalmente con la Luna)
+        box_y1 = moon_cy - 41
+        box_y2 = moon_cy + 39
+        salida_t_y = moon_cy - 17
+        salida_v_y = moon_cy + 17
 
-        draw.rounded_rectangle([(140, box_y1), (370, box_y2)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
-        draw.text((255, salida_t_y), "SALIDA", fill=(251, 191, 36), font=font_astro, anchor="mm")
-        draw.text((255, salida_v_y), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+        # Caja izquierda (SALIDA): ancho 270px
+        draw.rounded_rectangle([(115, box_y1), (385, box_y2)], radius=16, fill=(14, 14, 18), outline=(55, 65, 90), width=1)
+        draw.text((250, salida_t_y), "SALIDA", fill=(251, 191, 36), font=font_card_tit, anchor="mm")
+        draw.text((250, salida_v_y), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
 
-        draw.rounded_rectangle([(910, box_y1), (1140, box_y2)], radius=14, fill=(14, 14, 18), outline=(50, 56, 75), width=1)
-        draw.text((1025, salida_t_y), "PUESTA", fill=(148, 163, 184), font=font_astro, anchor="mm")
-        draw.text((1025, salida_v_y), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_astro, anchor="mm")
+        # Caja derecha (PUESTA): ancho 270px
+        draw.rounded_rectangle([(895, box_y1), (1165, box_y2)], radius=16, fill=(14, 14, 18), outline=(55, 65, 90), width=1)
+        draw.text((1030, salida_t_y), "PUESTA", fill=(148, 163, 184), font=font_card_tit, anchor="mm")
+        draw.text((1030, salida_v_y), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
 
         # 8. Nombre de la fase lunar y métricas
-        fase_y = moon_cy + 120
+        fase_y = moon_cy + 124
         draw.text((640, fase_y), astro["fase"], fill=(251, 191, 36), font=font_phase, anchor="mm")
 
         astro_line = f"Iluminación: {astro['iluminacion']}%   •   Edad: {astro['edad']} días   •   Distancia: {astro['distancia']:,} km".replace(",", ".")
-        draw.text((640, fase_y + 36), astro_line, fill=(180, 195, 225), font=font_astro, anchor="mm")
+        draw.text((640, fase_y + 40), astro_line, fill=(255, 255, 255), font=font_astro_det, anchor="mm")
 
         # 9. Zona de Barra de Avance y Tiempos (Espaciosa y sin pie de página)
         bar_x1 = 180
@@ -760,15 +777,15 @@ def generar_caratula_meditacion_luna(
         # Fondo de la barra
         draw.rounded_rectangle([(bar_x1, bar_y), (bar_x2, bar_y + bar_h)], radius=7, fill=(24, 26, 34), outline=(48, 54, 72), width=1)
 
-        # Barra llena activa (dorado ámbar)
+        # Barra llena activa (verde neón vívido)
         if progress_w > 0:
-            draw.rounded_rectangle([(bar_x1, bar_y), (bar_x1 + progress_w, bar_y + bar_h)], radius=7, fill=(245, 158, 11))
+            draw.rounded_rectangle([(bar_x1, bar_y), (bar_x1 + progress_w, bar_y + bar_h)], radius=7, fill=(0, 255, 102))
 
-        # Bolita deslizante con halo
+        # Bolita deslizante con halo verde neón
         dot_cx = bar_x1 + progress_w
         dot_cy = bar_y + bar_h // 2
-        draw.ellipse([(dot_cx - 14, dot_cy - 14), (dot_cx + 14, dot_cy + 14)], fill=(245, 158, 11, 80))
-        draw.ellipse([(dot_cx - 10, dot_cy - 10), (dot_cx + 10, dot_cy + 10)], fill=(255, 255, 255), outline=(245, 158, 11), width=2)
+        draw.ellipse([(dot_cx - 14, dot_cy - 14), (dot_cx + 14, dot_cy + 14)], fill=(0, 255, 102, 80))
+        draw.ellipse([(dot_cx - 10, dot_cy - 10), (dot_cx + 10, dot_cy + 10)], fill=(255, 255, 255), outline=(0, 255, 102), width=2)
 
         # 10. Cronómetros y Porcentaje
         min_prog, seg_prog = divmod(int(progreso_seg), 60)
