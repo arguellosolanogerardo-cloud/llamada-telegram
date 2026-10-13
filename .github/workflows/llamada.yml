@@ -1,7 +1,18 @@
 name: Llamada diaria Telegram
 
 on:
-  workflow_dispatch:   # Ejecutado exclusivamente por cron-job.org a las 7:56 PM Colombia
+  workflow_dispatch:
+    inputs:
+      grupo:
+        description: 'ID numérico o @username del grupo (deja vacío para usar grupo oficial)'
+        required: false
+        default: ''
+        type: string
+      titulo:
+        description: 'Título de la sala de voz'
+        required: false
+        default: 'Sala de Pruebas'
+        type: string
 
 concurrency:
   group: llamada-telegram
@@ -30,9 +41,10 @@ jobs:
           TG_API_ID: ${{ secrets.TG_API_ID }}
           TG_API_HASH: ${{ secrets.TG_API_HASH }}
           TG_SESSION: ${{ secrets.TG_SESSION }}
-          TG_GROUP: ${{ secrets.TG_GROUP }}
+          TG_GROUP: ${{ inputs.grupo != '' && inputs.grupo || secrets.TG_GROUP }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
+          CHAT_ID: ${{ inputs.grupo != '' && inputs.grupo || secrets.CHAT_ID }}
+          CALL_TITLE: ${{ inputs.titulo != '' && inputs.titulo || 'Llamada diaria' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           AVISO: |
             📞 ¡Empieza la llamada diaria!
