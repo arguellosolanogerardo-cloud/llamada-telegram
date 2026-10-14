@@ -1855,6 +1855,14 @@ async def main() -> None:
                         {"text": "🔉 Vol -", "callback_data": "panel_voldown"},
                         {"text": "⏹️ Detener", "callback_data": "panel_stop"},
                         {"text": "🔊 Vol +", "callback_data": "panel_volup"},
+                    ],
+                    [
+                        {"text": "⏭️ Saltar Audio", "callback_data": "panel_nextaudio"},
+                        {"text": "🗑️ Limpiar Cola", "callback_data": "panel_limpiarcola"},
+                    ],
+                    [
+                        {"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"},
+                        {"text": "✋ Limpiar Turnos", "callback_data": "panel_limpiarturnos"},
                     ]
                 ]
             }
@@ -2236,7 +2244,7 @@ async def main() -> None:
                                 await responder_callback_query(cq_id, "⛔ Solo administradores pueden usar estos controles.", alert=True)
                                 continue
 
-                            nonlocal volumen_actual, reproduciendo_meditacion
+                            nonlocal volumen_actual, reproduciendo_meditacion, indice_pista_actual
 
                             if cq_data == "panel_rewind":
                                 await responder_callback_query(cq_id, "⏪ Retrocediendo 30 segundos...", alert=False)
@@ -2318,6 +2326,40 @@ async def main() -> None:
                                     except Exception:
                                         pass
                                     msg_panel_meditacion_id = None
+                            elif cq_data in ("panel_nextaudio", "panel_saltaraudio"):
+                                if indice_pista_actual + 1 < len(cola_reproduccion):
+                                    await responder_callback_query(cq_id, f"⏭️ Saltando a pista {indice_pista_actual + 2}...", alert=False)
+                                    await reproducir_meditacion(indice_pista_actual + 1)
+                                else:
+                                    await responder_callback_query(cq_id, "ℹ️ No hay más audios en la cola.", alert=True)
+                            elif cq_data == "panel_limpiarcola":
+                                if len(cola_reproduccion) > (indice_pista_actual + 1):
+                                    cola_reproduccion[:] = cola_reproduccion[:indice_pista_actual + 1]
+                                    guardar_cola_hoy(cola_reproduccion)
+                                    await responder_callback_query(cq_id, "🗑️ Cola vaciada (audios siguientes eliminados).", alert=False)
+                                    avisar_con_bot("🗑️ **Cola de reproducción vaciada por un administrador.**", es_efimero=True)
+                                else:
+                                    await responder_callback_query(cq_id, "ℹ️ No hay audios en espera en la cola.", alert=True)
+                            elif cq_data == "panel_nextturno":
+                                if not cola_turnos:
+                                    await responder_callback_query(cq_id, "ℹ️ No hay participantes en espera.", alert=True)
+                                else:
+                                    siguiente_u = cola_turnos.pop(0)
+                                    s_uid = siguiente_u["id"]
+                                    s_nom = siguiente_u["nombre"]
+                                    oradores_activos.add(s_uid)
+                                    segundos_inactividad_mic[s_uid] = 0
+                                    avisados_auto_mute.discard(s_uid)
+                                    await responder_callback_query(cq_id, f"🎙️ Turno asignado a {s_nom}", alert=False)
+                                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
+                                    avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono está listo.", es_efimero=True)
+                                    if not reproduciendo_meditacion:
+                                        lanzar_tarea(anunciar_turno_por_voz(s_nom))
+                            elif cq_data == "panel_limpiarturnos":
+                                cola_turnos.clear()
+                                await responder_callback_query(cq_id, "🧹 Lista de turnos vaciada.", alert=False)
+                                await actualizar_mensaje_turnos(forzar_al_fondo=True)
+                                avisar_con_bot("🧹 **Lista de turnos vaciada por un administrador.**", es_efimero=True)
                 except asyncio.CancelledError:
                     break
                 except Exception as e_cb_loop:
@@ -2746,8 +2788,7 @@ async def main() -> None:
 
         async def anunciar_turno_por_voz(nombre_destinatario: str):
             """Emite la voz de Toby en vivo en la sala anunciando el turno del siguiente orador."""
-            if not tgcalls:
-                print("⚠️ TTS turno: tgcalls no disponible.")
+            if not tgcalls or reproduciendo_meditacion:
                 return
             nom_limpio = str(nombre_destinatario or "").split()[0][:20] or "Compañero"
             texto_tts = f"¡Turno de palabra para {nom_limpio}, adelante te escuchamos!"
@@ -3291,7 +3332,6 @@ async def main() -> None:
                 await responder_admin(f"🔓 **¡ÉXITO TOTAL!** Modo meditación desactivado. Micrófonos liberados para {desbloqueados_count} administradores y todos los participantes en sala. El candado global fue desactivado.")
                 avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para toda la sala. ¡Pueden abrir su micrófono cuando deseen hablar!", es_efimero=True)
             elif cmd in ("/siguiente", "/next"):
-                reproduciendo_meditacion = False
                 if not cola_turnos:
                     await responder_admin("ℹ️ No hay participantes esperando en la lista de turnos.")
                     return
@@ -3301,15 +3341,11 @@ async def main() -> None:
                 oradores_activos.add(s_uid)
                 segundos_inactividad_mic[s_uid] = 0
                 avisados_auto_mute.discard(s_uid)
-                try:
-                    input_peer = await client.get_input_entity(s_uid)
-                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
-                except Exception as e:
-                    print(f"Nota desmuteando a {s_nom}:", e)
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                await responder_admin(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
+                await responder_admin(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono está listo.")
                 avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
-                lanzar_tarea(anunciar_turno_por_voz(s_nom))
+                if not reproduciendo_meditacion:
+                    lanzar_tarea(anunciar_turno_por_voz(s_nom))
             elif cmd in ("/limpiarturnos",):
                 cola_turnos.clear()
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
@@ -3938,7 +3974,6 @@ async def main() -> None:
                 avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes.", es_efimero=True)
             # Siguiente orador
             elif any(p in texto_raw for p in ["siguiente turno", "siguiente orador", "siguiente persona", "pasar al siguiente"]):
-                reproduciendo_meditacion = False
                 if not cola_turnos:
                     await responder_nat("ℹ️ No hay participantes en espera en la lista de turnos.")
                 else:
@@ -3948,15 +3983,11 @@ async def main() -> None:
                     oradores_activos.add(s_uid)
                     segundos_inactividad_mic[s_uid] = 0
                     avisados_auto_mute.discard(s_uid)
-                    try:
-                        input_peer = await client.get_input_entity(s_uid)
-                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
-                    except Exception as e:
-                        print(f"Nota desmuteando a {s_nom}:", e)
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                    await responder_nat(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono ha sido habilitado.")
+                    await responder_nat(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono está listo.")
                     avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
-                    lanzar_tarea(anunciar_turno_por_voz(s_nom))
+                    if not reproduciendo_meditacion:
+                        lanzar_tarea(anunciar_turno_por_voz(s_nom))
             # Limpiar notificaciones y ventanas de la sala a petición del administrador
             elif any(p in texto_raw for p in [
                 "notificaciones del robot",
