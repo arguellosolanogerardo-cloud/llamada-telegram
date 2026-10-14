@@ -498,8 +498,8 @@ def generar_video_meditacion_luna(
                     font_tit_small = ImageFont.truetype(f_cand, 25)
                     font_sub = ImageFont.truetype(f_cand, 22)
                     font_phase = ImageFont.truetype(f_cand, 34)
-                    font_card_tit = ImageFont.truetype(f_cand, 25)
-                    font_card_val = ImageFont.truetype(f_cand, 23)
+                    font_card_tit = ImageFont.truetype(f_cand, 20)
+                    font_card_val = ImageFont.truetype(f_cand, 28)
                     font_astro_det = ImageFont.truetype(f_cand, 24)
                     font_astro = ImageFont.truetype(f_cand, 22)
                     font_time = ImageFont.truetype(f_cand, 50)
@@ -548,15 +548,15 @@ def generar_video_meditacion_luna(
             salida_t_y = moon_cy - 17
             salida_v_y = moon_cy + 17
 
-            # Caja izquierda (SALIDA): ancho 270px
+            # Caja izquierda (SALIDA DE LA LUNA): ancho 270px
             draw.rounded_rectangle([(115, box_y1), (385, box_y2)], radius=16, fill=(14, 16, 22, 235), outline=(55, 65, 90), width=1)
-            draw.text((250, salida_t_y), "SALIDA", fill=(251, 191, 36), font=font_card_tit, anchor="mm")
-            draw.text((250, salida_v_y), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
+            draw.text((250, salida_t_y), "SALIDA DE LA LUNA", fill=(251, 191, 36), font=font_card_tit, anchor="mm")
+            draw.text((250, salida_v_y), f"{astro['salida']}", fill=(241, 245, 249), font=font_card_val, anchor="mm")
 
-            # Caja derecha (PUESTA): ancho 270px
+            # Caja derecha (PUESTA DE LA LUNA): ancho 270px
             draw.rounded_rectangle([(895, box_y1), (1165, box_y2)], radius=16, fill=(14, 16, 22, 235), outline=(55, 65, 90), width=1)
-            draw.text((1030, salida_t_y), "PUESTA", fill=(148, 163, 184), font=font_card_tit, anchor="mm")
-            draw.text((1030, salida_v_y), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
+            draw.text((1030, salida_t_y), "PUESTA DE LA LUNA", fill=(148, 163, 184), font=font_card_tit, anchor="mm")
+            draw.text((1030, salida_v_y), f"{astro['puesta']}", fill=(241, 245, 249), font=font_card_val, anchor="mm")
 
             # Métricas
             fase_y = moon_cy + 124
@@ -698,8 +698,8 @@ def generar_caratula_meditacion_luna(
                 font_tit_small = ImageFont.truetype(f_cand, 25)
                 font_sub = ImageFont.truetype(f_cand, 22)
                 font_phase = ImageFont.truetype(f_cand, 34)
-                font_card_tit = ImageFont.truetype(f_cand, 25)
-                font_card_val = ImageFont.truetype(f_cand, 23)
+                font_card_tit = ImageFont.truetype(f_cand, 20)
+                font_card_val = ImageFont.truetype(f_cand, 28)
                 font_astro_det = ImageFont.truetype(f_cand, 24)
                 font_astro = ImageFont.truetype(f_cand, 22)
                 font_time_prog = ImageFont.truetype(f_cand, 64)
@@ -766,15 +766,15 @@ def generar_caratula_meditacion_luna(
         salida_t_y = moon_cy - 17
         salida_v_y = moon_cy + 17
 
-        # Caja izquierda (SALIDA): ancho 270px
+        # Caja izquierda (SALIDA DE LA LUNA): ancho 270px
         draw.rounded_rectangle([(115, box_y1), (385, box_y2)], radius=16, fill=(14, 14, 18), outline=(55, 65, 90), width=1)
-        draw.text((250, salida_t_y), "SALIDA", fill=(251, 191, 36), font=font_card_tit, anchor="mm")
-        draw.text((250, salida_v_y), f"{astro['salida']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
+        draw.text((250, salida_t_y), "SALIDA DE LA LUNA", fill=(251, 191, 36), font=font_card_tit, anchor="mm")
+        draw.text((250, salida_v_y), f"{astro['salida']}", fill=(241, 245, 249), font=font_card_val, anchor="mm")
 
-        # Caja derecha (PUESTA): ancho 270px
+        # Caja derecha (PUESTA DE LA LUNA): ancho 270px
         draw.rounded_rectangle([(895, box_y1), (1165, box_y2)], radius=16, fill=(14, 14, 18), outline=(55, 65, 90), width=1)
-        draw.text((1030, salida_t_y), "PUESTA", fill=(148, 163, 184), font=font_card_tit, anchor="mm")
-        draw.text((1030, salida_v_y), f"{astro['puesta']} (Bucaramanga)", fill=(241, 245, 249), font=font_card_val, anchor="mm")
+        draw.text((1030, salida_t_y), "PUESTA DE LA LUNA", fill=(148, 163, 184), font=font_card_tit, anchor="mm")
+        draw.text((1030, salida_v_y), f"{astro['puesta']}", fill=(241, 245, 249), font=font_card_val, anchor="mm")
 
         # 8. Nombre de la fase lunar y métricas
         fase_y = moon_cy + 124
