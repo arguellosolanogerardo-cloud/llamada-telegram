@@ -403,7 +403,7 @@ def extraer_videos_canal(canal: dict) -> list:
     return []
 
 
-def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None) -> int:
+def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None, es_arranque: bool = False) -> int:
     """Revisa los canales de YouTube y anuncia nuevos videos. Retorna cantidad de videos anunciados."""
     vistos = cargar_vistos()
     es_primera_vez = len(vistos) == 0
@@ -424,24 +424,24 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                 if vid in vistos or vid in nuevos_vistos:
                     continue
 
-                # Si es la primera vez que se inicializa la BD, registrar existentes sin anunciar
-                if es_primera_vez:
+                # Si es el chequeo de arranque del bot o primera vez, registrar videos existentes sin spamear
+                if es_arranque or es_primera_vez:
                     nuevos_vistos.append(vid)
                     continue
 
-                # Criterio robusto de novedad
+                # Criterio estricto de novedad (eventos recientes en vivo):
+                # Solo anunciar si fue publicado hace menos de 2 horas (evita republicar videos de hace 17-22 horas o ayer)
                 es_reciente = False
                 if dt_pub:
                     segundos = (ahora_utc - dt_pub).total_seconds()
-                    es_reciente = segundos < 86400  # Últimas 24 horas
+                    es_reciente = segundos < 7200  # Últimas 2 horas
                 elif pub_txt:
-                    palabras_recientes = ["min", "hora", "seg", "ahora", "vivo", "live", "hour", "sec", "now", "estreno", "premier"]
-                    es_reciente = any(w in pub_txt for w in palabras_recientes)
+                    palabras_recientes = ["min", "seg", "ahora", "vivo", "live", "sec", "now", "estreno", "premier"]
+                    es_reciente = any(w in pub_txt for w in palabras_recientes) or ("hora" in pub_txt and any(d in pub_txt for d in ["1 hora", "1 hour", "una hora"]))
                 elif source == "ytdlp":
-                    # Si viene de yt-dlp y es de los 2 primeros del canal
-                    es_reciente = idx < 2
+                    es_reciente = idx == 0
 
-                # Si no es reciente (ej: video publicado hace días/meses), marcar como visto sin notificar
+                # Si no es reciente (ej: video publicado hace horas/días), marcar como visto sin notificar
                 if not es_reciente:
                     nuevos_vistos.append(vid)
                     continue
@@ -519,16 +519,17 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
 
 
 def radar_loop(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None):
-    # Primera revisión al arrancar
+    # Primera revisión al arrancar: sembrar/registrar videos existentes en caché sin spam
     try:
-        chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=bot_enviar_foto_func)
+        chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=bot_enviar_foto_func, es_arranque=True)
+        print("📡 Radar YouTube: Chequeo inicial de arranque completado. Canales sincronizados en silencio.")
     except Exception as e:
         print(f"⚠️ Error en primera revisión del radar: {e}")
 
     while True:
         try:
             time.sleep(90)  # Cada 90 segundos (1.5 minutos)
-            chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=bot_enviar_foto_func)
+            chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=bot_enviar_foto_func, es_arranque=False)
         except Exception as e:
             print(f"⚠️ Error en loop radar YouTube: {e}")
             time.sleep(30)
