@@ -156,13 +156,16 @@ def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_en
     url_foto = obtener_url_miniatura(vid)
     ahora_col = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
 
+    tit_limpio = str(titulo).replace("_", "\\_").replace("*", "")
+    link_limpio = f"https://www.youtube.com/watch?v={vid}".replace("_", "\\_")
+
     texto_anuncio = (
         f"🔔 **¡NUEVO VIDEO PUBLICADO EN YOUTUBE!** 🐼\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📺 **Canal:** ALANISO 2012\n"
-        f"✨ **Título:** «{titulo}»\n"
+        f"✨ **Título:** «{tit_limpio}»\n"
         f"🗓️ **Publicado:** Recientemente ({ahora_col})\n\n"
-        f"🔗 **Ver en YouTube:**\nhttps://www.youtube.com/watch?v={vid}"
+        f"🔗 **Ver en YouTube:**\n{link_limpio}"
     )
 
     teclado = {
@@ -459,13 +462,16 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                 else:
                     fecha_txt = "Hace unos momentos"
 
+                tit_limpio = str(datos['titulo']).replace("_", "\\_").replace("*", "")
+                link_limpio = str(datos['link']).replace("_", "\\_")
+
                 texto_anuncio = (
                     f"🔔 **¡NUEVO VIDEO PUBLICADO EN YOUTUBE!** 🐼\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"📺 **Canal:** {canal['nombre']}\n"
-                    f"✨ **Título:** «{datos['titulo']}»\n"
+                    f"✨ **Título:** «{tit_limpio}»\n"
                     f"🗓️ **Publicado:** {fecha_txt}\n\n"
-                    f"🔗 **Ver en YouTube:**\n{datos['link']}"
+                    f"🔗 **Ver en YouTube:**\n{link_limpio}"
                 )
 
                 teclado = {

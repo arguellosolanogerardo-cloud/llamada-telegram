@@ -688,6 +688,17 @@ def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_mar
                 log_debug(f"Foto remota enviada exitosamente a {chat_id}: msg_id={m_id}")
                 return m_id
             log_debug(f"Telegram rechazó foto remota ({chat_id}): {res}")
+            # Si el rechazo fue por entidades de Markdown inválidas, reintentar sin formato
+            if "parse_mode" in data and any(k in str(res).lower() for k in ["can't parse entities", "parse_mode", "entity"]):
+                del data["parse_mode"]
+                r2 = requests.post(url, data=data, timeout=30)
+                res2 = r2.json()
+                if res2.get("ok"):
+                    m_id = res2.get("result", {}).get("message_id")
+                    if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                        registrar_msg_bot(m_id)
+                    log_debug(f"Foto remota enviada exitosamente sin formato a {chat_id}: msg_id={m_id}")
+                    return m_id
         except Exception as e_url:
             log_debug(f"Error enviando foto remota a {chat_id}: {e_url}")
         return None
@@ -708,6 +719,18 @@ def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_mar
                 log_debug(f"Foto enviada exitosamente a {chat_id}: msg_id={m_id}")
                 return m_id
             log_debug(f"Telegram rechazó foto ({chat_id}): {res}")
+            if "parse_mode" in data and any(k in str(res).lower() for k in ["can't parse entities", "parse_mode", "entity"]):
+                del data["parse_mode"]
+                f.seek(0)
+                files2 = {"photo": (os.path.basename(ruta_foto), f, "image/png")}
+                r2 = requests.post(url, data=data, files=files2, timeout=35)
+                res2 = r2.json()
+                if res2.get("ok"):
+                    m_id = res2.get("result", {}).get("message_id")
+                    if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                        registrar_msg_bot(m_id)
+                    log_debug(f"Foto local enviada exitosamente sin formato a {chat_id}: msg_id={m_id}")
+                    return m_id
     except Exception as e:
         log_debug(f"Error enviando foto a {chat_id}: {e}")
     return None
