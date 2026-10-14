@@ -637,6 +637,7 @@ def generar_video_meditacion_luna(
                 f"[s3]drawtext=text='{time_expr}':x={text_x}:y={text_y}{font_opt}:fontcolor=white:fontsize=64[s4]; "
                 f"[s4]drawtext=text='{pct_expr}':x={pct_x}:y={pct_y}{font_opt}:fontcolor=0xFBBF24:fontsize=50[out]"
             )
+            ruta_salida_tmp = ruta_salida + ".tmp.mp4"
             cmd_final = [
                 "ffmpeg", "-y",
                 "-stream_loop", "-1", "-i", loop_video,
@@ -651,12 +652,23 @@ def generar_video_meditacion_luna(
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
                 "-g", "4",
                 "-threads", "0",
-                ruta_salida
+                ruta_salida_tmp
             ]
             res = subprocess.run(cmd_final, capture_output=True, text=True)
-            if res.returncode != 0:
+            if res.returncode != 0 or not os.path.exists(ruta_salida_tmp):
                 print("ERROR FFMPEG generando video animado:", res.stderr)
+                if os.path.exists(ruta_salida_tmp):
+                    try:
+                        os.remove(ruta_salida_tmp)
+                    except Exception:
+                        pass
                 return None
+            if os.path.exists(ruta_salida):
+                try:
+                    os.remove(ruta_salida)
+                except Exception:
+                    pass
+            os.replace(ruta_salida_tmp, ruta_salida)
             return ruta_salida
     except Exception as e:
         print("Nota generando video animado de meditación:", e)

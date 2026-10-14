@@ -8,6 +8,7 @@ import os
 import random
 import struct
 import subprocess
+import threading
 import shutil
 import tempfile
 import urllib.request
@@ -508,47 +509,83 @@ def obtener_pitido_final_oracion() -> str | None:
     return None
 
 
+_lock_gongs = threading.Lock()
+
+
 def agregar_gongs_al_audio(ruta_audio: str) -> str:
-    """Inserta sonido de inicio y salida antes y después de la meditación."""
+    """Inserta sonido de inicio y salida antes y después de la meditación de forma atómica y segura."""
     if not os.path.exists(ruta_audio):
         return ruta_audio
-    ruta_con_gong = os.path.join(CARPETA_MEDITACIONES, "meditacion_con_gong.mp3")
-    s_inicio = obtener_sonido_campana_inicio()
-    s_salida = obtener_sonido_campana_salida()
-    try:
-        mtime_max = max(
-            os.path.getmtime(ruta_audio),
-            os.path.getmtime(s_inicio) if os.path.exists(s_inicio) else 0,
-            os.path.getmtime(s_salida) if os.path.exists(s_salida) else 0
-        )
-        # Reutilizar si ya fue generado para no retrasar la reproducción con FFmpeg
-        if os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 1000 and os.path.getmtime(ruta_con_gong) >= mtime_max:
-            return ruta_con_gong
-    except Exception:
-        pass
-    try:
-        fbin = shutil.which("ffmpeg") or "ffmpeg"
-        filter_str = "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a0];[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];[2:a]aformat=sample_rates=48000:channel_layouts=stereo[a2];[a0][a1][a2]concat=n=3:v=0:a=1[out]"
-        cmd = [
-            fbin, "-y",
-            "-i", s_inicio,
-            "-i", ruta_audio,
-            "-i", s_salida,
-            "-filter_complex", filter_str,
-            "-map", "[out]",
-            "-c:a", "libmp3lame", "-b:a", "192k",
-            ruta_con_gong
-        ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-        if res.returncode == 0 and os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 0:
-            try:
-                print(f"🎵 Audio ensamblado con sonidos: Inicio ({os.path.basename(s_inicio)}) + Meditación + Salida ({os.path.basename(s_salida)})")
-            except Exception:
-                print("Audio ensamblado con sonidos: Inicio + Meditacion + Salida")
-            return ruta_con_gong
-    except Exception as e:
-        print("Nota combinando gong con audio:", e)
-    return ruta_audio
+    with _lock_gongs:
+        ruta_con_gong = os.path.join(CARPETA_MEDITACIONES, "meditacion_con_gong.mp3")
+        ruta_con_gong_tmp = os.path.join(CARPETA_MEDITACIONES, "meditacion_con_gong.tmp.mp3")
+        s_inicio = obtener_sonido_campana_inicio()
+        s_salida = obtener_sonido_campana_salida()
+        dur_base = obtener_duracion_segundos(ruta_audio)
+        try:
+            mtime_max = max(
+                os.path.getmtime(ruta_audio),
+                os.path.getmtime(s_inicio) if os.path.exists(s_inicio) else 0,
+                os.path.getmtime(s_salida) if os.path.exists(s_salida) else 0,
+            )
+            # Reutilizar si ya fue generado válidamente (tamaño > 5000 y duración completa comprobada)
+            if os.path.exists(ruta_con_gong) and os.path.getsize(ruta_con_gong) > 5000 and os.path.getmtime(ruta_con_gong) >= mtime_max:
+                dur_existente = obtener_duracion_segundos(ruta_con_gong)
+                if dur_base <= 0 or dur_existente >= (dur_base - 5.0):
+                    return ruta_con_gong
+        except Exception:
+            pass
+        try:
+            fbin = shutil.which("ffmpeg") or "ffmpeg"
+            filter_str = (
+                "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a0];"
+                "[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];"
+                "[2:a]aformat=sample_rates=48000:channel_layouts=stereo[a2];"
+                "[a0][a1][a2]concat=n=3:v=0:a=1[out]"
+            )
+            cmd = [
+                fbin, "-y",
+                "-i", s_inicio,
+                "-i", ruta_audio,
+                "-i", s_salida,
+                "-filter_complex", filter_str,
+                "-map", "[out]",
+                "-c:a", "libmp3lame", "-b:a", "192k",
+                ruta_con_gong_tmp,
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+            if res.returncode == 0 and os.path.exists(ruta_con_gong_tmp) and os.path.getsize(ruta_con_gong_tmp) > 5000:
+                dur_tmp = obtener_duracion_segundos(ruta_con_gong_tmp)
+                # Validación de seguridad: no reemplazar si la duración quedó truncada respecto al audio base
+                if dur_base > 0 and dur_tmp < (dur_base - 5.0):
+                    print(f"⚠️ Audio ensamblado incompleto ({dur_tmp:.1f}s vs {dur_base:.1f}s base). Descartando temporal.")
+                    if os.path.exists(ruta_con_gong_tmp):
+                        try:
+                            os.remove(ruta_con_gong_tmp)
+                        except Exception:
+                            pass
+                    return ruta_audio
+
+                if os.path.exists(ruta_con_gong):
+                    try:
+                        os.remove(ruta_con_gong)
+                    except Exception:
+                        pass
+                os.replace(ruta_con_gong_tmp, ruta_con_gong)
+                try:
+                    print(f"🎵 Audio ensamblado con sonidos: Inicio ({os.path.basename(s_inicio)}) + Meditación ({dur_tmp:.1f}s) + Salida ({os.path.basename(s_salida)})")
+                except Exception:
+                    print("Audio ensamblado con sonidos: Inicio + Meditacion + Salida")
+                return ruta_con_gong
+        except Exception as e:
+            print("Nota combinando gong con audio:", e)
+        finally:
+            if os.path.exists(ruta_con_gong_tmp):
+                try:
+                    os.remove(ruta_con_gong_tmp)
+                except Exception:
+                    pass
+        return ruta_audio
 
 
 def convertir_audio_a_pcm(ruta_audio: str) -> str:
@@ -2050,7 +2087,10 @@ async def main() -> None:
                         n_act = inf_act.get("numero", "")
                         t_act = inf_act.get("titulo", "Meditación Diaria")
                         m_act = inf_act.get("maestro", "Alaniso")
+                        dur_base_orig = obtener_duracion_segundos(audio_base)
                         dur_e = obtener_duracion_segundos(audio_con_gong if os.path.exists(audio_con_gong) else audio_base)
+                        if dur_e < (dur_base_orig - 5.0):
+                            dur_e = dur_base_orig
                         if dur_e <= 0:
                             dur_e = 1800.0
                         vid = await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e)
@@ -2399,11 +2439,11 @@ async def main() -> None:
                     except Exception as e_tts_med:
                         print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
 
-                # 2. Si hay preparación de recursos en segundo plano para esta pista, esperarla (máximo 6s)
+                # 2. Si hay preparación de recursos en segundo plano para esta pista, esperarla (máximo 60s)
                 if pista_idx == 0 and tarea_preparacion_recursos and not tarea_preparacion_recursos.done():
                     print("⏳ Esperando que finalice la preparación de recursos (audio HD y video carátula MP4)...")
                     try:
-                        await asyncio.wait_for(asyncio.shield(tarea_preparacion_recursos), timeout=6.0)
+                        await asyncio.wait_for(asyncio.shield(tarea_preparacion_recursos), timeout=60.0)
                     except Exception as e_esp:
                         print("Nota esperando tarea de recursos:", e_esp)
 
@@ -2424,9 +2464,10 @@ async def main() -> None:
                         num_med = (info_catalogo_hoy or {}).get("numero", "")
                         tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
                         m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                        dur_pista_orig = obtener_duracion_segundos(ruta_pista)
                         dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
-                        if dur_exacta <= 0:
-                            dur_exacta = obtener_duracion_segundos(ruta_pista)
+                        if dur_exacta < (dur_pista_orig - 5.0):
+                            dur_exacta = dur_pista_orig
                         if dur_exacta <= 0:
                             dur_exacta = 1800.0
                         ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta)
@@ -2546,9 +2587,10 @@ async def main() -> None:
                     txt_act = formatear_info_audio(info_act) if info_act else f"🧘 **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Meditación')}"
                     avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
                 # Determinar duración total de la pista
+                dur_pista_orig = obtener_duracion_segundos(ruta_pista)
                 dur_audio = obtener_duracion_segundos(ruta_a_reproducir)
-                if dur_audio <= 0:
-                    dur_audio = obtener_duracion_segundos(ruta_pista)
+                if dur_audio < (dur_pista_orig - 5.0):
+                    dur_audio = dur_pista_orig
                 if dur_audio <= 0:
                     dur_audio = 1800.0
                 dur_pista_actual = dur_audio
