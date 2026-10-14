@@ -69,7 +69,7 @@ GRUPO = (os.environ.get("TG_GROUP", "") or "").strip()
 BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
 BOT_ID = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
 CHAT_ID = (os.environ.get("CHAT_ID") or GRUPO or "").strip()
-TITULO = os.environ.get("CALL_TITLE", "VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.")
+TITULO = os.environ.get("CALL_TITLE", "VIDEOLLAMADA ''GRUPO LA VERDAD OS HARA LIBRES UNIFICADOS AL MAESTRO MARIO CARRILLO DURAN''")
 AVISO = os.environ.get(
     "AVISO",
     "📞 ¡Empieza la llamada diaria! Entra al chat de voz del grupo.",
