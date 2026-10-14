@@ -11,7 +11,7 @@ on:
       titulo:
         description: 'Título de la sala de voz'
         required: false
-        default: 'Sala de Pruebas'
+        default: 'VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.'
         type: string
 
 concurrency:
@@ -44,7 +44,7 @@ jobs:
           TG_GROUP: ${{ inputs.grupo != '' && inputs.grupo || secrets.TG_GROUP }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ inputs.grupo != '' && inputs.grupo || secrets.CHAT_ID }}
-          CALL_TITLE: ${{ inputs.titulo != '' && inputs.titulo || 'Llamada diaria' }}
+          CALL_TITLE: ${{ inputs.titulo != '' && inputs.titulo || 'VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           AVISO: |
             📞 ¡Empieza la llamada diaria!

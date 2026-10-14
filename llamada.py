@@ -69,7 +69,7 @@ GRUPO = (os.environ.get("TG_GROUP", "") or "").strip()
 BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
 BOT_ID = int(BOT_TOKEN.split(":")[0]) if (BOT_TOKEN and ":" in BOT_TOKEN) else None
 CHAT_ID = (os.environ.get("CHAT_ID") or GRUPO or "").strip()
-TITULO = os.environ.get("CALL_TITLE", "Llamada diaria")
+TITULO = os.environ.get("CALL_TITLE", "VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.")
 AVISO = os.environ.get(
     "AVISO",
     "📞 ¡Empieza la llamada diaria! Entra al chat de voz del grupo.",
@@ -1548,6 +1548,12 @@ async def main() -> None:
             return
 
         input_call = full_chat.call
+        try:
+            from telethon.tl.functions.phone import EditGroupCallTitleRequest
+            await client(EditGroupCallTitleRequest(call=input_call, title=TITULO))
+            print(f"🏷️ Título de la sala de voz configurado a: '{TITULO}'.")
+        except Exception as e_tit:
+            print(f"Nota actualizando título de sala: {e_tit}")
         try:
             await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
             print("🔓 Configuración de sala: join_muted=False (micrófonos libres al entrar).")
