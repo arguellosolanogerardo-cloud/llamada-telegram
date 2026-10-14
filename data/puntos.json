@@ -1,27 +1,27 @@
 {
   "version": 1,
-  "actualizado": "2026-10-13",
+  "actualizado": "2026-10-14",
   "usuarios": {
     "6207989093": {
       "id": 6207989093,
       "nombre": "Alexis Gutiérrez",
       "username": "",
-      "puntos_mes": 975,
-      "puntos_totales": 975,
-      "racha_actual": 7,
-      "mejor_racha": 7,
-      "racha_podio": 0,
-      "racha_voz": 9,
-      "asistencias_mes": 9,
-      "asistencias_totales": 9,
-      "minutos_mes": 638,
-      "minutos_totales": 638,
-      "meditaciones_mes": 8,
-      "meditaciones_totales": 8,
+      "puntos_mes": 1125,
+      "puntos_totales": 1125,
+      "racha_actual": 8,
+      "mejor_racha": 8,
+      "racha_podio": 1,
+      "racha_voz": 10,
+      "asistencias_mes": 10,
+      "asistencias_totales": 10,
+      "minutos_mes": 659,
+      "minutos_totales": 659,
+      "meditaciones_mes": 9,
+      "meditaciones_totales": 9,
       "medallas": [
         "🎙️ Voz de la Comunidad"
       ],
-      "ultima_fecha": "2026-10-13"
+      "ultima_fecha": "2026-10-14"
     },
     "5542767114": {
       "id": 5542767114,
@@ -129,22 +129,22 @@
       "id": 8522415010,
       "nombre": "Salvador Benitez",
       "username": "",
-      "puntos_mes": 895,
-      "puntos_totales": 895,
-      "racha_actual": 7,
-      "mejor_racha": 7,
-      "racha_podio": 0,
-      "racha_voz": 8,
-      "asistencias_mes": 8,
-      "asistencias_totales": 8,
-      "minutos_mes": 673,
-      "minutos_totales": 673,
-      "meditaciones_mes": 6,
-      "meditaciones_totales": 6,
+      "puntos_mes": 985,
+      "puntos_totales": 985,
+      "racha_actual": 8,
+      "mejor_racha": 8,
+      "racha_podio": 1,
+      "racha_voz": 9,
+      "asistencias_mes": 9,
+      "asistencias_totales": 9,
+      "minutos_mes": 684,
+      "minutos_totales": 684,
+      "meditaciones_mes": 7,
+      "meditaciones_totales": 7,
       "medallas": [
         "🎙️ Voz de la Comunidad"
       ],
-      "ultima_fecha": "2026-10-13"
+      "ultima_fecha": "2026-10-14"
     },
     "6727990351": {
       "id": 6727990351,
@@ -495,22 +495,22 @@
       "id": 1655531985,
       "nombre": "Monica Romero",
       "username": "",
-      "puntos_mes": 775,
-      "puntos_totales": 775,
-      "racha_actual": 7,
-      "mejor_racha": 7,
-      "racha_podio": 1,
-      "racha_voz": 7,
-      "asistencias_mes": 7,
-      "asistencias_totales": 7,
-      "minutos_mes": 550,
-      "minutos_totales": 550,
-      "meditaciones_mes": 6,
-      "meditaciones_totales": 6,
+      "puntos_mes": 865,
+      "puntos_totales": 865,
+      "racha_actual": 8,
+      "mejor_racha": 8,
+      "racha_podio": 2,
+      "racha_voz": 8,
+      "asistencias_mes": 8,
+      "asistencias_totales": 8,
+      "minutos_mes": 562,
+      "minutos_totales": 562,
+      "meditaciones_mes": 7,
+      "meditaciones_totales": 7,
       "medallas": [
         "🎙️ Voz de la Comunidad"
       ],
-      "ultima_fecha": "2026-10-13"
+      "ultima_fecha": "2026-10-14"
     },
     "8200916162": {
       "id": 8200916162,
@@ -977,22 +977,22 @@
       "id": 5399812998,
       "nombre": "Maria",
       "username": "",
-      "puntos_mes": 750,
-      "puntos_totales": 750,
-      "racha_actual": 1,
+      "puntos_mes": 885,
+      "puntos_totales": 885,
+      "racha_actual": 2,
       "mejor_racha": 4,
-      "racha_podio": 0,
-      "racha_voz": 7,
-      "asistencias_mes": 7,
-      "asistencias_totales": 7,
-      "minutos_mes": 487,
-      "minutos_totales": 487,
-      "meditaciones_mes": 6,
-      "meditaciones_totales": 6,
+      "racha_podio": 1,
+      "racha_voz": 8,
+      "asistencias_mes": 8,
+      "asistencias_totales": 8,
+      "minutos_mes": 510,
+      "minutos_totales": 510,
+      "meditaciones_mes": 7,
+      "meditaciones_totales": 7,
       "medallas": [
         "🎙️ Voz de la Comunidad"
       ],
-      "ultima_fecha": "2026-10-13"
+      "ultima_fecha": "2026-10-14"
     },
     "1641330878": {
       "id": 1641330878,
@@ -1456,5 +1456,5 @@
     }
   },
   "mes_actual": "2026-10",
-  "total_llamadas_mes": 19
+  "total_llamadas_mes": 20
 }

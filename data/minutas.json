@@ -592,5 +592,30 @@
       "fecha_tarea_admin": "13/10/2026",
       "fecha_iso": "2026-10-13"
     }
+  },
+  "2026-10-14": {
+    "fecha": "2026-10-14",
+    "duracion_minutos": 23,
+    "asistentes_count": 8,
+    "oradores": [
+      "GERARDO Argüello 3",
+      "Maria",
+      "Father Gerardo Perez",
+      "Alexis Gutiérrez",
+      "GERARDO ARGUELLO2",
+      "Monica Romero",
+      "Salvador Benitez",
+      "Gadalupe Sandoval 🇲🇽🇲🇽🇲🇽"
+    ],
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-14** con una duración de **23 minutos** y un total de **8 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Maria:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Alexis Gutiérrez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Monica Romero:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Salvador Benitez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Gadalupe Sandoval 🇲🇽🇲🇽🇲🇽:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "ruta_pdf": "data/actas/acta_2026-10-14.pdf",
+    "info_catalogo": {
+      "numero": 1093,
+      "tipo": "MEDITACION",
+      "titulo": "No tomen a la ligera que ya llego el momento del gran cambio",
+      "fecha": "09/04/20",
+      "maestro": "Alaniso",
+      "detectado_como": "MEDITACION"
+    }
   }
 }
