@@ -1532,7 +1532,7 @@ def escuchar_comandos() -> None:
                     chat_id_cb = msg_cb.get("chat", {}).get("id")
                     
                     if cb_data.startswith("ytmp3_"):
-                        vid = cb_data.split("_")[1]
+                        vid = cb_data.split("_", 1)[1]
                         u_from = update["callback_query"]["from"]
                         u_id = u_from.get("id")
                         u_nom = f"{u_from.get('first_name', '')} {u_from.get('last_name', '')}".strip() or "Usuario"
@@ -1557,6 +1557,7 @@ def escuchar_comandos() -> None:
 
                             cmd = [
                                 sys.executable, "-m", "yt_dlp",
+                                "--extractor-args", "youtube:player_client=android,mweb",
                                 "-x", "--audio-format", "mp3",
                                 "--audio-quality", "0",
                                 "--no-playlist",
@@ -1564,7 +1565,9 @@ def escuchar_comandos() -> None:
                                 url_yt
                             ]
                             try:
-                                subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                                r_dlp = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                                if r_dlp.returncode != 0:
+                                    print(f"Error yt-dlp descargando {vid_target}:\n{r_dlp.stderr}")
                             except Exception as e_dlp:
                                 print(f"Error yt-dlp descargando {vid_target}: {e_dlp}")
 
@@ -1625,7 +1628,7 @@ def escuchar_comandos() -> None:
                         continue
 
                     elif cb_data.startswith("yttarea_"):
-                        vid = cb_data.split("_")[1]
+                        vid = cb_data.split("_", 1)[1]
                         user_id_cb = update["callback_query"]["from"].get("id")
                         admins_set = obtener_admin_ids(chat_id_cb)
                         for hard_a in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022):
@@ -1683,7 +1686,7 @@ def escuchar_comandos() -> None:
                                 if not tit_found:
                                     try:
                                         res_tit = subprocess.run(
-                                            [sys.executable, "-m", "yt_dlp", "--print", "%(title)s", url_yt],
+                                            [sys.executable, "-m", "yt_dlp", "--extractor-args", "youtube:player_client=android,mweb", "--print", "%(title)s", url_yt],
                                             capture_output=True, text=True, timeout=15
                                         )
                                         if res_tit.returncode == 0 and res_tit.stdout.strip():
@@ -1701,6 +1704,7 @@ def escuchar_comandos() -> None:
 
                                 cmd_dl = [
                                     sys.executable, "-m", "yt_dlp",
+                                    "--extractor-args", "youtube:player_client=android,mweb",
                                     "-x", "--audio-format", "mp3",
                                     "--audio-quality", "0",
                                     "--no-playlist",
@@ -1708,7 +1712,9 @@ def escuchar_comandos() -> None:
                                     url_yt
                                 ]
                                 try:
-                                    subprocess.run(cmd_dl, capture_output=True, text=True, timeout=180)
+                                    r_cmd = subprocess.run(cmd_dl, capture_output=True, text=True, timeout=180)
+                                    if r_cmd.returncode != 0:
+                                        print(f"Error yt-dlp descargando tarea {vid_tarea}:\n{r_cmd.stderr}")
                                 except Exception as e_cmd:
                                     print("Error descargando yt para tarea:", e_cmd)
 

@@ -122,8 +122,8 @@ def obtener_titulo_video(vid: str) -> str:
     # 2. yt-dlp fallback
     try:
         res = subprocess.run(
-            ["yt-dlp", "--print", "%(title)s", f"https://www.youtube.com/watch?v={vid}"],
-            capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "yt_dlp", "--extractor-args", "youtube:player_client=android,mweb", "--print", "%(title)s", f"https://www.youtube.com/watch?v={vid}"],
+            capture_output=True, text=True, timeout=12
         )
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
@@ -303,7 +303,13 @@ def extraer_videos_web(url_canal: str) -> list:
 def extraer_videos_ytdlp(url_canal: str) -> list:
     """Tier 2: Extrae los últimos videos del canal mediante yt-dlp."""
     try:
-        cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s|||%(title)s", "--playlist-end", "10", url_canal]
+        cmd = [
+            sys.executable, "-m", "yt_dlp",
+            "--extractor-args", "youtube:player_client=android,mweb",
+            "--flat-playlist", "--print", "%(id)s|||%(title)s",
+            "--playlist-end", "10",
+            url_canal
+        ]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
         if res.returncode != 0 or not res.stdout.strip():
             return []
