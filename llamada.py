@@ -1857,10 +1857,12 @@ async def main() -> None:
                         {"text": "🔊 Vol +", "callback_data": "panel_volup"},
                     ],
                     [
-                        {"text": "⏭️ Saltar Audio", "callback_data": "panel_nextaudio"},
-                        {"text": "🗑️ Limpiar Cola", "callback_data": "panel_limpiarcola"},
+                        {"text": "➕ Encolar Audio", "callback_data": "panel_encolar"},
+                        {"text": "📋 Ver Cola", "callback_data": "panel_vercola"},
+                        {"text": "⏭️ Saltar", "callback_data": "panel_nextaudio"},
                     ],
                     [
+                        {"text": "🗑️ Limpiar Cola", "callback_data": "panel_limpiarcola"},
                         {"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"},
                         {"text": "✋ Limpiar Turnos", "callback_data": "panel_limpiarturnos"},
                     ]
@@ -1881,12 +1883,27 @@ async def main() -> None:
 
             encabezado = f"🧘 **MEDITACIÓN #{num}** — *{tit}*" if num else f"🧘 **{tit}**"
 
+            # Información de la cola de reproducción
+            total_cola = len(cola_reproduccion)
+            if total_cola > 1:
+                sig_txt = ""
+                if indice_pista_actual + 1 < total_cola:
+                    sig_item = cola_reproduccion[indice_pista_actual + 1]
+                    sig_num = (sig_item.get("info") or {}).get("numero")
+                    sig_nom = sig_item.get("titulo") or (sig_item.get("info") or {}).get("titulo") or "Audio"
+                    pref_sig = f"#{sig_num} " if sig_num else ""
+                    sig_txt = f"\n⏳ **Próximo en cola:** *{pref_sig}{sig_nom}*"
+                info_cola = f"📋 **Cola:** Pista {indice_pista_actual + 1} de {total_cola}{sig_txt}\n\n"
+            else:
+                info_cola = "📋 **Cola:** Pista 1 de 1 *(Prioridad oficial #1 activa)*\n\n"
+
             return (
                 f"{encabezado}\n"
                 f"👤 **Maestro:** {maestro}\n"
                 f"🔊 **Volumen:** {vol}%\n\n"
                 f"{icono_estado}\n"
                 f"`{t_act}`  {barra}  `{t_tot}` ({pct}%)\n\n"
+                f"{info_cola}"
                 f"*(Controles táctiles solo para administradores)*"
             )
 
@@ -2338,8 +2355,33 @@ async def main() -> None:
                                     guardar_cola_hoy(cola_reproduccion)
                                     await responder_callback_query(cq_id, "🗑️ Cola vaciada (audios siguientes eliminados).", alert=False)
                                     avisar_con_bot("🗑️ **Cola de reproducción vaciada por un administrador.**", es_efimero=True)
+                                    await actualizar_panel_progreso(forzar=True)
                                 else:
                                     await responder_callback_query(cq_id, "ℹ️ No hay audios en espera en la cola.", alert=True)
+                            elif cq_data == "panel_encolar":
+                                await responder_callback_query(cq_id, "➕ Para encolar, escribe /encolar <número>", alert=False)
+                                txt_enc = (
+                                    "➕ **ENCOLAR AUDIO PARA DESPUÉS DE LA MEDITACIÓN**\n"
+                                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                    "🌟 *La meditación programada para hoy tiene prioridad #1 y terminará de sonar primero.*\n\n"
+                                    "👉 **Para añadir un audio que suene a continuación:**\n"
+                                    "• Escribe: `/encolar <número o título>` *(ej: `/encolar 15` o `/encolar mensaje 606`)*\n"
+                                    "• O responde a cualquier audio en el grupo con `/encolar`\n\n"
+                                    "💡 *El nuevo audio se colocará en la cola y sonará automáticamente al terminar la meditación.*"
+                                )
+                                avisar_con_bot(txt_enc, es_efimero=True)
+                            elif cq_data == "panel_vercola":
+                                if not cola_reproduccion and ruta_meditacion:
+                                    cola_reproduccion.append({
+                                        "ruta": ruta_meditacion,
+                                        "info": info_catalogo_hoy,
+                                        "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
+                                    })
+                                txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
+                                total_p = len(cola_reproduccion)
+                                restantes = max(0, total_p - (indice_pista_actual + 1))
+                                await responder_callback_query(cq_id, f"📋 Cola: {total_p} pista(s) ({restantes} en espera)", alert=False)
+                                avisar_con_bot(txt_cola, es_efimero=True)
                             elif cq_data == "panel_nextturno":
                                 if not cola_turnos:
                                     await responder_callback_query(cq_id, "ℹ️ No hay participantes en espera.", alert=True)
@@ -3571,6 +3613,7 @@ async def main() -> None:
                 indice_pista_actual = 0
                 guardar_cola_hoy([])
                 await resp_q("🗑️ **Lista de reproducción vaciada.** Puedes encolar nuevos audios con `/encolar` o enviándolos al grupo.")
+                await actualizar_panel_progreso(forzar=True)
 
             elif cmd_q in ("/quitar", "/remover", "/quitarcola", "/removercola"):
                 if not arg_q:
@@ -3621,12 +3664,50 @@ async def main() -> None:
                     guardar_cola_hoy(cola_reproduccion)
                     tit_rem = removido.get("titulo") or (removido.get("info") or {}).get("titulo") or "Audio"
                     await resp_q(f"🗑️ **Audio removido:** «{tit_rem}».\n\n📋 Total restante en cola: **{len(cola_reproduccion)} pistas**.")
+                    await actualizar_panel_progreso(forzar=True)
                 else:
                     await resp_q(f"⚠️ No se encontró ningún audio con el número o posición «{arg_q}». Consulta `/cola` para ver la lista actual.")
 
             elif cmd_q in ("/encolar", "/agregar"):
+                # Si no hay argumentos y es respuesta a un mensaje con audio
+                if not arg_q and event.is_reply:
+                    reply_msg = await event.get_reply_message()
+                    if reply_msg and (
+                        reply_msg.audio
+                        or reply_msg.voice
+                        or (
+                            reply_msg.document
+                            and (
+                                (reply_msg.document.mime_type and "audio" in reply_msg.document.mime_type)
+                                or any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(reply_msg.document, "attributes", []))
+                            )
+                        )
+                    ):
+                        os.makedirs(CARPETA_MEDITACIONES, exist_ok=True)
+                        n_arch = getattr(reply_msg.audio, "file_name", "") or getattr(reply_msg.voice, "file_name", "") or ""
+                        if not n_arch and reply_msg.document:
+                            for a in getattr(reply_msg.document, "attributes", []):
+                                if getattr(a, "file_name", ""):
+                                    n_arch = getattr(a, "file_name", "")
+                        idx_n = len(cola_reproduccion) + 1
+                        r_dest = os.path.join(CARPETA_MEDITACIONES, f"meditacion_extra_{idx_n}.mp3")
+                        await client.download_media(reply_msg, file=r_dest)
+                        info_cat = identificar_audio_catalogo(reply_msg.raw_text or "", n_arch)
+                        item_c = {
+                            "ruta": r_dest,
+                            "info": info_cat,
+                            "titulo": (info_cat or {}).get("titulo") or n_arch or f"Pista #{idx_n}"
+                        }
+                        cola_reproduccion.append(item_c)
+                        guardar_cola_hoy(cola_reproduccion)
+                        if MEJORA_AUDIO:
+                            asyncio.create_task(preparar_audio_eq(r_dest))
+                        await resp_q(f"▶️ **Audio añadido a la cola de reproducción:** «{item_c['titulo']}»\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (sonará tras la meditación actual).")
+                        await actualizar_panel_progreso(forzar=True)
+                        return
+
                 if not arg_q:
-                    await resp_q("ℹ️ Uso: `/encolar [audio] a las [hora]` (Ejemplo: `/encolar 15 a las 9:15pm` o `/encolar mensaje 606`).")
+                    await resp_q("ℹ️ Uso: `/encolar [audio] a las [hora]` (Ejemplo: `/encolar 15 a las 9:15pm` o `/encolar mensaje 606`). También puedes responder a cualquier audio con `/encolar`.")
                     return
                 # Extraer posible hora programada (ej. "a las 9:15pm", "a las 21:15", "9:15 pm")
                 hora_prog = None
@@ -3675,7 +3756,8 @@ async def main() -> None:
                     guardar_cola_hoy(cola_reproduccion)
                     txt_anadidos = "\n".join(f"• **{x.get('tipo', 'Audio').capitalize()} #{x.get('numero')}:** «{x.get('titulo', '')}»" for x in anadidos)
                     str_h = f" ⏰ **Programado para:** {m_hora.group(0)}" if m_hora else ""
-                    await resp_q(f"▶️ **Pistas añadidas a la cola de reproducción:**\n{txt_anadidos}{str_h}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas**.")
+                    await resp_q(f"▶️ **Pistas añadidas a la cola de reproducción:**\n{txt_anadidos}{str_h}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (sonará tras la meditación de hoy).")
+                    await actualizar_panel_progreso(forzar=True)
                 else:
                     await resp_q("⚠️ No se pudieron descargar los audios correspondientes desde Google Drive.")
 
@@ -3778,6 +3860,7 @@ async def main() -> None:
 
                         guardar_cola_hoy(cola_reproduccion)
                         print(f"Nueva meditación recibida y guardada para hoy ({lbl_tarea}):", ruta)
+                        await actualizar_panel_progreso(forzar=True)
 
                         if info_cat:
                             txt_card = formatear_info_audio(info_cat)
