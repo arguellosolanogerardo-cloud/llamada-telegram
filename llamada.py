@@ -2203,205 +2203,148 @@ async def main() -> None:
         lock_panel_seek = asyncio.Lock()
 
         async def _bucle_callbacks_bot():
-            """Escucha clics en botones inline del panel de control de meditación y los ejecuta en tiempo real."""
-            if not BOT_TOKEN:
-                return
-            offset = 0
-            url_base = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-            try:
-                # Drenar updates viejos al iniciar para no procesar clics acumulados
-                req_clean = urllib.request.Request(f"{url_base}?offset=-1", headers={"User-Agent": "BotLlamadas"})
-                def _drenar():
-                    try:
-                        with urllib.request.urlopen(req_clean, timeout=5) as r:
-                            return json.loads(r.read().decode())
-                    except Exception:
-                        return None
-                d_init = await asyncio.to_thread(_drenar)
-                if d_init and d_init.get("result"):
-                    offset = d_init["result"][-1]["update_id"] + 1
-            except Exception:
-                pass
-
-            print("🔘 Sistema de botones interactivos del panel (⏪ -30s, ⏩ +30s, ▶️, ⏸️) activo y escuchando.")
+            """Monitorea eventos del panel de control vía IPC (control_panel_ipc.json) sin colisionar con el bot de Telegram."""
+            ipc_file = os.path.join("data", "control_panel_ipc.json")
+            ultimo_ts = time.time()
+            print("🔘 Sistema de control del panel (⏪, ⏩, ▶️, ⏸️, ➕ Encolar, 🎤 Turnos) activo y sincronizado vía IPC.")
 
             while True:
                 try:
-                    url_updates = f"{url_base}?offset={offset}&timeout=2&allowed_updates=[\"callback_query\"]"
-                    req = urllib.request.Request(url_updates, headers={"User-Agent": "BotLlamadas"})
+                    await asyncio.sleep(0.2)
+                    if not os.path.exists(ipc_file):
+                        continue
 
-                    def _fetch():
-                        try:
-                            with urllib.request.urlopen(req, timeout=8) as resp:
-                                return json.loads(resp.read().decode())
-                        except Exception:
-                            return None
+                    try:
+                        with open(ipc_file, "r", encoding="utf-8") as f_ipc:
+                            ev_ipc = json.load(f_ipc)
+                    except Exception:
+                        continue
 
-                    res_json = await asyncio.to_thread(_fetch)
-                    if res_json and res_json.get("ok"):
-                        for upd in res_json.get("result", []):
-                            offset = max(offset, upd["update_id"] + 1)
-                            cq = upd.get("callback_query")
-                            if not cq:
-                                continue
+                    ts = ev_ipc.get("timestamp", 0)
+                    if ts <= ultimo_ts:
+                        continue
 
-                            cq_id = cq["id"]
-                            cq_data = cq.get("data", "")
-                            sender = cq.get("from", {})
-                            sender_id = sender.get("id")
+                    ultimo_ts = ts
+                    accion = ev_ipc.get("accion", "")
+                    cq_data = f"panel_{accion}"
+                    sender_id = ev_ipc.get("sender_id")
+                    nom_sender = ev_ipc.get("sender_nom", "Admin")
 
-                            nom_sender = f"{sender.get('first_name', '')} {sender.get('last_name', '')}".strip() or "Admin"
-                            es_adm = (
-                                sender_id in admin_ids
-                                or sender_id in ADMINS_OFICIALES_FIJOS
-                                or any(k in nom_sender.lower() for k in ("gerardo", "mario", "claudia", "maricela", "carrillo"))
-                            )
+                    nonlocal volumen_actual, reproduciendo_meditacion, indice_pista_actual
 
-                            if not es_adm:
-                                await responder_callback_query(cq_id, "⛔ Solo administradores pueden usar estos controles.", alert=True)
-                                continue
-
-                            nonlocal volumen_actual, reproduciendo_meditacion, indice_pista_actual
-
-                            if cq_data == "panel_rewind":
-                                await responder_callback_query(cq_id, "⏪ Retrocediendo 30 segundos...", alert=False)
-                                async with lock_panel_seek:
-                                    if reproduciendo_meditacion:
-                                        pos_act = posicion_actual()
-                                        nueva_pos = max(0.0, pos_act - 30.0)
-                                        print(f"⏪ Botón [-30s] presionado por {nom_sender} ({sender_id}). De {pos_act:.1f}s a {nueva_pos:.1f}s.")
-                                        await saltar_a_posicion(nueva_pos)
-                            elif cq_data == "panel_forward":
-                                await responder_callback_query(cq_id, "⏩ Adelantando 30 segundos...", alert=False)
-                                async with lock_panel_seek:
-                                    if reproduciendo_meditacion:
-                                        pos_act = posicion_actual()
-                                        dur_tot = dur_pista_actual or 1800.0
-                                        nueva_pos = min(max(0.0, dur_tot - 5.0), pos_act + 30.0)
-                                        print(f"⏩ Botón [+30s] presionado por {nom_sender} ({sender_id}). De {pos_act:.1f}s a {nueva_pos:.1f}s.")
-                                        await saltar_a_posicion(nueva_pos)
-                            elif cq_data == "panel_pausa":
-                                await responder_callback_query(cq_id, "⏸️ Pausado", alert=False)
-                                if tgcalls and reproduciendo_meditacion:
-                                    try:
-                                        await tgcalls.pause(destino)
-                                        marcar_pausa()
-                                        await actualizar_panel_progreso(forzar=True)
-                                        print(f"⏸️ Botón [Pausa] presionado por {nom_sender} ({sender_id}).")
-                                    except Exception as e_p:
-                                        print("Error pausando desde botón:", e_p)
-                            elif cq_data == "panel_play":
-                                await responder_callback_query(cq_id, "▶️ Reanudando", alert=False)
-                                if tgcalls and reproduciendo_meditacion:
-                                    try:
-                                        await tgcalls.resume(destino)
-                                        marcar_reanudacion()
-                                        await actualizar_panel_progreso(forzar=True)
-                                        print(f"▶️ Botón [Reanudar] presionado por {nom_sender} ({sender_id}).")
-                                    except Exception as e_r:
-                                        print("Error reanudando desde botón:", e_r)
-                            elif cq_data == "panel_voldown":
-                                volumen_actual = max(10, volumen_actual - 20)
-                                vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
-                                await responder_callback_query(cq_id, f"🔉 Volumen: {vol_pct}%", alert=False)
-                                if tgcalls:
-                                    try:
-                                        await tgcalls.change_volume_call(destino, volumen_actual)
-                                        await actualizar_panel_progreso(forzar=True)
-                                        print(f"🔉 Botón [Vol -] presionado por {nom_sender}: {vol_pct}%.")
-                                    except Exception:
-                                        pass
-                            elif cq_data == "panel_volup":
-                                volumen_actual = min(200, volumen_actual + 20)
-                                vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
-                                await responder_callback_query(cq_id, f"🔊 Volumen: {vol_pct}%", alert=False)
-                                if tgcalls:
-                                    try:
-                                        await tgcalls.change_volume_call(destino, volumen_actual)
-                                        await actualizar_panel_progreso(forzar=True)
-                                        print(f"🔊 Botón [Vol +] presionado por {nom_sender}: {vol_pct}%.")
-                                    except Exception:
-                                        pass
-                            elif cq_data == "panel_stop":
-                                await responder_callback_query(cq_id, "⏹️ Deteniendo reproducción...", alert=False)
-                                reproduciendo_meditacion = False
-                                print(f"⏹️ Botón [Detener] presionado por {nom_sender} ({sender_id}).")
-                                if tgcalls:
-                                    try:
-                                        await tgcalls.leave_call(destino)
-                                    except Exception:
-                                        pass
-                                if tarea_panel_progreso and not tarea_panel_progreso.done():
-                                    tarea_panel_progreso.cancel()
-                                if msg_panel_meditacion_id:
-                                    try:
-                                        await editar_mensaje_bot(
-                                            msg_panel_meditacion_id,
-                                            "⏹️ **REPRODUCCIÓN DETENIDA POR ADMINISTRADOR**\n🔓 Micrófonos desbloqueados.",
-                                            reply_markup={"inline_keyboard": []}
-                                        )
-                                    except Exception:
-                                        pass
-                                    msg_panel_meditacion_id = None
-                            elif cq_data in ("panel_nextaudio", "panel_saltaraudio"):
-                                if indice_pista_actual + 1 < len(cola_reproduccion):
-                                    await responder_callback_query(cq_id, f"⏭️ Saltando a pista {indice_pista_actual + 2}...", alert=False)
-                                    await reproducir_meditacion(indice_pista_actual + 1)
-                                else:
-                                    await responder_callback_query(cq_id, "ℹ️ No hay más audios en la cola.", alert=True)
-                            elif cq_data == "panel_limpiarcola":
-                                if len(cola_reproduccion) > (indice_pista_actual + 1):
-                                    cola_reproduccion[:] = cola_reproduccion[:indice_pista_actual + 1]
-                                    guardar_cola_hoy(cola_reproduccion)
-                                    await responder_callback_query(cq_id, "🗑️ Cola vaciada (audios siguientes eliminados).", alert=False)
-                                    avisar_con_bot("🗑️ **Cola de reproducción vaciada por un administrador.**", es_efimero=True)
-                                    await actualizar_panel_progreso(forzar=True)
-                                else:
-                                    await responder_callback_query(cq_id, "ℹ️ No hay audios en espera en la cola.", alert=True)
-                            elif cq_data == "panel_encolar":
-                                await responder_callback_query(cq_id, "➕ Para encolar, escribe /encolar <número>", alert=False)
-                                txt_enc = (
-                                    "➕ **ENCOLAR AUDIO PARA DESPUÉS DE LA MEDITACIÓN**\n"
-                                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                    "🌟 *La meditación programada para hoy tiene prioridad #1 y terminará de sonar primero.*\n\n"
-                                    "👉 **Para añadir un audio que suene a continuación:**\n"
-                                    "• Escribe: `/encolar <número o título>` *(ej: `/encolar 15` o `/encolar mensaje 606`)*\n"
-                                    "• O responde a cualquier audio en el grupo con `/encolar`\n\n"
-                                    "💡 *El nuevo audio se colocará en la cola y sonará automáticamente al terminar la meditación.*"
+                    if cq_data == "panel_rewind":
+                        async with lock_panel_seek:
+                            if reproduciendo_meditacion:
+                                pos_act = posicion_actual()
+                                nueva_pos = max(0.0, pos_act - 30.0)
+                                print(f"⏪ Botón [-30s] presionado por {nom_sender}. De {pos_act:.1f}s a {nueva_pos:.1f}s.")
+                                await saltar_a_posicion(nueva_pos)
+                    elif cq_data == "panel_forward":
+                        async with lock_panel_seek:
+                            if reproduciendo_meditacion:
+                                pos_act = posicion_actual()
+                                dur_tot = dur_pista_actual or 1800.0
+                                nueva_pos = min(max(0.0, dur_tot - 5.0), pos_act + 30.0)
+                                print(f"⏩ Botón [+30s] presionado por {nom_sender}. De {pos_act:.1f}s a {nueva_pos:.1f}s.")
+                                await saltar_a_posicion(nueva_pos)
+                    elif cq_data == "panel_pausa":
+                        if tgcalls and reproduciendo_meditacion:
+                            try:
+                                await tgcalls.pause(destino)
+                                marcar_pausa()
+                                await actualizar_panel_progreso(forzar=True)
+                                print(f"⏸️ Botón [Pausa] presionado por {nom_sender}.")
+                            except Exception as e_p:
+                                print("Error pausando desde botón:", e_p)
+                    elif cq_data == "panel_play":
+                        if tgcalls and reproduciendo_meditacion:
+                            try:
+                                await tgcalls.resume(destino)
+                                marcar_reanudacion()
+                                await actualizar_panel_progreso(forzar=True)
+                                print(f"▶️ Botón [Reanudar] presionado por {nom_sender}.")
+                            except Exception as e_r:
+                                print("Error reanudando desde botón:", e_r)
+                    elif cq_data == "panel_voldown":
+                        volumen_actual = max(10, volumen_actual - 20)
+                        vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
+                        if tgcalls:
+                            try:
+                                await tgcalls.change_volume_call(destino, volumen_actual)
+                                await actualizar_panel_progreso(forzar=True)
+                                print(f"🔉 Botón [Vol -] presionado por {nom_sender}: {vol_pct}%.")
+                            except Exception:
+                                pass
+                    elif cq_data == "panel_volup":
+                        volumen_actual = min(200, volumen_actual + 20)
+                        vol_pct = int(round((volumen_actual / 200.0) * 100)) if volumen_actual > 100 else volumen_actual
+                        if tgcalls:
+                            try:
+                                await tgcalls.change_volume_call(destino, volumen_actual)
+                                await actualizar_panel_progreso(forzar=True)
+                                print(f"🔊 Botón [Vol +] presionado por {nom_sender}: {vol_pct}%.")
+                            except Exception:
+                                pass
+                    elif cq_data == "panel_stop":
+                        reproduciendo_meditacion = False
+                        print(f"⏹️ Botón [Detener] presionado por {nom_sender}.")
+                        if tgcalls:
+                            try:
+                                await tgcalls.leave_call(destino)
+                            except Exception:
+                                pass
+                        if tarea_panel_progreso and not tarea_panel_progreso.done():
+                            tarea_panel_progreso.cancel()
+                        if msg_panel_meditacion_id:
+                            try:
+                                await editar_mensaje_bot(
+                                    msg_panel_meditacion_id,
+                                    "⏹️ **REPRODUCCIÓN DETENIDA POR ADMINISTRADOR**\n🔓 Micrófonos desbloqueados.",
+                                    reply_markup={"inline_keyboard": []}
                                 )
-                                avisar_con_bot(txt_enc, es_efimero=True)
-                            elif cq_data == "panel_vercola":
-                                if not cola_reproduccion and ruta_meditacion:
-                                    cola_reproduccion.append({
-                                        "ruta": ruta_meditacion,
-                                        "info": info_catalogo_hoy,
-                                        "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
-                                    })
-                                txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
-                                total_p = len(cola_reproduccion)
-                                restantes = max(0, total_p - (indice_pista_actual + 1))
-                                await responder_callback_query(cq_id, f"📋 Cola: {total_p} pista(s) ({restantes} en espera)", alert=False)
-                                avisar_con_bot(txt_cola, es_efimero=True)
-                            elif cq_data == "panel_nextturno":
-                                if not cola_turnos:
-                                    await responder_callback_query(cq_id, "ℹ️ No hay participantes en espera.", alert=True)
-                                else:
-                                    siguiente_u = cola_turnos.pop(0)
-                                    s_uid = siguiente_u["id"]
-                                    s_nom = siguiente_u["nombre"]
-                                    oradores_activos.add(s_uid)
-                                    segundos_inactividad_mic[s_uid] = 0
-                                    avisados_auto_mute.discard(s_uid)
-                                    await responder_callback_query(cq_id, f"🎙️ Turno asignado a {s_nom}", alert=False)
-                                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                                    avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono está listo.", es_efimero=True)
-                                    if not reproduciendo_meditacion:
-                                        lanzar_tarea(anunciar_turno_por_voz(s_nom))
-                            elif cq_data == "panel_limpiarturnos":
-                                cola_turnos.clear()
-                                await responder_callback_query(cq_id, "🧹 Lista de turnos vaciada.", alert=False)
-                                await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                                avisar_con_bot("🧹 **Lista de turnos vaciada por un administrador.**", es_efimero=True)
+                            except Exception:
+                                pass
+                            msg_panel_meditacion_id = None
+                    elif cq_data in ("panel_nextaudio", "panel_saltaraudio"):
+                        if indice_pista_actual + 1 < len(cola_reproduccion):
+                            await reproducir_meditacion(indice_pista_actual + 1)
+                        else:
+                            avisar_con_bot("ℹ️ No hay más audios en la cola.", es_efimero=True)
+                    elif cq_data == "panel_limpiarcola":
+                        if len(cola_reproduccion) > (indice_pista_actual + 1):
+                            cola_reproduccion[:] = cola_reproduccion[:indice_pista_actual + 1]
+                            guardar_cola_hoy(cola_reproduccion)
+                            avisar_con_bot("🗑️ **Cola de reproducción vaciada por un administrador.**", es_efimero=True)
+                            await actualizar_panel_progreso(forzar=True)
+                        else:
+                            avisar_con_bot("ℹ️ No hay audios en espera en la cola.", es_efimero=True)
+                    elif cq_data == "panel_vercola":
+                        if not cola_reproduccion and ruta_meditacion:
+                            cola_reproduccion.append({
+                                "ruta": ruta_meditacion,
+                                "info": info_catalogo_hoy,
+                                "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
+                            })
+                        txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
+                        avisar_con_bot(txt_cola, es_efimero=True)
+                    elif cq_data == "panel_nextturno":
+                        if not cola_turnos:
+                            avisar_con_bot("ℹ️ No hay participantes en espera en la lista de turnos.", es_efimero=True)
+                        else:
+                            siguiente_u = cola_turnos.pop(0)
+                            s_uid = siguiente_u["id"]
+                            s_nom = siguiente_u["nombre"]
+                            oradores_activos.add(s_uid)
+                            segundos_inactividad_mic[s_uid] = 0
+                            avisados_auto_mute.discard(s_uid)
+                            await actualizar_mensaje_turnos(forzar_al_fondo=True)
+                            avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Tu micrófono está listo.", es_efimero=True)
+                            if not reproduciendo_meditacion:
+                                lanzar_tarea(anunciar_turno_por_voz(s_nom))
+                    elif cq_data == "panel_limpiarturnos":
+                        cola_turnos.clear()
+                        await actualizar_mensaje_turnos(forzar_al_fondo=True)
+                        avisar_con_bot("🧹 **Lista de turnos vaciada por un administrador.**", es_efimero=True)
                 except asyncio.CancelledError:
                     break
                 except Exception as e_cb_loop:

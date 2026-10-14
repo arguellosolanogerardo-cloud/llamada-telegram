@@ -403,6 +403,10 @@ def obtener_admin_ids(target_chat=None) -> set:
         return _ADMIN_IDS_CACHE[t_str]
 
     admins = set()
+    # Administradores oficiales permanentes conocidos
+    ADMINS_OFICIALES_FIJOS = {8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022}
+    for hard_admin in ADMINS_OFICIALES_FIJOS:
+        admins.add(hard_admin)
     # Identificadores de administradores anónimos en Telegram
     admins.add(1087968824)  # @GroupAnonymousBot
     if target:
@@ -1528,113 +1532,334 @@ def escuchar_comandos() -> None:
                     chat_id_cb = msg_cb.get("chat", {}).get("id")
                     
                     if cb_data.startswith("ytmp3_"):
-
-                    
                         vid = cb_data.split("_")[1]
+                        u_from = update["callback_query"]["from"]
+                        u_id = u_from.get("id")
+                        u_nom = f"{u_from.get('first_name', '')} {u_from.get('last_name', '')}".strip() or "Usuario"
 
-                    
-                        url_yt = f"https://www.youtube.com/watch?v={vid}"
-
-                    
-#                         import urllib.request
-
-                    
                         try:
-
-                    
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                            urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
+                                "callback_query_id": cb_id,
+                                "text": "⏳ Descargando MP3 desde YouTube... En breve te lo entregamos.",
+                                "show_alert": False
+                            }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                        except Exception:
+                            pass
 
-                    
-                            urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "⏳ Descargando MP3 desde YouTube... (Esto tomará 1 minuto)", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                        def procesar_descarga_ytmp3(vid_target, user_id_target, user_nombre_target, chat_origen):
+                            url_yt = f"https://www.youtube.com/watch?v={vid_target}"
+                            os.makedirs("data", exist_ok=True)
+                            tmp_out_tmpl = os.path.join("data", f"ytmp3_{vid_target}.%(ext)s")
 
-                    
-                        except: pass
+                            from radar_youtube import obtener_titulo_video
+                            tit_v = obtener_titulo_video(vid_target) or f"Audio {vid_target}"
 
-                    
-                        def descargar_y_enviar(user_id):
-                            tmp_path = os.path.join("data", f"tmp_{vid}.mp3")
-                            cmd = ["python", "-m", "yt_dlp", "-x", "--audio-format", "mp3", "--audio-quality", "5", "-o", tmp_path, url_yt]
-                            subprocess.run(cmd)
-                            if os.path.exists(tmp_path):
+                            cmd = [
+                                sys.executable, "-m", "yt_dlp",
+                                "-x", "--audio-format", "mp3",
+                                "--audio-quality", "0",
+                                "--no-playlist",
+                                "--output", tmp_out_tmpl,
+                                url_yt
+                            ]
+                            try:
+                                subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                            except Exception as e_dlp:
+                                print(f"Error yt-dlp descargando {vid_target}: {e_dlp}")
+
+                            archivo_mp3 = os.path.join("data", f"ytmp3_{vid_target}.mp3")
+                            if not os.path.exists(archivo_mp3):
+                                import glob
+                                matches = glob.glob(os.path.join("data", f"ytmp3_{vid_target}.*"))
+                                for m in matches:
+                                    if m.endswith((".mp3", ".m4a", ".webm", ".opus")):
+                                        archivo_mp3 = m
+                                        break
+
+                            if os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
+                                bot_u = obtener_info_bot()
+                                caption_priv = (
+                                    f"🎧 **Audio descargado:** «{tit_v}»\n"
+                                    f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
+                                    f"✨ *Audio oficial solicitado para tu estudio.*"
+                                )
+                                enviado_priv = False
+                                if user_id_target:
+                                    ok_priv, _, _ = enviar_audio(
+                                        user_id_target,
+                                        archivo_mp3,
+                                        caption=caption_priv,
+                                        title=tit_v,
+                                        performer="ALANISO / Maestro Mario Carrillo"
+                                    )
+                                    enviado_priv = ok_priv
+
+                                if not enviado_priv and chat_origen:
+                                    caption_grp = (
+                                        f"🎧 **Audio descargado de YouTube:** «{tit_v}»\n"
+                                        f"👤 Para: {user_nombre_target}\n"
+                                        f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
+                                        f"💡 *(Para recibir los audios por privado en el futuro, abre un chat con el bot y presiona Iniciar).*"
+                                    )
+                                    enviar_audio(
+                                        chat_origen,
+                                        archivo_mp3,
+                                        caption=caption_grp,
+                                        title=tit_v,
+                                        performer="ALANISO / Maestro Mario Carrillo"
+                                    )
+
                                 try:
-                                    url_doc = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
-                                    with open(tmp_path, "rb") as f_aud:
-                                        requests.post(url_doc, data={"chat_id": user_id, "caption": "🎧 Aquí tienes el audio solicitado."}, files={"document": f_aud})
-                                    os.remove(tmp_path)
+                                    os.remove(archivo_mp3)
+                                except Exception:
+                                    pass
+                            else:
+                                if chat_origen:
+                                    enviar_mensaje(
+                                        chat_origen,
+                                        f"⚠️ No se pudo extraer el audio del video de YouTube: https://www.youtube.com/watch?v={vid_target}\nPor favor intenta nuevamente en unos momentos."
+                                    )
 
-                    
-                                except: pass
-
-                    
-# import threading
-
-                    
-                        threading.Thread(target=descargar_y_enviar, args=(update["callback_query"]["from"].get("id"),)).start()
-
-                    
+                        threading.Thread(target=procesar_descarga_ytmp3, args=(vid, u_id, u_nom, chat_id_cb), daemon=True).start()
                         continue
 
-                    
                     elif cb_data.startswith("yttarea_"):
                         vid = cb_data.split("_")[1]
-                        url_yt = f"https://www.youtube.com/watch?v={vid}"
                         user_id_cb = update["callback_query"]["from"].get("id")
                         admins_set = obtener_admin_ids(chat_id_cb)
+                        for hard_a in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022):
+                            admins_set.add(hard_a)
 
                         if user_id_cb not in admins_set:
                             try:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "⛔ Solo los administradores pueden fijar o reprogramar la tarea del día.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
+                                    "callback_query_id": cb_id,
+                                    "text": "⛔ Solo los administradores pueden fijar o reprogramar la tarea del día.",
+                                    "show_alert": True
+                                }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
                             except Exception:
                                 pass
                             continue
                         else:
                             try:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "✅ Programando audio para la sala..."}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
+                                    "callback_query_id": cb_id,
+                                    "text": "✅ Programando audio de YouTube para la sala..."
+                                }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
                             except Exception:
                                 pass
 
-                            def procesar_programacion_yt():
-                                try:
-                                    from radar_youtube import CANALES_RADAR, extraer_entradas_xml, obtener_titulo_video
-                                    tit_found = obtener_titulo_video(vid)
-                                    if not tit_found:
-                                        for c_r in CANALES_RADAR:
-                                            try:
-                                                u_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={c_r['id']}"
-                                                r_rss = urllib.request.Request(u_rss, headers={'User-Agent': 'Mozilla/5.0'})
-                                                xml_rss = urllib.request.urlopen(r_rss, timeout=6).read().decode('utf-8', errors='ignore')
-                                                for ent in extraer_entradas_xml(xml_rss):
-                                                    if ent["video_id"] == vid:
-                                                        tit_found = ent["titulo"]
-                                                        break
-                                            except Exception:
-                                                pass
-                                            if tit_found:
-                                                break
+                            def procesar_programacion_yttarea(vid_tarea, u_admin_id, chat_destino):
+                                url_yt = f"https://www.youtube.com/watch?v={vid_tarea}"
+                                from radar_youtube import CANALES_RADAR, extraer_entradas_xml, obtener_titulo_video
+                                import shutil
 
-                                    info_cat = identificar_audio_catalogo(texto=tit_found or vid)
-                                    if info_cat:
-                                        guardar_audio_registrado(info_cat)
-                                        os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+                                m_prog = enviar_mensaje(
+                                    chat_destino,
+                                    f"⏳ **Descargando audio de YouTube y programando como Tarea Oficial...**\n📺 https://www.youtube.com/watch?v={vid_tarea}\n*Por favor espera un momento mientras procesamos el archivo.*"
+                                )
+
+                                tit_found = obtener_titulo_video(vid_tarea)
+                                canal_nom = "ALANISO"
+                                if not tit_found:
+                                    for c_r in CANALES_RADAR:
+                                        try:
+                                            u_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={c_r['id']}"
+                                            r_rss = urllib.request.Request(u_rss, headers={'User-Agent': 'Mozilla/5.0'})
+                                            xml_rss = urllib.request.urlopen(r_rss, timeout=6).read().decode('utf-8', errors='ignore')
+                                            for ent in extraer_entradas_xml(xml_rss):
+                                                if ent["video_id"] == vid_tarea:
+                                                    tit_found = ent["titulo"]
+                                                    canal_nom = c_r.get("nombre", "ALANISO")
+                                                    break
+                                        except Exception:
+                                            pass
+                                        if tit_found:
+                                            break
+
+                                if not tit_found:
+                                    try:
+                                        res_tit = subprocess.run(
+                                            [sys.executable, "-m", "yt_dlp", "--print", "%(title)s", url_yt],
+                                            capture_output=True, text=True, timeout=15
+                                        )
+                                        if res_tit.returncode == 0 and res_tit.stdout.strip():
+                                            tit_found = res_tit.stdout.strip()
+                                    except Exception:
+                                        pass
+
+                                if not tit_found:
+                                    tit_found = f"Enseñanza / Práctica {vid_tarea}"
+
+                                # Descargar audio directamente a data/meditaciones/meditacion_hoy.mp3
+                                os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
+                                ruta_mp3_hoy = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
+                                tmp_out = os.path.join("data", "meditaciones", f"yt_dl_{vid_tarea}.%(ext)s")
+
+                                cmd_dl = [
+                                    sys.executable, "-m", "yt_dlp",
+                                    "-x", "--audio-format", "mp3",
+                                    "--audio-quality", "0",
+                                    "--no-playlist",
+                                    "--output", tmp_out,
+                                    url_yt
+                                ]
+                                try:
+                                    subprocess.run(cmd_dl, capture_output=True, text=True, timeout=180)
+                                except Exception as e_cmd:
+                                    print("Error descargando yt para tarea:", e_cmd)
+
+                                archivo_descargado = os.path.join("data", "meditaciones", f"yt_dl_{vid_tarea}.mp3")
+                                if not os.path.exists(archivo_descargado):
+                                    import glob
+                                    matches = glob.glob(os.path.join("data", "meditaciones", f"yt_dl_{vid_tarea}.*"))
+                                    for m in matches:
+                                        if m.endswith((".mp3", ".m4a", ".webm")):
+                                            archivo_descargado = m
+                                            break
+
+                                if os.path.exists(archivo_descargado):
+                                    shutil.copy2(archivo_descargado, ruta_mp3_hoy)
+                                    try:
+                                        os.remove(archivo_descargado)
+                                    except Exception:
+                                        pass
+
+                                # Detectar si existe en catálogo o armar metadatos desde YouTube
+                                info_cat = identificar_audio_catalogo(texto=tit_found or vid_tarea)
+                                ahora_col = datetime.now(ZoneInfo("America/Bogota"))
+                                fecha_hoy_str = ahora_col.strftime("%d/%m/%Y")
+
+                                if not info_cat:
+                                    tit_up = tit_found.upper()
+                                    tipo_t = "MENSAJE" if "MENSAJE" in tit_up else "MEDITACION"
+                                    m_num = re.search(r'(?:#|N[°º]|NUMERO\s*|NO\.\s*)?(\b\d{1,4}\b)', tit_found, re.IGNORECASE)
+                                    num_t = m_num.group(1) if m_num else ""
+
+                                    mae_t = "Alaniso"
+                                    if any(k in tit_up for k in ["MARIO CARRILLO", "JESUS MARIO", "JESÚS MARIO"]):
+                                        mae_t = "Jesus Mario Carrillo"
+                                    elif "GUARDIANES" in tit_up:
+                                        mae_t = "Guardianes del Universo"
+                                    elif "ALANISO" in tit_up or "ALANISO" in str(canal_nom).upper():
+                                        mae_t = "Alaniso"
+
+                                    info_cat = {
+                                        "numero": num_t,
+                                        "tipo": tipo_t,
+                                        "titulo": tit_found,
+                                        "maestro": mae_t,
+                                        "fecha": fecha_hoy_str,
+                                        "fecha_tarea_admin": fecha_hoy_str,
+                                        "url_youtube": url_yt,
+                                        "video_id": vid_tarea,
+                                        "fuente": "YOUTUBE",
+                                        "audio_path": os.path.abspath(ruta_mp3_hoy)
+                                    }
+                                else:
+                                    info_cat["url_youtube"] = url_yt
+                                    info_cat["video_id"] = vid_tarea
+                                    info_cat["fecha_tarea_admin"] = fecha_hoy_str
+                                    info_cat["audio_path"] = os.path.abspath(ruta_mp3_hoy)
+
+                                # Guardar meta_hoy.json
+                                with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
+                                    json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+                                guardar_audio_registrado(info_cat)
+
+                                tipo_t = info_cat.get("tipo", "MEDITACION")
+                                num_t = info_cat.get("numero", "")
+                                t_nom = "Meditación" if "MEDITACI" in str(tipo_t).upper() else "Mensaje"
+
+                                cap_audio = (
+                                    f"🧘 **{t_nom} #{num_t}**\n" if num_t else f"🧘 **{t_nom} Especial**\n"
+                                ) + (
+                                    f"📌 **Título:** «{info_cat.get('titulo', '')}»\n"
+                                    f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
+                                    f"🗓️ **Grabación / YouTube:** {fecha_hoy_str}\n\n"
+                                    f"🎧 Audio oficial preparado para la práctica de hoy a las 7:56 PM."
+                                )
+
+                                bot_u = obtener_info_bot()
+                                param_priv = f"audio_{tipo_t.lower()}_{num_t}" if num_t else "audio"
+                                teclado_aud = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start={param_priv}"}]]} if bot_u else None
+
+                                msg_id_audio_final = None
+                                if os.path.exists(ruta_mp3_hoy) and os.path.getsize(ruta_mp3_hoy) > 1000:
+                                    ok_a, m_id_a, f_id_a = enviar_audio(
+                                        chat_destino,
+                                        ruta_mp3_hoy,
+                                        caption=cap_audio,
+                                        title=f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}" if num_t else info_cat.get('titulo', ''),
+                                        performer=info_cat.get('maestro', 'Alaniso'),
+                                        reply_markup=teclado_aud
+                                    )
+                                    if ok_a:
+                                        msg_id_audio_final = m_id_a
+                                        info_cat["file_id"] = f_id_a
+                                        info_cat["msg_id_audio"] = m_id_a
+                                        guardar_audio_registrado(info_cat, file_id=f_id_a, msg_id=m_id_a)
                                         with open(os.path.join("data", "meditaciones", "meta_hoy.json"), "w", encoding="utf-8") as fm:
                                             json.dump(info_cat, fm, ensure_ascii=False, indent=2)
-                                        anuncio = generar_anuncio_tarea(info_cat)
-                                        teclado_t = armar_teclado_audio(chat_id_cb, numero_tarea=info_cat.get('numero'), tipo_tarea=info_cat.get('tipo'))
-                                        enviar_mensaje(chat_id_cb, anuncio, reply_markup=teclado_t)
-                                    else:
-                                        enviar_mensaje(chat_id_cb, f"ℹ️ Audio detectado: «{tit_found or vid}».\nPuedes programarlo con: `/tarea {tit_found or vid}`")
-                                except Exception as e_proc:
-                                    print("Error procesando yttarea:", e_proc)
 
-                            threading.Thread(target=procesar_programacion_yt, daemon=True).start()
+                                anuncio = generar_anuncio_tarea(info_cat, fecha_hoy_str)
+                                teclado_t = armar_teclado_audio(chat_destino, msg_id_audio=msg_id_audio_final, numero_tarea=num_t, tipo_tarea=tipo_t)
+                                m_id_anuncio = enviar_mensaje(chat_destino, anuncio, reply_markup=teclado_t)
+                                if m_id_anuncio:
+                                    _TAREA_FLOTANTE.update({"msg_id": m_id_anuncio, "contador": 0, "texto": anuncio, "reply_markup": teclado_t, "chat_id": chat_destino})
+
+                                try:
+                                    db_pts = cargar_puntos()
+                                    usuarios = db_pts.get("usuarios", {})
+                                    sin_privado = cargar_usuarios_sin_privado()
+                                    for u_id_loop, datos in usuarios.items():
+                                        if str(u_id_loop) == str(chat_destino) or str(u_id_loop) in sin_privado:
+                                            continue
+                                        try:
+                                            if int(str(u_id_loop)) <= 0:
+                                                continue
+                                        except ValueError:
+                                            continue
+                                        txt_priv = (
+                                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                                            f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
+                                            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                                            f"🗓️ **FECHA: {fecha_hoy_str}**\n"
+                                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+                                            f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
+                                            f"🧘 **{tipo_t.upper()} #{num_t}**\n"
+                                            f"📌 **Título:** «{info_cat['titulo']}»\n"
+                                            f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Fecha:** {fecha_hoy_str}\n\n"
+                                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                            f"⏰ **¡Te esperamos puntual esta noche a las 7:56 PM!**\n"
+                                            f"👇 *Toca el botón abajo para escuchar el audio directamente.*"
+                                        )
+                                        enviar_mensaje(u_id_loop, txt_priv, reply_markup=teclado_t)
+                                except Exception as e_priv_notif:
+                                    print("Nota enviando notificaciones privadas de tarea:", e_priv_notif)
+
+                                if m_prog:
+                                    eliminar_mensaje(chat_destino, m_prog)
+
+                                enviar_mensaje(
+                                    chat_destino,
+                                    f"✅ **¡Tarea del día programada exitosamente desde YouTube!**\n\n"
+                                    f"🧘 **{t_nom} #{num_t}:** «{info_cat.get('titulo', '')}»\n"
+                                    f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
+                                    f"🎧 El archivo MP3 ya está descargado y listo para sonar en la reunión de las 7:56 PM."
+                                )
+
+                            threading.Thread(target=procesar_programacion_yttarea, args=(vid, user_id_cb, chat_id_cb), daemon=True).start()
                         continue
 
-                    
                     elif cb_data.startswith("panel_"):
                         user_id_cb = update["callback_query"]["from"].get("id")
                         admins_set = obtener_admin_ids(chat_id_cb)
+                        for hard_a in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022):
+                            admins_set.add(hard_a)
 
                         if user_id_cb not in admins_set:
                             try:
@@ -1668,12 +1893,33 @@ def escuchar_comandos() -> None:
                         elif accion == "stop":
                             comando = "/detener"
                             texto_feedback = "⏹️ Deteniendo reproducción..."
-                        elif accion == "nextaudio":
+                        elif accion in ("nextaudio", "saltaraudio"):
                             comando = "/saltaraudio"
-                            texto_feedback = "⏭️ Siguiente audio..."
+                            texto_feedback = "⏭️ Saltando al siguiente audio..."
+                        elif accion == "limpiarcola":
+                            comando = "/limpiarcola"
+                            texto_feedback = "🗑️ Vaciando cola de reproducción..."
+                        elif accion == "vercola":
+                            comando = "/cola"
+                            texto_feedback = "📋 Consultando cola de reproducción..."
+                        elif accion == "encolar":
+                            texto_feedback = "➕ Para encolar: escribe /encolar <número>"
+                            txt_enc = (
+                                "➕ **ENCOLAR AUDIO PARA DESPUÉS DE LA MEDITACIÓN**\n"
+                                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                "🌟 *La meditación programada para hoy tiene prioridad #1 y terminará de sonar primero.*\n\n"
+                                "👉 **Para añadir un audio que suene a continuación:**\n"
+                                "• Escribe: `/encolar <número o título>` *(ej: `/encolar 15` o `/encolar mensaje 606`)*\n"
+                                "• O responde a cualquier audio en el grupo con `/encolar`\n\n"
+                                "💡 *El nuevo audio se colocará en la cola y sonará automáticamente al terminar la meditación.*"
+                            )
+                            enviar_mensaje(chat_id_cb, txt_enc)
                         elif accion == "nextturno":
                             comando = "/siguiente"
                             texto_feedback = "🎤 Siguiente turno..."
+                        elif accion == "limpiarturnos":
+                            comando = "/limpiarturnos"
+                            texto_feedback = "✋ Vaciando lista de turnos..."
                         elif accion == "desmutear":
                             comando = "/desmuteartodos"
                             texto_feedback = "🔓 Desbloqueando micrófonos..."
@@ -1683,13 +1929,27 @@ def escuchar_comandos() -> None:
                         elif accion == "stoprec":
                             comando = "/detenergrabacion"
                             texto_feedback = "🛑 Deteniendo grabación..."
-                        
+
+                        # Notificar al bucle IPC de la llamada en tiempo real
+                        try:
+                            os.makedirs("data", exist_ok=True)
+                            ipc_data = {
+                                "accion": accion,
+                                "sender_id": user_id_cb,
+                                "sender_nom": f"{update['callback_query']['from'].get('first_name', '')} {update['callback_query']['from'].get('last_name', '')}".strip() or "Admin",
+                                "timestamp": time.time()
+                            }
+                            with open(os.path.join("data", "control_panel_ipc.json"), "w", encoding="utf-8") as f_ipc:
+                                json.dump(ipc_data, f_ipc)
+                        except Exception as e_ipc_w:
+                            print("Nota guardando IPC:", e_ipc_w)
+
                         if comando and chat_id_cb:
                             m_id_cmd = enviar_mensaje(chat_id_cb, comando)
                             if m_id_cmd:
                                 time.sleep(0.5)
                                 eliminar_mensaje(chat_id_cb, m_id_cmd)
-                        
+
                         try:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                             req_ans = urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": texto_feedback or f"Ejecutado: {comando}"}).encode(), headers={"Content-Type": "application/json"})
@@ -2242,8 +2502,9 @@ def escuchar_comandos() -> None:
                         "inline_keyboard": [
                             [{"text": "⏪ -30s", "callback_data": "panel_rewind"}, {"text": "⏯️ Pausa / Play", "callback_data": "panel_play"}, {"text": "⏩ +30s", "callback_data": "panel_forward"}],
                             [{"text": "🔉 Vol -", "callback_data": "panel_voldown"}, {"text": "⏹️ Detener", "callback_data": "panel_stop"}, {"text": "🔊 Vol +", "callback_data": "panel_volup"}],
-                            [{"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}, {"text": "⏭️ Sig. Audio", "callback_data": "panel_nextaudio"}],
-                            [{"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}]
+                            [{"text": "➕ Encolar Audio", "callback_data": "panel_encolar"}, {"text": "📋 Ver Cola", "callback_data": "panel_vercola"}, {"text": "⏭️ Sig. Audio", "callback_data": "panel_nextaudio"}],
+                            [{"text": "🗑️ Limpiar Cola", "callback_data": "panel_limpiarcola"}, {"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "✋ Limpiar Turnos", "callback_data": "panel_limpiarturnos"}],
+                            [{"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}, {"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}]
                         ]
                     }
                     enviar_mensaje(chat_id, "🎛 **PANEL DE CONTROL DE SALA**\n*(Solo funciona durante la llamada)*\nPresiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)

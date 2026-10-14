@@ -167,8 +167,9 @@ def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_en
 
     teclado = {
         "inline_keyboard": [
-            [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"}],
-            [{"text": "📅 Programar como Tarea", "callback_data": f"yttarea_{vid}"}]
+            [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
+             {"text": "📅 Programar como Tarea", "callback_data": f"yttarea_{vid}"}],
+            [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
         ]
     }
 
@@ -463,8 +464,9 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
 
                 teclado = {
                     "inline_keyboard": [
-                        [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"}],
-                        [{"text": "📅 Programar como Tarea", "callback_data": f"yttarea_{vid}"}]
+                        [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
+                         {"text": "📅 Programar como Tarea", "callback_data": f"yttarea_{vid}"}],
+                        [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
                     ]
                 }
 
