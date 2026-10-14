@@ -133,6 +133,65 @@ def obtener_titulo_video(vid: str) -> str:
     return ""
 
 
+def obtener_url_miniatura(vid: str) -> str:
+    """Retorna la mejor URL de miniatura disponible para el video de YouTube (maxresdefault o hqdefault)."""
+    if not vid:
+        return ""
+    url_max = f"https://img.youtube.com/vi/{vid}/maxresdefault.jpg"
+    try:
+        req = urllib.request.Request(url_max, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            if r.status == 200:
+                return url_max
+    except Exception:
+        pass
+    return f"https://img.youtube.com/vi/{vid}/hqdefault.jpg"
+
+
+def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_enviar_foto_func=None) -> bool:
+    """Publica manualmente el anuncio de un video con su miniatura HD y botones interactivos."""
+    if not vid:
+        return False
+    titulo = obtener_titulo_video(vid) or f"Video {vid}"
+    url_foto = obtener_url_miniatura(vid)
+    ahora_col = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
+
+    texto_anuncio = (
+        f"🔔 **¡NUEVO VIDEO PUBLICADO EN YOUTUBE!** 🐼\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📺 **Canal:** ALANISO 2012\n"
+        f"✨ **Título:** «{titulo}»\n"
+        f"🗓️ **Publicado:** Recientemente ({ahora_col})\n\n"
+        f"🔗 **Ver en YouTube:**\nhttps://www.youtube.com/watch?v={vid}"
+    )
+
+    teclado = {
+        "inline_keyboard": [
+            [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"}],
+            [{"text": "📅 Programar como Tarea", "callback_data": f"yttarea_{vid}"}]
+        ]
+    }
+
+    enviado = False
+    if bot_enviar_foto_func:
+        try:
+            m_id = bot_enviar_foto_func(target_chat, url_foto, caption=texto_anuncio, reply_markup=teclado)
+            if m_id:
+                enviado = True
+        except Exception as e_f:
+            print(f"⚠️ Error foto en anuncio manual ({vid}): {e_f}")
+
+    if not enviado and bot_enviar_mensaje_func:
+        try:
+            m_id = bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
+            if m_id:
+                enviado = True
+        except Exception as e_m:
+            print(f"⚠️ Error mensaje en anuncio manual ({vid}): {e_m}")
+
+    return enviado
+
+
 def extraer_videos_web(url_canal: str) -> list:
     """Tier 1: Extrae los videos recientes navegando el canal (soporta lockupViewModel y videoRenderer)."""
     headers = {
@@ -334,7 +393,7 @@ def extraer_videos_canal(canal: dict) -> list:
     return []
 
 
-def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
+def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None) -> int:
     """Revisa los canales de YouTube y anuncia nuevos videos. Retorna cantidad de videos anunciados."""
     vistos = cargar_vistos()
     es_primera_vez = len(vistos) == 0
@@ -409,14 +468,31 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
                     ]
                 }
 
+                url_foto = obtener_url_miniatura(vid)
+                enviado = False
+
                 print(f"📡 Radar YouTube: Anunciando nuevo video de {canal['nombre']} ({vid}): «{datos['titulo']}»")
-                if bot_enviar_mensaje_func:
+
+                # 1. Enviar con Foto de alta resolución (100% garantizado que muestra la miniatura HD)
+                if bot_enviar_foto_func:
+                    try:
+                        m_id = bot_enviar_foto_func(target_chat, url_foto, caption=texto_anuncio, reply_markup=teclado)
+                        if m_id:
+                            enviado = True
+                            anunciados += 1
+                    except Exception as e_foto:
+                        print(f"⚠️ Error enviando anuncio con foto ({vid}): {e_foto}")
+
+                # 2. Si falló la foto o no se configuró, fallback a enviar_mensaje con vista previa solicitada
+                if not enviado and bot_enviar_mensaje_func:
                     try:
                         bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
                         anunciados += 1
                     except Exception as e_send:
                         print(f"⚠️ Error enviando anuncio de radar ({vid}): {e_send}")
-                time.sleep(1)
+
+                # Pausa de 3 segundos entre anuncios para evitar rate-limits de Telegram
+                time.sleep(3)
         except Exception as e:
             print(f"⚠️ Error revisando radar {canal['nombre']}: {e}")
 
@@ -428,23 +504,23 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
     return anunciados
 
 
-def radar_loop(bot_enviar_mensaje_func, chat_id_grupo):
+def radar_loop(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None):
     # Primera revisión al arrancar
     try:
-        chequear_canales(bot_enviar_mensaje_func, chat_id_grupo)
+        chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=bot_enviar_foto_func)
     except Exception as e:
         print(f"⚠️ Error en primera revisión del radar: {e}")
 
     while True:
         try:
             time.sleep(90)  # Cada 90 segundos (1.5 minutos)
-            chequear_canales(bot_enviar_mensaje_func, chat_id_grupo)
+            chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=bot_enviar_foto_func)
         except Exception as e:
             print(f"⚠️ Error en loop radar YouTube: {e}")
             time.sleep(30)
 
 
-def iniciar_radar(bot_enviar_mensaje_func, chat_id_grupo):
-    t = threading.Thread(target=radar_loop, args=(bot_enviar_mensaje_func, chat_id_grupo), daemon=True)
+def iniciar_radar(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None):
+    t = threading.Thread(target=radar_loop, args=(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func), daemon=True)
     t.start()
-    print("📡 Radar de YouTube iniciado en segundo plano (ALANISO 2012 y Mario Carrillo, sondeo cada 90s).")
+    print("📡 Radar de YouTube iniciado en segundo plano (ALANISO 2012 y Mario Carrillo, sondeo cada 90s con miniaturas HD).")

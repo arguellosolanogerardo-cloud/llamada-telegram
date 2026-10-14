@@ -580,7 +580,7 @@ def generar_texto_reglas() -> str:
     )
 
 
-def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = None, reply_markup: dict = None) -> int | None:
+def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = None, reply_markup: dict = None, link_preview_options: dict = None) -> int | None:
     if not BOT_TOKEN:
         print("BOT_TOKEN no configurado.")
         return None
@@ -594,6 +594,15 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
         payload["reply_to_message_id"] = reply_to_message_id
     if reply_markup:
         payload["reply_markup"] = reply_markup
+    if link_preview_options is not None:
+        payload["link_preview_options"] = link_preview_options
+    else:
+        # Forzar vista previa de medios grandes por defecto si el mensaje contiene enlaces
+        payload["link_preview_options"] = {
+            "is_disabled": False,
+            "prefer_large_media": True,
+            "show_above_text": False
+        }
 
     datos = json.dumps(payload, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json; charset=utf-8"})
@@ -652,7 +661,7 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
 
 
 def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_markup: dict = None) -> int | None:
-    if not BOT_TOKEN or not ruta_foto or not os.path.exists(ruta_foto):
+    if not BOT_TOKEN or not ruta_foto:
         return None
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     data = {
@@ -662,6 +671,28 @@ def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_mar
     }
     if reply_markup:
         data["reply_markup"] = json.dumps(reply_markup)
+
+    # Si es URL remota (ej: miniatura de YouTube)
+    if ruta_foto.startswith("http://") or ruta_foto.startswith("https://"):
+        data["photo"] = ruta_foto
+        try:
+            r = requests.post(url, data=data, timeout=30)
+            res = r.json()
+            if res.get("ok"):
+                m_id = res.get("result", {}).get("message_id")
+                if m_id and CHAT_ID and str(chat_id) == str(CHAT_ID):
+                    registrar_msg_bot(m_id)
+                log_debug(f"Foto remota enviada exitosamente a {chat_id}: msg_id={m_id}")
+                return m_id
+            log_debug(f"Telegram rechazó foto remota ({chat_id}): {res}")
+        except Exception as e_url:
+            log_debug(f"Error enviando foto remota a {chat_id}: {e_url}")
+        return None
+
+    # Si es archivo local
+    if not os.path.exists(ruta_foto):
+        return None
+
     try:
         with open(ruta_foto, "rb") as f:
             files = {"photo": (os.path.basename(ruta_foto), f, "image/png")}
@@ -1412,7 +1443,7 @@ def escuchar_comandos() -> None:
     # Iniciar radar de canales de YouTube (ALANISO 2012 y Maestro Mario Carrillo)
     try:
         from radar_youtube import iniciar_radar
-        iniciar_radar(enviar_mensaje, CHAT_ID)
+        iniciar_radar(enviar_mensaje, CHAT_ID, bot_enviar_foto_func=enviar_foto)
     except Exception as e_rad:
         print("⚠️ No se pudo iniciar el radar de YouTube:", e_rad)
 
@@ -2159,11 +2190,32 @@ def escuchar_comandos() -> None:
                     enviar_mensaje(chat_id, "📡 **Escaneando canales de YouTube en este instante...**\n• ALANISO 2012 (@ALANISO-2012)\n• Maestro Mario Carrillo (@mariocarrillo7919)", reply_to_message_id=msg_id)
                     try:
                         from radar_youtube import chequear_canales
-                        cant = chequear_canales(enviar_mensaje, chat_id)
+                        cant = chequear_canales(enviar_mensaje, chat_id, bot_enviar_foto_func=enviar_foto)
                         if cant == 0:
                             enviar_mensaje(chat_id, "✅ Los canales de YouTube están al día. No hay videos nuevos pendientes de anunciar.", reply_to_message_id=msg_id)
                     except Exception as e_rad_cmd:
                         enviar_mensaje(chat_id, f"⚠️ Error escaneando canales: {e_rad_cmd}", reply_to_message_id=msg_id)
+                    continue
+                elif cmd in ("/anunciar", "/anuncio_video", "/publicar_video"):
+                    if not es_mensaje_de_admin(msg, chat_id):
+                        enviar_mensaje(chat_id, "⛔ Solo administradores pueden anunciar videos.", reply_to_message_id=msg_id)
+                        continue
+                    partes_txt = msg.get("text", "").split(maxsplit=1)
+                    arg = partes_txt[1].strip() if len(partes_txt) > 1 else ""
+                    if not arg:
+                        enviar_mensaje(chat_id, "ℹ️ Uso: `/anunciar <ID_O_LINK_DE_YOUTUBE>`\nEjemplo: `/anunciar k9ZTyOTa5BI`", reply_to_message_id=msg_id)
+                        continue
+                    m_vid = re.search(r'(?:v=|\/|youtu\.be\/)([a-zA-Z0-9_-]{11})', arg)
+                    vid_target = m_vid.group(1) if m_vid else arg.strip()
+                    try:
+                        from radar_youtube import anunciar_video_manual
+                        ok = anunciar_video_manual(vid_target, enviar_mensaje, CHAT_ID or chat_id, bot_enviar_foto_func=enviar_foto)
+                        if ok:
+                            enviar_mensaje(chat_id, f"✅ Video `{vid_target}` anunciado exitosamente con miniatura HD.", reply_to_message_id=msg_id)
+                        else:
+                            enviar_mensaje(chat_id, f"⚠️ No se pudo obtener información del video `{vid_target}`.", reply_to_message_id=msg_id)
+                    except Exception as e_anun:
+                        enviar_mensaje(chat_id, f"⚠️ Error anunciando video: {e_anun}", reply_to_message_id=msg_id)
                     continue
                 elif cmd in ("/luna", "/faseluna", "/lunar"):
                     try:
