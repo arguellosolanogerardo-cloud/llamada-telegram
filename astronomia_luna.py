@@ -502,7 +502,7 @@ def generar_video_meditacion_luna(
                     font_card_val = ImageFont.truetype(f_cand, 23)
                     font_astro_det = ImageFont.truetype(f_cand, 24)
                     font_astro = ImageFont.truetype(f_cand, 22)
-                    font_time = ImageFont.truetype(f_cand, 26)
+                    font_time = ImageFont.truetype(f_cand, 50)
                     break
                 except Exception:
                     continue
@@ -567,9 +567,23 @@ def generar_video_meditacion_luna(
             # Marco de fondo de la barra de progreso
             draw.rounded_rectangle([(180, 550), (1100, 564)], radius=7, fill=(24, 26, 34, 210), outline=(48, 54, 72), width=1)
             min_tot, seg_tot = divmod(int(dur_seg), 60)
-            # Triángulo nítido de reproducción y duración total
-            draw.polygon([(182, 592), (196, 600), (182, 608)], fill=(255, 255, 255))
-            draw.text((945, 600), f"{min_tot:02d}:{seg_tot:02d}", fill=(251, 191, 36), font=font_time, anchor="lm")
+
+            # Flecha play grande y nítida proporcional al nuevo tamaño (centrada a y=620)
+            center_y = 620
+            tri_h = 36
+            tri_w = 26
+            tri_top = center_y - (tri_h // 2)
+            tri_bot = center_y + (tri_h // 2)
+            draw.polygon([(180, tri_top), (180 + tri_w, center_y), (180, tri_bot)], fill=(255, 255, 255))
+
+            # Duración total en amarillo dorado a la derecha (PIL)
+            txt_dur_tot = f"{min_tot:02d}:{seg_tot:02d}"
+            bbox_dur = font_time.getbbox(txt_dur_tot)
+            w_dur = bbox_dur[2] - bbox_dur[0]
+            w_pct_est = int(50 * 2.5)  # reserva de ancho para el porcentaje ej. (100%)
+            total_right_w = w_dur + 14 + w_pct_est
+            x_dur = 1100 - total_right_w
+            draw.text((x_dur, center_y), txt_dur_tot, fill=(251, 191, 36), font=font_time, anchor="lm")
 
             fg_path = os.path.join(temp_dir, "overlay_fg.png")
             fg.save(fg_path)
@@ -610,13 +624,18 @@ def generar_video_meditacion_luna(
                     font_opt = f":fontfile='{esc_path}'"
                     break
 
+            text_x = 180 + tri_w + 16
+            text_y = center_y - (64 // 2) - 4
+            pct_x = x_dur + w_dur + 14
+            pct_y = center_y - (50 // 2) - 4
+
             filter_expr = (
                 "[0:v][1:v]overlay=0:0[s1]; "
                 f"[2:v]crop=w=920:h=14:x='920-min(920, 920*t/{dur_int})':y=0[bar]; "
                 "[s1][bar]overlay=180:550[s2]; "
                 f"[s2][3:v]overlay=x='180 + min(920, 920*t/{dur_int}) - 14':y=543[s3]; "
-                f"[s3]drawtext=text='{time_expr}':x=208:y=587{font_opt}:fontcolor=white:fontsize=26[s4]; "
-                f"[s4]drawtext=text='{pct_expr}':x=1028:y=587{font_opt}:fontcolor=0xFBBF24:fontsize=26[out]"
+                f"[s3]drawtext=text='{time_expr}':x={text_x}:y={text_y}{font_opt}:fontcolor=white:fontsize=64[s4]; "
+                f"[s4]drawtext=text='{pct_expr}':x={pct_x}:y={pct_y}{font_opt}:fontcolor=0xFBBF24:fontsize=50[out]"
             )
             cmd_final = [
                 "ffmpeg", "-y",
@@ -670,8 +689,8 @@ def generar_caratula_meditacion_luna(
         draw.rounded_rectangle([(34, 30), (1246, 690)], radius=16, outline=(42, 48, 64), width=1)
 
         # 3. Fuentes
-        font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = None
-        font_card_tit = font_card_val = font_astro_det = None
+        font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = None
+        font_card_tit = font_card_val = font_astro_det = font_time_prog = font_time_tot = None
         for f_cand in ["segoeuib.ttf", "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf"]:
             try:
                 font_med = ImageFont.truetype(f_cand, 40)
@@ -683,12 +702,13 @@ def generar_caratula_meditacion_luna(
                 font_card_val = ImageFont.truetype(f_cand, 23)
                 font_astro_det = ImageFont.truetype(f_cand, 24)
                 font_astro = ImageFont.truetype(f_cand, 22)
-                font_time = ImageFont.truetype(f_cand, 26)
+                font_time_prog = ImageFont.truetype(f_cand, 64)
+                font_time_tot = ImageFont.truetype(f_cand, 50)
                 break
             except Exception:
                 continue
         if not font_med:
-            font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time = ImageFont.load_default()
+            font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time_prog = font_time_tot = ImageFont.load_default()
             font_card_tit = font_card_val = font_astro_det = font_med
 
         # 4. Cabecera dinámica (Meditación #, Título multilínea y Maestro)
@@ -792,11 +812,16 @@ def generar_caratula_meditacion_luna(
         min_dur, seg_dur = divmod(int(dur_total), 60)
         pct_val = int(round(ratio * 100))
 
-        # Triángulo nítido de reproducción
-        draw.polygon([(bar_x1 + 2, 592), (bar_x1 + 16, 600), (bar_x1 + 2, 608)], fill=(255, 255, 255))
-        draw.text((bar_x1 + 28, 600), f"{min_prog:02d}:{seg_prog:02d}", fill=(255, 255, 255), font=font_time, anchor="lm")
+        # Triángulo nítido de reproducción y cronómetros ampliados
+        center_y = 620
+        tri_h = 36
+        tri_w = 26
+        tri_top = center_y - (tri_h // 2)
+        tri_bot = center_y + (tri_h // 2)
+        draw.polygon([(bar_x1, tri_top), (bar_x1 + tri_w, center_y), (bar_x1, tri_bot)], fill=(255, 255, 255))
+        draw.text((bar_x1 + tri_w + 16, center_y), f"{min_prog:02d}:{seg_prog:02d}", fill=(255, 255, 255), font=font_time_prog, anchor="lm")
         txt_tiempo_der = f"{min_dur:02d}:{seg_dur:02d}   ({pct_val}%)"
-        draw.text((bar_x2, 600), txt_tiempo_der, fill=(251, 191, 36), font=font_time, anchor="rm")
+        draw.text((bar_x2, center_y), txt_tiempo_der, fill=(251, 191, 36), font=font_time_tot, anchor="rm")
 
         img.save(ruta_salida, format="JPEG", quality=95)
         return ruta_salida
