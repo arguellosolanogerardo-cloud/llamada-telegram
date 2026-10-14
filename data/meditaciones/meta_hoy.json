@@ -5,26 +5,5 @@
   "fecha": "09/04/20",
   "maestro": "Alaniso",
   "detectado_como": "MEDITACION",
-  "fecha_tarea_admin": "14/10/2026",
-  "cola_audios": [
-    {
-      "numero": 1093,
-      "tipo": "MEDITACION",
-      "titulo": "No tomen a la ligera que ya llego el momento del gran cambio",
-      "fecha": "09/04/20",
-      "maestro": "Alaniso",
-      "detectado_como": "MEDITACION",
-      "fecha_tarea_admin": "14/10/2026"
-    },
-    {
-      "numero": 995,
-      "tipo": "MENSAJE",
-      "subtipo": "Mensaje Previo a Meditación",
-      "titulo": "Mensaje del 05/03/19 (Asociado a Meditación #995)",
-      "fecha_original": "05/03/19",
-      "fecha": "05/03/19",
-      "maestro": "Axel",
-      "detectado_como": "MENSAJE"
-    }
-  ]
+  "fecha_tarea_admin": "14/10/2026"
 }
