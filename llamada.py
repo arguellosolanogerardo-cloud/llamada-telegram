@@ -3870,6 +3870,7 @@ async def main() -> None:
             sender = await event.get_sender()
             if not await es_admin_seguro(event, sender):
                 return
+            sender_id = getattr(sender, "id", None) or getattr(event, "sender_id", None)
             if hasattr(entidad, "id") and sender_id == entidad.id:
                 return
             texto_raw = (event.raw_text or "").strip().lower()
