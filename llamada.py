@@ -2101,11 +2101,6 @@ async def main() -> None:
                     print("Watchdog: Sesión de meditación concluida exitosamente.")
                     await desbloquear_todos_los_participantes()
                     avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
-                    if tgcalls:
-                        try:
-                            await tgcalls.leave_call(destino)
-                        except Exception:
-                            pass
                     if not grabacion_cancelada and not grabacion_pausada:
                         if ruta_grabacion_post not in segmentos_grabados:
                             segmentos_grabados.append(ruta_grabacion_post)
@@ -5030,6 +5025,15 @@ async def main() -> None:
             p["nombre"] for p in participantes.values() if p.get("hablo")
         ]
 
+        # Asegurar que PyTgCalls haya cerrado la sesión y ffmpeg haya vaciado sus buffers a disco
+        if tgcalls:
+            try:
+                print("Finalizando grabación y cerrando sesión en PyTgCalls...")
+                await tgcalls.leave_call(destino)
+                await asyncio.sleep(1.5)
+            except Exception as e_tg_stop:
+                print("Nota cerrando sesión de PyTgCalls:", e_tg_stop)
+
         # Unir grabaciones de voz si existen y no fueron canceladas (excluyendo meditación)
         audio_para_ia = None
         if not grabacion_cancelada:
@@ -5187,17 +5191,17 @@ async def main() -> None:
             except Exception as e:
                 print("Error enviando archivos al dueño:", e)
 
-        # Limpiar temporales de grabación cruda una vez enviados
+        # Limpiar temporales de grabación cruda (preservando el audio oficial final en ruta_grabacion_completa)
         for s in segmentos_grabados:
             try:
-                if os.path.exists(s):
+                if s != ruta_grabacion_completa and os.path.exists(s):
                     os.remove(s)
                 s_raw = s.rsplit(".", 1)[0] + ".raw"
                 if os.path.exists(s_raw):
                     os.remove(s_raw)
             except Exception:
                 pass
-        for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post, ruta_grabacion_completa):
+        for f_tmp in (ruta_grabacion_pre, ruta_grabacion_post):
             try:
                 if os.path.exists(f_tmp):
                     os.remove(f_tmp)

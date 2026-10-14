@@ -2,8 +2,31 @@ import base64
 import json
 import os
 import subprocess
+import sys
 import urllib.request
 import urllib.error
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+def _log(msg: str):
+    """Imprime mensajes de log protegiendo contra errores de codificación en consolas Windows."""
+    try:
+        print(msg)
+    except Exception:
+        try:
+            print(str(msg).encode("ascii", errors="replace").decode("ascii"))
+        except Exception:
+            pass
 
 RUTA_MINUTAS_JSON = os.path.join("data", "minutas.json")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -136,6 +159,48 @@ def comprimir_audio_para_ia(ruta_audio: str) -> str:
     return ruta_audio
 
 
+def transcribir_audio_local_whisper(ruta_audio: str) -> tuple[str, list[str]]:
+    """Transcribe el archivo de audio usando faster_whisper de forma 100% local y offline.
+    Retorna (texto_formateado_con_marcas, lista_de_lineas)."""
+    if not ruta_audio or not os.path.exists(ruta_audio) or os.path.getsize(ruta_audio) < 1000:
+        return "", []
+
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        _log("faster_whisper no está instalado en este entorno.")
+        return "", []
+
+    try:
+        modelo_nombre = os.environ.get("WHISPER_MODEL", "base")
+        _log(f"Iniciando transcripción local con faster-whisper (Modelo: {modelo_nombre}, Audio: {os.path.getsize(ruta_audio)} bytes)...")
+        model = WhisperModel(modelo_nombre, device="cpu", compute_type="int8")
+        segments, info = model.transcribe(
+            ruta_audio,
+            language="es",
+            beam_size=1,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+        )
+        lineas = []
+        for s in segments:
+            txt = s.text.strip()
+            if not txt:
+                continue
+            m_ini = int(s.start // 60)
+            s_ini = int(s.start % 60)
+            m_fin = int(s.end // 60)
+            s_fin = int(s.end % 60)
+            lineas.append(f"[{m_ini:02d}:{s_ini:02d} -> {m_fin:02d}:{s_fin:02d}] {txt}")
+
+        texto_completo = "\n".join(lineas)
+        _log(f"Transcripción local finalizada: {len(lineas)} fragmentos transcritos.")
+        return texto_completo, lineas
+    except Exception as e:
+        _log(f"Error en transcripción local con faster-whisper: {e}")
+        return "", []
+
+
 def generar_resumen_ia(
     ruta_audio: str,
     oradores: list,
@@ -145,8 +210,8 @@ def generar_resumen_ia(
     info_catalogo: dict = None,
     ruta_transcripcion_salida: str = None
 ) -> str:
-    """Transcribe y genera el resumen oficial con atribución de oradores usando Gemini.
-    Si se proporciona ruta_transcripcion_salida, guarda la transcripción cronológica completa."""
+    """Genera la transcripción cronológica completa y el resumen estructurado oficial.
+    Utiliza motor dual: Faster-Whisper local offline para transcripción literal y Gemini para síntesis."""
     txt_oradores = "\n".join([f"- {o}" for o in oradores]) if oradores else "No hubo intervenciones individuales registradas."
 
     txt_catalogo = ""
@@ -163,111 +228,110 @@ def generar_resumen_ia(
         )
 
     SEPARADOR_TRANSCRIPCION = "=== TRANSCRIPCIÓN COMPLETA ==="
-
-    prompt_instrucciones = (
-        f"Eres el relator y transcriptor oficial de la reunión comunitaria del {fecha}.\n"
-        f"Duración: {duracion_minutos} minutos | Participantes conectados: {total_asistentes}.\n"
-        f"Participantes con uso de la palabra registrados por el sistema:\n{txt_oradores}\n"
-        f"{txt_catalogo}\n"
-        "Se ha extraído el audio de la llamada excluyendo la meditación para analizar únicamente las intervenciones de las personas.\n\n"
-        "Tu respuesta DEBE contener exactamente DOS PARTES claramente delimitadas:\n\n"
-        "PARTE 1: SÍNTESIS OFICIAL (Para el grupo de Telegram y acta):\n\n"
-        "📌 RESUMEN EJECUTIVO:\n"
-        "(Un resumen fluido de 1 a 2 párrafos sobre los temas centrales y bienvenida de la reunión).\n\n"
-        "🗣️ INTERVENCIONES Y APORTES POR PARTICIPANTE:\n"
-        "(Describe qué compartió, opinó, preguntó o reflexionó cada participante, atribuyendo con precisión el nombre de la persona según la lista de oradores).\n\n"
-        "🌟 CONCLUSIÓN GENERAL DEL DÍA:\n"
-        "(La reflexión central o mensaje final con el que cerró la comunidad hoy).\n\n"
-        f"{SEPARADOR_TRANSCRIPCION}\n\n"
-        "PARTE 2: TRANSCRIPCIÓN LITERAL COMPLETA (Para el dueño y auditoría):\n"
-        "(Transcribe en orden cronológico y con la mayor fidelidad posible las intervenciones de los participantes a lo largo del audio, indicando el nombre de cada orador en cada intervención)."
-    )
-
     api_key = os.environ.get("GEMINI_API_KEY", GEMINI_API_KEY)
+    tiene_audio = bool(ruta_audio and os.path.exists(ruta_audio) and os.path.getsize(ruta_audio) > 1000)
 
-    # 1. Intentar con Gemini API si hay clave y archivo de audio
-    if api_key and ruta_audio and os.path.exists(ruta_audio) and os.path.getsize(ruta_audio) > 1000:
-        print(f"Iniciando transcripción y resumen con Gemini API (Audio: {os.path.getsize(ruta_audio)} bytes)...")
+    transcripcion_texto = ""
+    motor_transcripcion = "Sin audio"
+
+    # PASO 1: Si hay audio, obtener transcripción literal con Whisper Local
+    if tiene_audio:
+        texto_whisper, _ = transcribir_audio_local_whisper(ruta_audio)
+        if texto_whisper.strip():
+            transcripcion_texto = texto_whisper.strip()
+            motor_transcripcion = "Faster-Whisper (IA Local Offline)"
+
+    # PASO 2: Si Whisper no obtuvo texto pero hay API key de Gemini, intentar transcripción con Gemini Audio
+    if tiene_audio and not transcripcion_texto and api_key:
+        _log(f"Intentando transcripción directa de audio con Gemini API (Audio: {os.path.getsize(ruta_audio)} bytes)...")
         try:
             ruta_optimizada = comprimir_audio_para_ia(ruta_audio)
             with open(ruta_optimizada, "rb") as f:
                 audio_b64 = base64.b64encode(f.read()).decode("utf-8")
 
             mime = "audio/mp3" if ruta_optimizada.endswith(".mp3") else "audio/wav"
-            payload = {
+            prompt_audio_puro = (
+                f"Eres el relator y transcriptor de la reunión del {fecha}.\n"
+                f"Oradores registrados: {txt_oradores}\n"
+                f"{txt_catalogo}\n"
+                "Transcribe las intervenciones de las personas en orden cronológico con la mayor fidelidad posible."
+            )
+            payload_aud = {
                 "contents": [
                     {
                         "parts": [
-                            {"text": prompt_instrucciones},
-                            {
-                                "inlineData": {
-                                    "mimeType": mime,
-                                    "data": audio_b64
-                                }
-                            }
+                            {"text": prompt_audio_puro},
+                            {"inlineData": {"mimeType": mime, "data": audio_b64}}
                         ]
                     }
                 ],
-                "generationConfig": {
-                    "temperature": 0.2,
-                    "maxOutputTokens": 8192
-                }
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}
             }
-
-            modelos = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
-            for mod in modelos:
+            for mod in ["gemini-2.0-flash", "gemini-1.5-flash"]:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key}"
-                req = urllib.request.Request(
-                    url,
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"}
-                )
+                req = urllib.request.Request(url, data=json.dumps(payload_aud).encode("utf-8"), headers={"Content-Type": "application/json"})
                 try:
-                    with urllib.request.urlopen(req, timeout=180) as resp:
+                    with urllib.request.urlopen(req, timeout=120) as resp:
                         res_json = json.loads(resp.read().decode("utf-8"))
                         candidatos = res_json.get("candidates", [])
                         if candidatos:
                             partes = candidatos[0].get("content", {}).get("parts", [])
-                            texto_resultado = "".join([p.get("text", "") for p in partes]).strip()
-                            if texto_resultado:
-                                print(f"Resumen y transcripción generados exitosamente con modelo {mod}.")
+                            txt_res = "".join([p.get("text", "") for p in partes]).strip()
+                            if txt_res:
+                                transcripcion_texto = txt_res
+                                motor_transcripcion = f"Google Gemini Audio ({mod})"
+                                break
+                except Exception as e_ga:
+                    _log(f"Nota con modelo audio {mod}: {e_ga}")
+        except Exception as e_g_aud:
+            _log(f"Error en llamada de audio con Gemini: {e_g_aud}")
 
-                                # Separar la síntesis oficial de la transcripción completa
-                                if SEPARADOR_TRANSCRIPCION in texto_resultado:
-                                    bloques = texto_resultado.split(SEPARADOR_TRANSCRIPCION)
-                                    resumen_grupo = bloques[0].strip()
-                                    transcripcion_texto = bloques[1].strip()
-                                else:
-                                    resumen_grupo = texto_resultado
-                                    transcripcion_texto = texto_resultado
+    # PASO 3: Generar Resumen Estructurado (Síntesis Oficial)
+    resumen_oficial = ""
 
-                                # Guardar la transcripción completa en archivo si se indicó ruta
-                                if ruta_transcripcion_salida:
-                                    try:
-                                        os.makedirs(os.path.dirname(ruta_transcripcion_salida), exist_ok=True)
-                                        with open(ruta_transcripcion_salida, "w", encoding="utf-8") as f_tr:
-                                            f_tr.write(f"📝 TRANSCRIPCIÓN COMPLETA DE LA REUNIÓN — {fecha}\n")
-                                            f_tr.write(f"Duración: {duracion_minutos} min | Asistentes: {total_asistentes}\n")
-                                            f_tr.write(f"Oradores identificados: {', '.join(oradores) if oradores else 'N/A'}\n")
-                                            f_tr.write("=" * 60 + "\n\n")
-                                            f_tr.write(transcripcion_texto + "\n")
-                                        print(f"Transcripción completa guardada en: {ruta_transcripcion_salida}")
-                                    except Exception as e_tr:
-                                        print("Nota guardando archivo de transcripción:", e_tr)
+    # Opción A: Tenemos transcripción y API Key de Gemini -> Síntesis inteligente rápida basada en texto
+    if transcripcion_texto and api_key:
+        _log("Generando síntesis oficial con Gemini basada en la transcripción de texto...")
+        prompt_sintesis = (
+            f"Eres el redactor oficial de la reunión comunitaria del {fecha}.\n"
+            f"Duración: {duracion_minutos} minutos | Participantes conectados: {total_asistentes}.\n"
+            f"Oradores registrados: {txt_oradores}\n"
+            f"{txt_catalogo}\n\n"
+            "A continuación tienes la transcripción cronológica de las intervenciones en sala:\n"
+            f"\"\"\"\n{transcripcion_texto[:25000]}\n\"\"\"\n\n"
+            "Con base en la transcripción y los oradores registrados, genera el informe oficial estructurado EXACTAMENTE en estas 3 secciones:\n\n"
+            "📌 RESUMEN EJECUTIVO:\n"
+            "(1 a 2 párrafos que sinteticen fluidamente los temas tratados, apertura y dinámica de la reunión).\n\n"
+            "🗣️ INTERVENCIONES Y APORTES POR PARTICIPANTE:\n"
+            "(Describe qué compartió, opinó, preguntó o reflexionó cada participante registrado según lo conversado).\n\n"
+            "🌟 CONCLUSIÓN GENERAL DEL DÍA:\n"
+            "(Una reflexión espiritual positiva y de cierre armonioso para el acta).\n\n"
+            "Reglas: Sé respetuoso, inspirador, conciso y fiel a lo conversado."
+        )
+        payload_sint = {
+            "contents": [{"parts": [{"text": prompt_sintesis}]}],
+            "generationConfig": {"temperature": 0.3}
+        }
+        for mod in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key}"
+            req = urllib.request.Request(url, data=json.dumps(payload_sint).encode("utf-8"), headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    res_json = json.loads(resp.read().decode("utf-8"))
+                    candidatos = res_json.get("candidates", [])
+                    if candidatos:
+                        partes = candidatos[0].get("content", {}).get("parts", [])
+                        txt_s = "".join([p.get("text", "") for p in partes]).strip()
+                        if txt_s:
+                            resumen_oficial = txt_s
+                            _log(f"Síntesis oficial generada exitosamente con {mod}.")
+                            break
+            except Exception as e_s:
+                _log(f"Nota generando síntesis con {mod}: {e_s}")
 
-                                return resumen_grupo
-                except urllib.error.HTTPError as he:
-                    print(f"Error {he.code} con modelo {mod}:", he.read().decode("utf-8")[:250])
-                    continue
-                except Exception as e:
-                    print(f"Nota consultando modelo {mod}:", e)
-                    continue
-        except Exception as e:
-            print("Error procesando audio con Gemini:", e)
-
-    # Si hay API key pero no hubo audio grabado, usar Gemini en modo solo-texto para un resumen fluido
-    if api_key and (not ruta_audio or not os.path.exists(ruta_audio) or os.path.getsize(ruta_audio) <= 1000):
-        print("Intentando generar resumen inteligente con Gemini en modo solo-texto (sin audio)...")
+    # Opción B: No hay transcripción pero sí API key -> Resumen solo-texto basado en telemetría
+    elif not transcripcion_texto and api_key:
+        _log("Intentando generar resumen inteligente con Gemini en modo solo-texto (sin transcripción de audio)...")
         prompt_texto_puro = (
             f"Eres el redactor oficial de la reunión comunitaria del {fecha}.\n"
             f"Duración: {duracion_minutos} minutos | Asistentes conectados: {total_asistentes}.\n"
@@ -288,11 +352,7 @@ def generar_resumen_ia(
         }
         for mod in ["gemini-2.0-flash", "gemini-1.5-flash"]:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key}"
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload_txt).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
-            )
+            req = urllib.request.Request(url, data=json.dumps(payload_txt).encode("utf-8"), headers={"Content-Type": "application/json"})
             try:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     res_json = json.loads(resp.read().decode("utf-8"))
@@ -301,52 +361,57 @@ def generar_resumen_ia(
                         partes = candidatos[0].get("content", {}).get("parts", [])
                         txt_res = "".join([p.get("text", "") for p in partes]).strip()
                         if txt_res:
-                            print(f"Resumen solo-texto generado exitosamente con {mod}.")
-                            if ruta_transcripcion_salida:
-                                try:
-                                    os.makedirs(os.path.dirname(ruta_transcripcion_salida), exist_ok=True)
-                                    with open(ruta_transcripcion_salida, "w", encoding="utf-8") as f_tr:
-                                        f_tr.write(f"📝 TRANSCRIPCIÓN — {fecha}\n\n")
-                                        f_tr.write("⚠️ Nota: El archivo de audio de la sesión no estuvo disponible en el servidor.\n")
-                                        f_tr.write("Se generó la síntesis de participación comunitaria basada en la telemetría de la sala.\n")
-                                except Exception:
-                                    pass
-                            return txt_res
+                            resumen_oficial = txt_res
+                            break
             except Exception as e_t:
-                print(f"Nota con modelo texto {mod}:", e_t)
-                continue
+                _log(f"Nota con modelo texto {mod}: {e_t}")
 
-    # 2. Resumen Estructurado Base (Fallback si falla Gemini o no hay API key)
-    print("Generando resumen estructurado base sin transcripción de audio.")
-    lineas = [
-        "📌 **RESUMEN EJECUTIVO:**",
-        f"Reunión diaria comunitaria realizada el **{fecha}** con una duración de **{duracion_minutos} minutos** "
-        + (f"y un total de **{total_asistentes} participantes conectados**. " if total_asistentes != 1 else "y **1 participante conectado**. ")
-        + "La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM "
-        "y la ronda posterior de preguntas y compartir entre los miembros.",
-        "",
-        "🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**"
-    ]
+    # Opción C: Fallback local robusto estructurado
+    if not resumen_oficial:
+        _log("Construyendo resumen oficial estructurado base.")
+        lineas = [
+            "📌 **RESUMEN EJECUTIVO:**",
+            f"Reunión diaria comunitaria realizada el **{fecha}** con una duración de **{duracion_minutos} minutos** "
+            + (f"y un total de **{total_asistentes} participantes conectados**. " if total_asistentes != 1 else "y **1 participante conectado**. ")
+            + "La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM "
+            "y la ronda posterior de preguntas y compartir entre los miembros.",
+            "",
+            "🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**"
+        ]
 
-    if oradores:
-        for o in oradores:
-            lineas.append(f"• **{o}:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.")
-    else:
-        lineas.append("• Todos los asistentes mantuvieron una actitud de escucha activa durante la sesión.")
+        if oradores:
+            for o in oradores:
+                lineas.append(f"• **{o}:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.")
+        else:
+            lineas.append("• Todos los asistentes mantuvieron una actitud de escucha activa durante la sesión.")
 
-    lineas.extend([
-        "",
-        "🌟 **CONCLUSIÓN GENERAL DEL DÍA:**",
-        "Jornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!"
-    ])
+        lineas.extend([
+            "",
+            "🌟 **CONCLUSIÓN GENERAL DEL DÍA:**",
+            "Jornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!"
+        ])
+        resumen_oficial = "\n".join(lineas)
 
+    # PASO 4: Guardar archivo de transcripción con información veraz y fidelidad
     if ruta_transcripcion_salida:
         try:
             os.makedirs(os.path.dirname(ruta_transcripcion_salida), exist_ok=True)
             with open(ruta_transcripcion_salida, "w", encoding="utf-8") as f_tr:
-                f_tr.write(f"📝 TRANSCRIPCIÓN — {fecha}\n\n")
-                f_tr.write("⚠️ Nota: La transcripción completa no estuvo disponible debido a que no se registró audio en el servidor.\n")
-        except Exception:
-            pass
+                f_tr.write(f"📝 TRANSCRIPCIÓN OFICIAL DE LA REUNIÓN — {fecha}\n")
+                f_tr.write(f"Duración: {duracion_minutos} min | Asistentes: {total_asistentes}\n")
+                f_tr.write(f"Oradores identificados: {', '.join(oradores) if oradores else 'Comunidad'}\n")
+                f_tr.write(f"Motor de transcripción: {motor_transcripcion}\n")
+                f_tr.write("=" * 60 + "\n\n")
 
-    return "\n".join(lineas)
+                if transcripcion_texto:
+                    f_tr.write(transcripcion_texto + "\n")
+                elif tiene_audio:
+                    f_tr.write("ℹ️ El archivo de audio de la sesión fue grabado exitosamente, pero no se detectaron intervenciones de voz articuladas o legibles en los micrófonos durante esta reunión.\n")
+                else:
+                    f_tr.write("ℹ️ Nota: No se registraron flujos de audio entrantes en la sala durante esta sesión.\n")
+                    f_tr.write("Se generó la síntesis de participación comunitaria basada en la telemetría de la sala.\n")
+            _log(f"Transcripción guardada exitosamente en: {ruta_transcripcion_salida}")
+        except Exception as e_tr:
+            _log(f"Nota guardando archivo de transcripción: {e_tr}")
+
+    return resumen_oficial
