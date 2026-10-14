@@ -1577,7 +1577,7 @@ async def main() -> None:
         # Enviar aviso inicial con panel interactivo
         url_llamada = await obtener_url_llamada(client, entidad, full_chat)
         print("Enlace de llamada obtenido para el botón:", url_llamada)
-        avisar_con_bot(AVISO, boton_url=url_llamada, es_efimero=True)
+        avisar_con_bot(AVISO, boton_url=url_llamada, es_efimero=False)
 
         if not full_chat or not full_chat.call:
             print("No hay llamada disponible para monitorear.")
@@ -1666,8 +1666,6 @@ async def main() -> None:
                             pass
                     try:
                         msg_turnos = await client.send_message(entidad, txt)
-                        if msg_turnos and hasattr(msg_turnos, "id"):
-                            ids_mensajes_efimeros.add(msg_turnos.id)
                         ultimo_envio_turnos = ahora
                         mensajes_chat_recientes = 0
                     except Exception as e:
@@ -1689,8 +1687,6 @@ async def main() -> None:
                         elif puede_republicar:
                             try:
                                 msg_turnos = await client.send_message(entidad, txt)
-                                if msg_turnos and hasattr(msg_turnos, "id"):
-                                    ids_mensajes_efimeros.add(msg_turnos.id)
                                 ultimo_envio_turnos = ahora
                                 mensajes_chat_recientes = 0
                             except Exception as e2:
@@ -1709,8 +1705,6 @@ async def main() -> None:
         )
         try:
             msg_fijado = await client.send_message(entidad, texto_fijado_base)
-            if msg_fijado and hasattr(msg_fijado, "id"):
-                ids_mensajes_efimeros.add(msg_fijado.id)
             await client.pin_message(entidad, msg_fijado, notify=False)
             print("Mensaje de estado fijado dinámicamente en el grupo.")
         except Exception as e:
@@ -1719,8 +1713,6 @@ async def main() -> None:
         # Publicar mensaje de lista de turnos en vivo en el grupo
         try:
             msg_turnos = await client.send_message(entidad, generar_texto_turnos(cola_turnos, []))
-            if msg_turnos and hasattr(msg_turnos, "id"):
-                ids_mensajes_efimeros.add(msg_turnos.id)
             print("Mensaje de turnos en vivo publicado en el grupo.")
         except Exception as e:
             print("Nota publicando mensaje de turnos:", e)
@@ -2140,7 +2132,7 @@ async def main() -> None:
                     reproduciendo_meditacion = False
                     print("Watchdog: Sesión de meditación concluida exitosamente.")
                     await desbloquear_todos_los_participantes()
-                    avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
+                    avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
                     if not grabacion_cancelada and not grabacion_pausada:
                         if ruta_grabacion_post not in segmentos_grabados:
                             segmentos_grabados.append(ruta_grabacion_post)
@@ -2580,12 +2572,12 @@ async def main() -> None:
                 info_act = pista_actual.get("info")
                 if total_pistas == 1:
                     if info_act:
-                        avisar_con_bot(f"▶️ **Reproduciendo meditación oficial:**\n{formatear_info_audio(info_act)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                        avisar_con_bot(f"▶️ **Reproduciendo meditación oficial:**\n{formatear_info_audio(info_act)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=False)
                     else:
-                        avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                        avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=False)
                 else:
                     txt_act = formatear_info_audio(info_act) if info_act else f"🧘 **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Meditación')}"
-                    avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=True)
+                    avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=False)
                 # Determinar duración total de la pista
                 dur_pista_orig = obtener_duracion_segundos(ruta_pista)
                 dur_audio = obtener_duracion_segundos(ruta_a_reproducir)
@@ -3000,7 +2992,7 @@ async def main() -> None:
                                     msg_panel_meditacion_id = None
                                 print("Reproducción de la sesión de meditación concluida automáticamente.")
                                 await desbloquear_todos_los_participantes()
-                                avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=True)
+                                avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
                                 # Reanudar grabación para el segmento post-meditación si no fue cancelada
                                 if not grabacion_cancelada and not grabacion_pausada:
                                     if ruta_grabacion_post not in segmentos_grabados:
@@ -3311,7 +3303,7 @@ async def main() -> None:
                         print("Nota saliendo de tgcalls al detener:", e)
                 await desbloquear_todos_los_participantes()
                 await responder_admin("⏹️ **Reproducción finalizada.** Modo meditación desactivado y micrófonos restablecidos para todos.")
-                avisar_con_bot("⏹️ **Reproducción finalizada.** Los micrófonos han sido restablecidos.", es_efimero=True)
+                avisar_con_bot("⏹️ **Reproducción finalizada.** Los micrófonos han sido restablecidos.", es_efimero=False)
             elif cmd in ("/desbloquearadmins", "/liberaradmins", "/blindaradmins"):
                 # Solo libera/blinda a los administradores. NO detiene la meditación ni toca a los usuarios normales.
                 desbloqueados_count = 0
@@ -3352,7 +3344,7 @@ async def main() -> None:
                 except Exception:
                     pass
                 await responder_admin(f"🔓 **¡ÉXITO TOTAL!** Modo meditación desactivado. Micrófonos liberados para {desbloqueados_count} administradores y todos los participantes en sala. El candado global fue desactivado.")
-                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para toda la sala. ¡Pueden abrir su micrófono cuando deseen hablar!", es_efimero=True)
+                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para toda la sala. ¡Pueden abrir su micrófono cuando deseen hablar!", es_efimero=False)
             elif cmd in ("/siguiente", "/next"):
                 if not cola_turnos:
                     await responder_admin("ℹ️ No hay participantes esperando en la lista de turnos.")
@@ -4034,7 +4026,7 @@ async def main() -> None:
                 except Exception:
                     pass
                 await responder_nat("🔓 Micrófonos desbloqueados para todos los participantes. Modo meditación desactivado.")
-                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes.", es_efimero=True)
+                avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para todos los asistentes.", es_efimero=False)
             # Siguiente orador
             elif any(p in texto_raw for p in ["siguiente turno", "siguiente orador", "siguiente persona", "pasar al siguiente"]):
                 if not cola_turnos:
@@ -4583,6 +4575,8 @@ async def main() -> None:
                 await client.edit_message(entidad, msg_fijado, texto_concluido)
             except Exception:
                 pass
+            if hasattr(msg_fijado, "id"):
+                ids_mensajes_efimeros.discard(msg_fijado.id)
 
         if msg_turnos:
             try:
@@ -4593,6 +4587,8 @@ async def main() -> None:
                 )
             except Exception:
                 pass
+            if hasattr(msg_turnos, "id"):
+                ids_mensajes_efimeros.discard(msg_turnos.id)
 
         # 3. Finalización y Consolidación de Asistencia
         fin_llamada = datetime.now(tz_col)
@@ -5256,15 +5252,19 @@ async def main() -> None:
         if tarea_callbacks_bot and not tarea_callbacks_bot.done():
             tarea_callbacks_bot.cancel()
 
-        # Espera breve para limpiar ventanas y avisos temporales de la sala
-        minutos_espera_limpieza = int(os.environ.get("MINUTOS_ESPERA_LIMPIEZA", "1"))
-        segundos_espera_limpieza = 5 if cerrado_por_admin else max(0, minutos_espera_limpieza * 60)
-        if segundos_espera_limpieza > 0:
-            print(f"⏳ Sala concluida y reportes entregados. Esperando {segundos_espera_limpieza}s para limpiar ventanas y avisos temporales de la sala...")
+        # Limpieza de mensajes temporales al finalizar la llamada
+        # Por defecto, NO borrar automáticamente avisos informativos ni ventanas de conclusión en 5 segundos.
+        # Si se desea limpieza automática al cerrar, configurar AUTO_LIMPIAR_AL_CERRAR=1 con MINUTOS_ESPERA_LIMPIEZA (ej: 15).
+        auto_limpiar = os.environ.get("AUTO_LIMPIAR_AL_CERRAR", "0") == "1"
+        if auto_limpiar and ids_mensajes_efimeros:
+            minutos_espera_limpieza = int(os.environ.get("MINUTOS_ESPERA_LIMPIEZA", "15"))
+            segundos_espera_limpieza = max(60, minutos_espera_limpieza * 60)
+            print(f"⏳ Sala concluida. Esperando {minutos_espera_limpieza} min para limpiar comandos temporales de la sala...")
             await asyncio.sleep(segundos_espera_limpieza)
-        print(f"🧹 Iniciando limpieza de ventanas y notificaciones temporales ({len(ids_mensajes_efimeros)} mensajes)...")
-        await limpiar_mensajes_temporales(client, entidad, ids_mensajes_efimeros)
-        print("⏳ limpia de mensajes y ventanas operativas.")
+            print(f"🧹 Limpiando comandos temporales ({len(ids_mensajes_efimeros)} mensajes)...")
+            await limpiar_mensajes_temporales(client, entidad, ids_mensajes_efimeros)
+        else:
+            print("ℹ️ Limpieza automática al cerrar desactivada: Los avisos, resúmenes y reportes se conservan intactos en el grupo.")
 
 
 if __name__ == "__main__":
