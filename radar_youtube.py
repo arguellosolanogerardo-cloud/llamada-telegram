@@ -6,6 +6,7 @@ import re
 import html
 import threading
 import sys
+import subprocess
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -102,8 +103,175 @@ def sincronizar_github_vistos(vistos: list) -> None:
         print("Nota sincronizando radar con GitHub:", e)
 
 
+def obtener_titulo_video(vid: str) -> str:
+    """Obtiene el título de un video de YouTube vía oEmbed (muy rápido y ligero) o yt-dlp como fallback."""
+    if not vid:
+        return ""
+    # 1. oEmbed oficial de YouTube (rápido, sin dependencias)
+    try:
+        url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=6) as r:
+            data = json.loads(r.read().decode("utf-8", errors="ignore"))
+            tit = data.get("title", "").strip()
+            if tit:
+                return tit
+    except Exception:
+        pass
+
+    # 2. yt-dlp fallback
+    try:
+        res = subprocess.run(
+            ["yt-dlp", "--print", "%(title)s", f"https://www.youtube.com/watch?v={vid}"],
+            capture_output=True, text=True, timeout=10
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+
+    return ""
+
+
+def extraer_videos_web(url_canal: str) -> list:
+    """Tier 1: Extrae los videos recientes navegando el canal (soporta lockupViewModel y videoRenderer)."""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+    }
+    try:
+        req = urllib.request.Request(url_canal, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html_content = resp.read().decode('utf-8', errors='ignore')
+    except Exception as e:
+        print(f"Nota extrayendo web ({url_canal}): {e}")
+        return []
+
+    m = re.search(r'var ytInitialData = ({.*?});</script>', html_content)
+    if not m:
+        m = re.search(r'ytInitialData\s*=\s*({.*?});', html_content)
+    if not m:
+        return []
+
+    try:
+        data = json.loads(m.group(1))
+    except Exception:
+        return []
+
+    videos = []
+    vistos_set = set()
+
+    # 1. lockupViewModel (YouTube 2025/2026)
+    def buscar_lockups(obj):
+        res = []
+        if isinstance(obj, dict):
+            if "lockupViewModel" in obj:
+                res.append(obj["lockupViewModel"])
+            for v in obj.values():
+                res.extend(buscar_lockups(v))
+        elif isinstance(obj, list):
+            for it in obj:
+                res.extend(buscar_lockups(it))
+        return res
+
+    for lk in buscar_lockups(data):
+        vid = lk.get("contentId")
+        if not vid or vid in vistos_set:
+            continue
+        metadata = lk.get("metadata", {}).get("lockupMetadataViewModel", {})
+        title = metadata.get("title", {}).get("content", "")
+        meta_rows = metadata.get("metadata", {}).get("contentMetadataViewModel", {}).get("metadataRows", [])
+        pub_txt = ""
+        for r in meta_rows:
+            for p in r.get("metadataParts", []):
+                lbl = p.get("accessibilityLabel", "")
+                txt = p.get("text", {}).get("content", "")
+                candidate = lbl or txt
+                if any(w in candidate.lower() for w in ["min", "hora", "seg", "día", "dia", "semana", "mes", "año", "day", "hour", "week", "month", "year"]):
+                    pub_txt = candidate
+                    break
+            if pub_txt:
+                break
+        vistos_set.add(vid)
+        videos.append({
+            "video_id": vid,
+            "titulo": title or "Nuevo video",
+            "published_text": pub_txt,
+            "published_dt": None,
+            "link": f"https://www.youtube.com/watch?v={vid}",
+            "source": "web"
+        })
+
+    # 2. Fallback a videoRenderer / gridVideoRenderer (legacy)
+    if not videos:
+        def buscar_video_renderers(obj):
+            res = []
+            if isinstance(obj, dict):
+                if "videoRenderer" in obj:
+                    res.append(obj["videoRenderer"])
+                elif "gridVideoRenderer" in obj:
+                    res.append(obj["gridVideoRenderer"])
+                for v in obj.values():
+                    res.extend(buscar_video_renderers(v))
+            elif isinstance(obj, list):
+                for it in obj:
+                    res.extend(buscar_video_renderers(it))
+            return res
+
+        for vr in buscar_video_renderers(data):
+            vid = vr.get("videoId")
+            if not vid or vid in vistos_set:
+                continue
+            tit_obj = vr.get("title", {})
+            runs = tit_obj.get("runs", [])
+            title = runs[0].get("text", "") if runs else tit_obj.get("simpleText", "")
+            pub = vr.get("publishedTimeText", {}).get("simpleText", "")
+            vistos_set.add(vid)
+            videos.append({
+                "video_id": vid,
+                "titulo": title or "Nuevo video",
+                "published_text": pub,
+                "published_dt": None,
+                "link": f"https://www.youtube.com/watch?v={vid}",
+                "source": "web_legacy"
+            })
+
+    return videos
+
+
+def extraer_videos_ytdlp(url_canal: str) -> list:
+    """Tier 2: Extrae los últimos videos del canal mediante yt-dlp."""
+    try:
+        cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s|||%(title)s", "--playlist-end", "10", url_canal]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        if res.returncode != 0 or not res.stdout.strip():
+            return []
+        videos = []
+        for line in res.stdout.strip().split("\n"):
+            line = line.strip()
+            if not line or "|||" not in line:
+                continue
+            parts = line.split("|||", 1)
+            vid = parts[0].strip()
+            titulo = parts[1].strip()
+            if vid:
+                videos.append({
+                    "video_id": vid,
+                    "titulo": titulo or "Nuevo video",
+                    "published_text": "Recientemente",
+                    "published_dt": None,
+                    "link": f"https://www.youtube.com/watch?v={vid}",
+                    "source": "ytdlp"
+                })
+        return videos
+    except Exception as e:
+        print(f"Nota extrayendo yt-dlp ({url_canal}): {e}")
+        return []
+
 
 def extraer_entradas_xml(xml_texto: str) -> list:
+    """Tier 3: Extrae entradas del feed RSS XML de YouTube."""
     entradas = []
     for entry in re.findall(r'<entry>(.*?)</entry>', xml_texto, re.DOTALL):
         vid_m = re.search(r'<yt:videoId>(.*?)</yt:videoId>', entry)
@@ -125,13 +293,49 @@ def extraer_entradas_xml(xml_texto: str) -> list:
                 "titulo": html.unescape(title_m.group(1).strip()),
                 "link": link,
                 "published_str": pub_str,
-                "published_dt": dt_pub
+                "published_dt": dt_pub,
+                "published_text": "",
+                "source": "xml"
             })
     return entradas
 
 
+def extraer_videos_canal(canal: dict) -> list:
+    """Aplica la estrategia Multi-Tier para obtener videos del canal:
+       Tier 1: Web scraping de ytInitialData (lockupViewModel)
+       Tier 2: yt-dlp
+       Tier 3: XML RSS Feed de YouTube
+    """
+    url_canal = canal.get("url") or f"https://www.youtube.com/{canal.get('handle', '')}/videos"
+
+    # Tier 1: Web scraping
+    videos = extraer_videos_web(url_canal)
+    if videos:
+        return videos
+
+    # Tier 2: yt-dlp
+    videos = extraer_videos_ytdlp(url_canal)
+    if videos:
+        return videos
+
+    # Tier 3: XML RSS Feed
+    try:
+        url_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={canal['id']}"
+        req = urllib.request.Request(url_rss, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
+        })
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            xml_texto = resp.read().decode('utf-8', errors='ignore')
+            if xml_texto:
+                return extraer_entradas_xml(xml_texto)
+    except Exception:
+        pass
+
+    return []
+
+
 def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
-    """Revisa los feeds RSS de YouTube y anuncia nuevos videos. Retorna cantidad de videos anunciados."""
+    """Revisa los canales de YouTube y anuncia nuevos videos. Retorna cantidad de videos anunciados."""
     vistos = cargar_vistos()
     es_primera_vez = len(vistos) == 0
     nuevos_vistos = list(vistos)
@@ -140,48 +344,35 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
     anunciados = 0
 
     for canal in CANALES_RADAR:
-        url = f"https://www.youtube.com/feeds/videos.xml?channel_id={canal['id']}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-        }
-        xml_texto = ""
-        for reintento in range(2):
-            try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    xml_texto = resp.read().decode('utf-8', errors='ignore')
-                    break
-            except urllib.error.HTTPError as he:
-                if reintento == 1:
-                    # Silenciar spam en logs tras reintentar
-                    pass
-                time.sleep(2)
-            except Exception as e_req:
-                if reintento == 1:
-                    print(f"⚠️ Error al conectar a {canal['nombre']}: {e_req}")
-                time.sleep(2)
-
-        if not xml_texto:
-            continue
-
         try:
-
-            entradas = extraer_entradas_xml(xml_texto)
-            for datos in entradas:
+            entradas = extraer_videos_canal(canal)
+            for idx, datos in enumerate(entradas):
                 vid = datos["video_id"]
-                dt_pub = datos["published_dt"]
+                dt_pub = datos.get("published_dt")
+                pub_txt = (datos.get("published_text") or "").lower()
+                source = datos.get("source", "")
 
                 if vid in vistos or vid in nuevos_vistos:
                     continue
 
-                segundos_antiguedad = (ahora_utc - dt_pub).total_seconds() if dt_pub else 999999
-                # Ventana máxima de 25 minutos: detecta videos nuevos en sondeos de 90s o publicados durante deploys (1-2 min),
-                # y previene 100% que al reiniciar o desplegar se re-anuncien videos de horas o días anteriores.
-                es_reciente = segundos_antiguedad < 1500
+                # Si es la primera vez que se inicializa la BD, registrar existentes sin anunciar
+                if es_primera_vez:
+                    nuevos_vistos.append(vid)
+                    continue
 
-                # Si es un video anterior (publicado hace más de 25 minutos), registrar como visto sin spamear el chat
+                # Criterio robusto de novedad
+                es_reciente = False
+                if dt_pub:
+                    segundos = (ahora_utc - dt_pub).total_seconds()
+                    es_reciente = segundos < 86400  # Últimas 24 horas
+                elif pub_txt:
+                    palabras_recientes = ["min", "hora", "seg", "ahora", "vivo", "live", "hour", "sec", "now", "estreno", "premier"]
+                    es_reciente = any(w in pub_txt for w in palabras_recientes)
+                elif source == "ytdlp":
+                    # Si viene de yt-dlp y es de los 2 primeros del canal
+                    es_reciente = idx < 2
+
+                # Si no es reciente (ej: video publicado hace días/meses), marcar como visto sin notificar
                 if not es_reciente:
                     nuevos_vistos.append(vid)
                     continue
@@ -197,6 +388,8 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo) -> int:
                         fecha_txt = dt_col.strftime("%d/%m/%Y a las %I:%M %p")
                     except Exception:
                         fecha_txt = dt_pub.strftime("%d/%m/%Y")
+                elif datos.get("published_text"):
+                    fecha_txt = datos["published_text"].capitalize()
                 else:
                     fecha_txt = "Hace unos momentos"
 

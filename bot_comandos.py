@@ -1567,18 +1567,22 @@ def escuchar_comandos() -> None:
 
                             def procesar_programacion_yt():
                                 try:
-                                    from radar_youtube import CANALES_RADAR, extraer_entradas_xml
-                                    tit_found = ""
-                                    for c_r in CANALES_RADAR:
-                                        u_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={c_r['id']}"
-                                        r_rss = urllib.request.Request(u_rss, headers={'User-Agent': 'Mozilla/5.0'})
-                                        xml_rss = urllib.request.urlopen(r_rss, timeout=10).read().decode('utf-8', errors='ignore')
-                                        for ent in extraer_entradas_xml(xml_rss):
-                                            if ent["video_id"] == vid:
-                                                tit_found = ent["titulo"]
+                                    from radar_youtube import CANALES_RADAR, extraer_entradas_xml, obtener_titulo_video
+                                    tit_found = obtener_titulo_video(vid)
+                                    if not tit_found:
+                                        for c_r in CANALES_RADAR:
+                                            try:
+                                                u_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={c_r['id']}"
+                                                r_rss = urllib.request.Request(u_rss, headers={'User-Agent': 'Mozilla/5.0'})
+                                                xml_rss = urllib.request.urlopen(r_rss, timeout=6).read().decode('utf-8', errors='ignore')
+                                                for ent in extraer_entradas_xml(xml_rss):
+                                                    if ent["video_id"] == vid:
+                                                        tit_found = ent["titulo"]
+                                                        break
+                                            except Exception:
+                                                pass
+                                            if tit_found:
                                                 break
-                                        if tit_found:
-                                            break
 
                                     info_cat = identificar_audio_catalogo(texto=tit_found or vid)
                                     if info_cat:
