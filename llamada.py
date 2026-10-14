@@ -892,10 +892,9 @@ def generar_texto_reglas() -> str:
         "• 👑 *Centinela:* Asistir a más del 90% de las reuniones del mes.\n\n"
         "👑 **ADMINISTRADORES Y MODERADORES:**\n"
         "• Los administradores y moderadores están exentos del sistema de puntos y no participan en rankings ni podios, garantizando una competencia comunitaria justa.\n\n"
-        "✋ **TURNOS Y MODERACIÓN DE MICRÓFONOS:**\n"
-        "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para pedir la palabra.\n"
-        "• Máximo 2 personas hablando a la vez para evitar interferencias.\n"
-        "• Si alguien deja el micrófono abierto sin hablar por 5 segundos, el bot lo silenciará automáticamente para proteger la sala de ruidos de fondo.\n\n"
+        "✋ **TURNOS Y PARTICIPACIÓN:**\n"
+        "• Escribe `/turno` en el grupo o levanta la mano ✋ en la sala para coordinar la palabra en orden.\n"
+        "• Micrófonos 100% libres y sin cortes automáticos: cada participante gestiona su micrófono de forma responsable.\n\n"
         "📝 **MINUTAS Y ACTAS CON IA:**\n"
         "• Al finalizar la llamada, la IA de Google Gemini genera un resumen y acta oficial de la sesión.\n"
         "• Escribe `/buscar <palabra>` para encontrar temas tratados en llamadas anteriores.\n"
@@ -4373,28 +4372,15 @@ async def main() -> None:
                     except Exception:
                         checked_admins_cache.discard(uid)
 
-                if uid == me.id:
+                if uid == me.id and reproduciendo_meditacion and p_muted:
                     # Si es la cuenta del bot reproduciendo meditación y Telegram lo silencia, restaurarlo
-                    if reproduciendo_meditacion and p_muted:
-                        try:
-                            from telethon.tl.types import InputPeerSelf
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
-                            if tgcalls:
-                                await tgcalls.unmute(destino)
-                        except Exception:
-                            pass
-                else:
-                    # Retirar cualquier restricción o candado de micrófono impuesto por Telegram
-                    if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
-                        try:
-                            try:
-                                raid_peer = await client.get_input_entity(p.peer)
-                            except Exception:
-                                raid_peer = await client.get_input_entity(uid)
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=raid_peer, muted=False))
-                            print(f"🔓 Candado de silencio retirado para {nombre} ({uid}).")
-                        except Exception:
-                            pass
+                    try:
+                        from telethon.tl.types import InputPeerSelf
+                        await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
+                        if tgcalls:
+                            await tgcalls.unmute(destino)
+                    except Exception:
+                        pass
 
                 # Registro de oradores activos para lista de turnos y métricas de participación
                 if not p_muted:

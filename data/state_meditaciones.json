@@ -1,8 +1,9 @@
 {
-  "fecha_actualizacion": "2026-10-13",
+  "fecha_actualizacion": "2026-10-14",
   "indice": 7,
   "numero_programado": 1093,
-  "ultimo_reproducido": 1094,
+  "siguiente_indice": 8,
+  "siguiente_numero": 1092,
   "override": false,
-  "descripcion": "Completada #1094 el 2026-10-13. Siguiente programada: #1093 (índice 7)"
+  "descripcion": "Calendario matemático: hoy #1093 (índice 7), mañana #1092 (índice 8)"
 }
