@@ -4448,6 +4448,12 @@ async def main() -> None:
                     else:
                         segundos_mic_abierto_med.pop(uid, None)
                         segundos_inactividad_mic.pop(uid, None)
+                        # Diagnóstico: registrar cada cambio de estado del micrófono de un administrador
+                        _diag_prev = globals().setdefault("_DIAG_MIC_ADMIN", {})
+                        _diag_est = (bool(p_muted), getattr(p, "can_self_unmute", None), getattr(p, "muted_by_you", None))
+                        if _diag_prev.get(uid) != _diag_est:
+                            _diag_prev[uid] = _diag_est
+                            print(f"🩺 [DIAG-MIC] Admin {nombre} ({uid}): muted={_diag_est[0]} can_self_unmute={_diag_est[1]} muted_by_you={_diag_est[2]} meditacion={reproduciendo_meditacion} t={ahora.strftime('%H:%M:%S')}")
                         # Para administradores humanos: retirar cualquier restricción de micrófono impuesta por Telegram
                         if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
                             try:
