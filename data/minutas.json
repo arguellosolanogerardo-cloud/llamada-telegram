@@ -595,31 +595,13 @@
   },
   "2026-10-14": {
     "fecha": "2026-10-14",
-    "duracion_minutos": 87,
-    "asistentes_count": 20,
+    "duracion_minutos": 3,
+    "asistentes_count": 2,
     "oradores": [
       "GERARDO Argüello 3",
-      "Salvador Benitez",
-      "Myriam Gil Pérez 🇵🇪",
-      "Alexander 🇨🇴 57 colombia🇨🇴 Paredes",
-      "Cristina López Sanabria",
-      "Antonio Pérez García",
-      "J L CELIS R🇲🇽🇲🇽🇲🇽CHOQUITO",
-      "Alicia Vega Romero 🇲🇽",
-      "Elvira💗 Gomez",
-      "Paty",
-      "Father Gerardo Perez",
-      "YASNA ANDRADE SAIGG Linaje Rha",
-      "GERARDO ARGUELLO2",
-      "Alezaida Guevara",
-      "Betty Hernandez",
-      "Martha Valdez",
-      "Maria Montero",
-      "Claudia Maricela Campos Rodríguez",
-      "Isidra Ramirez",
-      "Elvia Lopez"
+      "Father Gerardo Perez"
     ],
-    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-14** con una duración de **87 minutos** y un total de **20 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Salvador Benitez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Myriam Gil Pérez 🇵🇪:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Alexander 🇨🇴 57 colombia🇨🇴 Paredes:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Cristina López Sanabria:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Antonio Pérez García:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **J L CELIS R🇲🇽🇲🇽🇲🇽CHOQUITO:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Alicia Vega Romero 🇲🇽:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Elvira💗 Gomez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Paty:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **YASNA ANDRADE SAIGG Linaje Rha:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Alezaida Guevara:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Betty Hernandez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Martha Valdez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Maria Montero:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Claudia Maricela Campos Rodríguez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Isidra Ramirez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Elvia Lopez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-14** con una duración de **3 minutos** y un total de **2 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
     "ruta_pdf": "data/actas/acta_2026-10-14.pdf",
     "info_catalogo": {
       "numero": 1093,
@@ -628,28 +610,7 @@
       "fecha": "09/04/20",
       "maestro": "Alaniso",
       "detectado_como": "MEDITACION",
-      "fecha_tarea_admin": "14/10/2026",
-      "cola_audios": [
-        {
-          "numero": 1093,
-          "tipo": "MEDITACION",
-          "titulo": "No tomen a la ligera que ya llego el momento del gran cambio",
-          "fecha": "09/04/20",
-          "maestro": "Alaniso",
-          "detectado_como": "MEDITACION",
-          "fecha_tarea_admin": "14/10/2026"
-        },
-        {
-          "numero": 995,
-          "tipo": "MENSAJE",
-          "subtipo": "Mensaje Previo a Meditación",
-          "titulo": "Mensaje del 05/03/19 (Asociado a Meditación #995)",
-          "fecha_original": "05/03/19",
-          "fecha": "05/03/19",
-          "maestro": "Axel",
-          "detectado_como": "MENSAJE"
-        }
-      ]
+      "fecha_tarea_admin": "14/10/2026"
     }
   }
 }
