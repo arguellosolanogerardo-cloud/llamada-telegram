@@ -2495,37 +2495,12 @@ async def main() -> None:
                             pass
                 print("Todos los administradores confirmados con permiso de voz libre y desbloqueado.")
 
-                # 8. Silenciar a los usuarios NORMALES durante la meditación (los administradores quedan SIEMPRE libres)
+                # 8. Modo libre: NO silenciar a los participantes ni activar candados de sala
                 try:
-                    parts_med, users_med, chats_med = await obtener_todos_participantes_llamada(client, input_call)
-                    users_cache.update(users_med)
-                    chats_cache.update(chats_med)
-                    silenciados_med = 0
-                    for p in parts_med:
-                        if getattr(p, "left", False):
-                            continue
-                        p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
-                        if not p_uid or p_uid == me.id:
-                            continue
-                        u_m = users_cache.get(p_uid)
-                        nom_m = f"{getattr(u_m, 'first_name', '') or ''} {getattr(u_m, 'last_name', '') or ''}".strip() if u_m else ""
-                        if es_participante_admin(p_uid, nom_m, p.peer):
-                            continue
-                        try:
-                            input_peer = await client.get_input_entity(p.peer)
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                            silenciados_med += 1
-                        except Exception:
-                            pass
-                    # NO se activa join_muted: ese candado de Telegram puede dejar a un administrador sin poder abrir
-                    # el micrófono. Se asegura que esté desactivado; los usuarios nuevos se moderan con gracia en el ciclo.
-                    try:
-                        await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
-                    except Exception:
-                        pass
-                    print(f"🔇 Meditación: {silenciados_med} participantes normales silenciados. Administradores siempre libres.")
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                    print("🔓 Meditación: Sala completamente libre y sin restricciones de micrófono (join_muted=False).")
                 except Exception as e:
-                    print("Nota silenciando participantes para meditación:", e)
+                    print("Nota configurando join_muted=False en meditación:", e)
 
                 iniciar_seguimiento_posicion(-DURACION_GONG_SEG)
                 token_reproduccion += 1
@@ -3031,16 +3006,10 @@ async def main() -> None:
                 cola_turnos[:] = [t for t in cola_turnos if t["id"] != uid]
                 oradores_activos.discard(uid)
                 if era_orador or en_cola:
-                    try:
-                        input_peer = await client.get_input_entity(uid)
-                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                        lanzar_tarea(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
-                    except Exception:
-                        pass
                     await responder(f"🤝 **{nom}**, has cedido tu turno de palabra. ¡Muchas gracias por compartir!")
                     await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 else:
-                    await responder("⏳fono activo.")
+                    await responder("⏳ No tenías turno en espera ni micrófono activo.")
             elif texto_cmd in ("/turnos",):
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
             elif texto_cmd in ("/buscar",):
@@ -4078,47 +4047,12 @@ async def main() -> None:
                     except Exception as e:
                         print("Nota pausando grabación en oración:", e)
 
-                # Silenciar micrófonos de TODOS los no-admins en la sala para garantizar silencio en oración
+                # Oración: Sala libre sin restricciones técnicas (respeto voluntario del silencio sagrado)
                 try:
-                    # 1. Obtener lista completa de participantes activos en la llamada
-                    parts_oracion, users_or, chats_or = await obtener_todos_participantes_llamada(client, input_call)
-                    users_cache.update(users_or)
-                    chats_cache.update(chats_or)
-                    silenciados_oracion = 0
-                    for p in parts_oracion:
-                        if getattr(p, "left", False):
-                            continue
-                        p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
-                        if not p_uid or p_uid == me.id:
-                            continue
-                        u_or = users_cache.get(p_uid)
-                        nom_or = f"{getattr(u_or, 'first_name', '') or ''} {getattr(u_or, 'last_name', '') or ''}".strip() if u_or else ""
-                        if es_participante_admin(p_uid, nom_or, p.peer):
-                            continue
-                        try:
-                            input_peer = await client.get_input_entity(p.peer)
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                            silenciados_oracion += 1
-                        except Exception:
-                            pass
-                    # 2. Bloquear micrófono global: nuevos participantes entran silenciados
-                    try:
-                        await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
-                    except Exception:
-                        pass
-                    oradores_activos = {u for u in oradores_activos if u in admin_ids}
-                    # 3. Garantizar que todos los administradores tengan el micrófono habilitado
-                    for aid in admin_ids:
-                        if aid != me.id:
-                            try:
-                                admin_peer = await client.get_input_entity(aid)
-                                await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
-                            except Exception:
-                                pass
-                    print(f"🔇 Oración: {silenciados_oracion} participantes silenciados. Administradores con voz libre.")
-                    await actualizar_mensaje_turnos(forzar_al_fondo=True)
-                except Exception as e:
-                    print("Nota silenciando micrófonos para oración:", e)
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                    print("🕊️ Oración: Micrófonos libres y sin candados técnicos en la sala.")
+                except Exception:
+                    pass
 
                 # Construir botones interactivos grandes para el anuncio
                 bot_user = obtener_username_bot()
@@ -4433,106 +4367,39 @@ async def main() -> None:
                     except Exception:
                         checked_admins_cache.discard(uid)
 
-                if es_adm:
-                    # ADMINISTRADORES: NUNCA SILENCIADOS BAJO NINGUNA CIRCUNSTANCIA
-                    # Si Telegram le impone candado o silencio administrativo, retirarlo inmediatamente
-                    if uid == me.id:
-                        if reproduciendo_meditacion and p_muted:
-                            try:
-                                from telethon.tl.types import InputPeerSelf
-                                await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
-                                if tgcalls:
-                                    await tgcalls.unmute(destino)
-                            except Exception:
-                                pass
-                    else:
-                        segundos_mic_abierto_med.pop(uid, None)
-                        segundos_inactividad_mic.pop(uid, None)
-                        # Diagnóstico: registrar cada cambio de estado del micrófono de un administrador
-                        _diag_prev = globals().setdefault("_DIAG_MIC_ADMIN", {})
-                        _diag_est = (bool(p_muted), getattr(p, "can_self_unmute", None), getattr(p, "muted_by_you", None))
-                        if _diag_prev.get(uid) != _diag_est:
-                            _diag_prev[uid] = _diag_est
-                            print(f"🩺 [DIAG-MIC] Admin {nombre} ({uid}): muted={_diag_est[0]} can_self_unmute={_diag_est[1]} muted_by_you={_diag_est[2]} meditacion={reproduciendo_meditacion} t={ahora.strftime('%H:%M:%S')}")
-                        # Para administradores humanos: retirar cualquier restricción de micrófono impuesta por Telegram
-                        if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
-                            try:
-                                try:
-                                    raid_peer = await client.get_input_entity(p.peer)
-                                except Exception:
-                                    raid_peer = await client.get_input_entity(uid)
-                                await client(EditGroupCallParticipantRequest(call=input_call, participant=raid_peer, muted=False))
-                                print(f"🔓 Candado de silencio retirado para administrador {nombre} ({uid}).")
-                            except Exception:
-                                pass
+                if uid == me.id:
+                    # Si es la cuenta del bot reproduciendo meditación y Telegram lo silencia, restaurarlo
+                    if reproduciendo_meditacion and p_muted:
+                        try:
+                            from telethon.tl.types import InputPeerSelf
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
+                            if tgcalls:
+                                await tgcalls.unmute(destino)
+                        except Exception:
+                            pass
                 else:
-                    if reproduciendo_meditacion:
-                        # Durante la meditación, a un usuario NORMAL con el micrófono abierto se le da una gracia
-                        # continua (SEGUNDOS_GRACIA_MUTE_MEDITACION) antes de silenciarlo: nada de cortes a los 2 segundos.
-                        if not p_muted:
-                            seg_abierto = segundos_mic_abierto_med.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
-                            segundos_mic_abierto_med[uid] = seg_abierto
-                            if seg_abierto >= SEGUNDOS_GRACIA_MUTE_MEDITACION:
-                                # Verificación final en vivo de permisos justo antes de silenciar (último blindaje)
-                                es_admin_final = False
-                                try:
-                                    perm_f = await client.get_permissions(entidad, uid)
-                                    if getattr(perm_f, 'is_admin', False) or getattr(perm_f, 'is_creator', False) or getattr(perm_f, 'manage_call', False):
-                                        es_admin_final = True
-                                except Exception as e_pf:
-                                    print(f"Nota verificando permisos finales de {nombre} ({uid}): {e_pf}")
-                                if es_admin_final or es_participante_admin(uid, nombre, p.peer):
-                                    admin_ids.add(uid)
-                                    segundos_mic_abierto_med.pop(uid, None)
-                                    print(f"👑 Rescate final de administrador: {nombre} ({uid}). NO se silencia.")
-                                else:
-                                    try:
-                                        input_peer = await client.get_input_entity(uid)
-                                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                        oradores_activos.discard(uid)
-                                        segundos_mic_abierto_med[uid] = 0
-                                        hubo_cambio_turnos = True
-                                        print(f"🔇 Usuario normal silenciado tras {seg_abierto}s con mic abierto en meditación: {nombre} ({uid}) [admin_ids={uid in admin_ids}, can_self_unmute={getattr(p, 'can_self_unmute', None)}]")
-                                    except Exception as e:
-                                        print(f"Nota silenciando en meditación a {nombre}:", e)
-                        else:
-                            segundos_mic_abierto_med.pop(uid, None)
-                    else:
-                        if not p_muted:
-                            # Micrófono abierto: permitir hablar libremente sin cortes abruptos a los 2 segundos
-                            if uid not in oradores_activos:
-                                oradores_activos.add(uid)
-                                hubo_cambio_turnos = True
+                    # Retirar cualquier restricción o candado de micrófono impuesto por Telegram
+                    if getattr(p, "can_self_unmute", True) is False or getattr(p, "muted_by_you", False) is True:
+                        try:
+                            try:
+                                raid_peer = await client.get_input_entity(p.peer)
+                            except Exception:
+                                raid_peer = await client.get_input_entity(uid)
+                            await client(EditGroupCallParticipantRequest(call=input_call, participant=raid_peer, muted=False))
+                            print(f"🔓 Candado de silencio retirado para {nombre} ({uid}).")
+                        except Exception:
+                            pass
 
-                            if hablo_ahora:
-                                segundos_inactividad_mic[uid] = 0
-                                avisados_auto_mute.discard(uid)
-                            else:
-                                # Micrófono abierto pero en silencio prolongado
-                                seg_inac = segundos_inactividad_mic.get(uid, 0) + INTERVALO_SONDEO_SEGUNDOS
-                                segundos_inactividad_mic[uid] = seg_inac
+                # Registro de oradores activos para lista de turnos y métricas de participación
+                if not p_muted:
+                    if uid not in oradores_activos:
+                        oradores_activos.add(uid)
+                        hubo_cambio_turnos = True
+                else:
+                    if uid in oradores_activos:
+                        oradores_activos.discard(uid)
+                        hubo_cambio_turnos = True
 
-                                # Solo silenciar tras 30s continuos de silencio absoluto (evitar ruidos de fondo por olvido)
-                                if seg_inac >= SEGUNDOS_INACTIVIDAD_MUTE:
-                                    try:
-                                        input_peer = await client.get_input_entity(uid)
-                                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                                        lanzar_tarea(auto_desbloquear_microfono(uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
-                                        oradores_activos.discard(uid)
-                                        segundos_inactividad_mic[uid] = 0
-                                        hubo_cambio_turnos = True
-                                        if uid not in avisados_auto_mute:
-                                            avisados_auto_mute.add(uid)
-                                            avisar_con_bot(f"Hola **{nombre}** 👋, notamos que tu micrófono se quedó abierto en silencio por 30s, así que lo cerramos por ti para cuidar la sala de ruidos de fondo. ¡Siéntete libre de volver a abrirlo cuando gustes participar! 💖", es_efimero=True)
-                                        print(f"Auto-mute aplicado a {nombre} ({uid}) tras {seg_inac}s de inactividad. Desbloqueo programado en {DURACION_BLOQUEO_MUTE_SEGUNDOS}s.")
-                                    except Exception as e:
-                                        print(f"Nota auto-muteando a {nombre}:", e)
-                        else:
-                            # Micrófono cerrado
-                            segundos_inactividad_mic[uid] = 0
-                            if uid in oradores_activos:
-                                oradores_activos.discard(uid)
-                                hubo_cambio_turnos = True
 
             # Acumular segundos para TODOS los participantes conectados (oyentes y oradores)
             for uid in list(participantes_conectados):
