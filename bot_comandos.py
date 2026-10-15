@@ -285,7 +285,13 @@ class HealthHandler(BaseHTTPRequestHandler):
             )
             self.wfile.write(diag_txt.encode("utf-8"))
             return
-        if self.path == "/diag":
+        if self.path.startswith("/diag"):
+            try:
+                allowed_types = urllib.parse.quote(json.dumps(["message", "edited_message", "callback_query"]))
+                url_rst = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?limit=1&timeout=0&allowed_updates={allowed_types}"
+                urllib.request.urlopen(urllib.request.Request(url_rst, headers={"User-Agent": "BotComandosHealth"}), timeout=5)
+            except Exception:
+                pass
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
             try:
                 req = urllib.request.Request(url)
@@ -1152,7 +1158,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     num = str(info_cat.get('numero', '')).strip()
     titulo = info_cat.get('titulo', '')
     maestro = info_cat.get('maestro', 'Comunidad')
-    fecha = info_cat.get('fecha', '')
+    fecha = info_cat.get("fecha_original") or info_cat.get("fecha", "")
 
     caption = (
         f"🧘 **{tipo_nombre} #{num}**\n"
@@ -1432,7 +1438,9 @@ def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
     if any(v in t_up for v in verbos):
         return True
 
-    if re.match(r"^(?:MEDITACI[OÓ]N|MENSAJE|AUDIO)\s+#?\d{1,4}", t_up.strip()):
+    if re.match(r"^(?:AUDIO\s+)?(?:MEDITACI[OÓ]N|MENSAJE)\s+#?\d{1,4}", t_up.strip()):
+        return True
+    if re.match(r"^AUDIO\s+#?\d{1,4}", t_up.strip()):
         return True
 
     return False
@@ -1477,12 +1485,20 @@ def escuchar_comandos() -> None:
     # Llamar deleteWebhook para liberar el token de cualquier webhook activo
     # antes de iniciar el long-polling.  Si otra instancia está corriendo,
     # sus requests de getUpdates fallarán con 409 hasta que Render la mate.
+    _ALLOWED_UPDATES_PARAM = urllib.parse.quote(json.dumps(["message", "edited_message", "callback_query"]))
     try:
         url_dw = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=false"
         urllib.request.urlopen(urllib.request.Request(url_dw, headers={"User-Agent": "BotComandos"}), timeout=10)
         print("✅ deleteWebhook ejecutado correctamente al inicio.")
     except Exception as e_dw:
         print(f"⚠️ deleteWebhook falló (no crítico): {e_dw}")
+
+    try:
+        url_init_up = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?limit=1&timeout=0&allowed_updates={_ALLOWED_UPDATES_PARAM}"
+        urllib.request.urlopen(urllib.request.Request(url_init_up, headers={"User-Agent": "BotComandos"}), timeout=10)
+        print("✅ allowed_updates (mensajes y callbacks) restaurado en Telegram.")
+    except Exception as e_init:
+        print(f"⚠️ Error restaurando allowed_updates: {e_init}")
 
     # Cargar offset persistido en disco para no reprocesar updates tras reinicio
     _OFFSET_FILE = os.path.join("data", "last_update_id.txt")
@@ -1511,7 +1527,7 @@ def escuchar_comandos() -> None:
 
     while True:
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=20"
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=20&allowed_updates={_ALLOWED_UPDATES_PARAM}"
             req = urllib.request.Request(url, headers={"User-Agent": "BotComandos"})
             with urllib.request.urlopen(req, timeout=30) as r:
                 res = json.loads(r.read().decode())
