@@ -1,0 +1,84 @@
+name: Anunciar Video YouTube
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_id:
+        description: 'ID o URL del video de YouTube a anunciar'
+        required: true
+        default: 'v5zwtMKOj3A'
+
+jobs:
+  anunciar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: pip install requests pillow yt-dlp
+      - name: Publicar video en Telegram
+        run: |
+          python -c "
+          import os, re, json, urllib.request, requests
+          from radar_youtube import anunciar_video_manual, cargar_vistos, guardar_vistos
+
+          bot_token = os.environ.get('BOT_TOKEN', '').strip()
+          chat_id = os.environ.get('CHAT_ID') or os.environ.get('TG_GROUP') or '-1002963691819'
+          raw_input = '${{ github.event.inputs.video_id }}'.strip()
+          m = re.search(r'(?:v=|\/|youtu\.be\/)([a-zA-Z0-9_-]{11})', raw_input)
+          vid = m.group(1) if m else raw_input
+
+          print(f'Procesando anuncio para video ID: {vid} en chat: {chat_id}')
+
+          def send_msg(target, text, reply_markup=None):
+              url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+              p = {'chat_id': target, 'text': text, 'parse_mode': 'Markdown'}
+              if reply_markup: p['reply_markup'] = reply_markup
+              req = urllib.request.Request(url, data=json.dumps(p).encode('utf-8'), headers={'Content-Type': 'application/json; charset=utf-8'})
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  res = json.loads(r.read().decode())
+                  return res.get('result', {}).get('message_id')
+
+          def send_photo(target, photo_url, caption='', reply_markup=None):
+              url = f'https://api.telegram.org/bot{bot_token}/sendPhoto'
+              d = {'chat_id': str(target), 'caption': caption, 'parse_mode': 'Markdown', 'photo': photo_url}
+              if reply_markup: d['reply_markup'] = json.dumps(reply_markup)
+              r = requests.post(url, data=d, timeout=30)
+              res = r.json()
+              if res.get('ok'):
+                  return res.get('result', {}).get('message_id')
+              print('Aviso envío foto Telegram:', res)
+              return None
+
+          ok = anunciar_video_manual(vid, send_msg, chat_id, bot_enviar_foto_func=send_photo)
+          if ok:
+              print(f'¡Éxito! Video {vid} anunciado en Telegram.')
+              vistos = cargar_vistos()
+              if vid not in vistos:
+                  vistos.append(vid)
+                  guardar_vistos(vistos)
+          else:
+              print(f'Error anunciando video {vid}.')
+              exit(1)
+          "
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TG_GROUP: ${{ secrets.TG_GROUP }}
+      - name: Guardar registro de video anunciado
+        if: success()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/radar_vistos.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(radar): registrar video anunciado en radar_vistos [skip ci]"
+            for i in 1 2 3; do
+              git pull --rebase -X theirs origin main && git push && break
+              sleep 2
+            done
+          fi

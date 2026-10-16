@@ -764,17 +764,33 @@ def formatear_tiempo_mm_ss(segundos: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion_seg: float = 0.0, ruta_salida: str = None) -> str | None:
+def generar_caratula_meditacion(
+    numero: str,
+    titulo: str,
+    maestro: str,
+    duracion_seg: float = 0.0,
+    ruta_salida: str = None,
+    tipo: str = "MEDITACION",
+) -> str | None:
     dur_s = float(duracion_seg) if duracion_seg > 0 else 1800.0
     if 0 < dur_s <= 120.0:
         dur_s *= 60.0
 
-    # 1. Intentar reutilizar video animado MP4 si ya fue generado para esta meditación
-    ruta_mp4 = ruta_salida if (ruta_salida and ruta_salida.lower().endswith(".mp4")) else os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.mp4")
+    tipo_norm = str(tipo or "MEDITACION").strip().upper()
+    es_mensaje = "MENSAJE" in tipo_norm
+    tipo_tag = "mensaje" if es_mensaje else "meditacion"
+    tag = f"{tipo_tag}_{numero}" if numero else f"{tipo_tag}_diario"
+
+    # 1. Intentar reutilizar video animado MP4 si ya fue generado para este audio específico
+    if ruta_salida and ruta_salida.lower().endswith(".mp4"):
+        ruta_mp4 = ruta_salida
+    else:
+        ruta_mp4 = os.path.join(CARPETA_MEDITACIONES, f"caratula_{tag}.mp4")
+
     if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
         dur_existente = obtener_duracion_segundos(ruta_mp4)
         if abs(dur_existente - dur_s) <= 15.0:
-            print(f"🎬 Carátula de video MP4 ya existente y sincronizada ({dur_existente:.1f}s), reutilizando.")
+            print(f"🎬 Carátula de video MP4 ({tag}) ya existente y sincronizada ({dur_existente:.1f}s), reutilizando.")
             return ruta_mp4
 
     try:
@@ -785,16 +801,17 @@ def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion
             maestro=maestro,
             duracion_seg=dur_s,
             ruta_salida=ruta_mp4,
+            tipo=tipo_norm,
         )
         if vid and os.path.exists(vid) and os.path.getsize(vid) > 5000:
             return vid
     except Exception as e_v:
-        print("Nota generando video animado de meditación, usando fallback a carátula estática:", e_v)
+        print(f"Nota generando video animado ({tag}), usando fallback a carátula estática:", e_v)
 
     # 2. Fallback a imagen estática JPG de alta calidad
     try:
         from astronomia_luna import generar_caratula_meditacion_luna
-        ruta_jpg = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.jpg")
+        ruta_jpg = os.path.join(CARPETA_MEDITACIONES, f"caratula_{tag}.jpg")
         return generar_caratula_meditacion_luna(
             numero=numero,
             titulo=titulo,
@@ -802,9 +819,10 @@ def generar_caratula_meditacion(numero: str, titulo: str, maestro: str, duracion
             duracion_seg=dur_s,
             progreso_seg=0.0,
             ruta_salida=ruta_jpg,
+            tipo=tipo_norm,
         )
     except Exception as e:
-        print("Nota generando carátula lunar con astronomia_luna:", e)
+        print(f"Nota generando carátula lunar ({tag}) con astronomia_luna:", e)
         return None
 
 
@@ -1902,6 +1920,11 @@ async def main() -> None:
             num = (info or {}).get("numero", "")
             tit = (info or {}).get("titulo", "Meditación Diaria")
             maestro = (info or {}).get("maestro", "Alaniso")
+            tipo_pnl = str((info or {}).get("tipo", "MEDITACION")).strip().upper()
+            if not tipo_pnl or tipo_pnl == "MEDITACION":
+                if "MENSAJE" in str(tit).upper():
+                    tipo_pnl = "MENSAJE"
+            es_msg = "MENSAJE" in tipo_pnl
 
             icono_estado = "⏸️ *(En pausa)*" if en_pausa else "▶️ *(En reproducción)*"
             barra = generar_barra_progreso(pos_s, dur_s, ancho=14)
@@ -1910,7 +1933,10 @@ async def main() -> None:
             pct = int(round((pos_s / max(1.0, dur_s)) * 100))
             pct = max(0, min(100, pct))
 
-            encabezado = f"🧘 **MEDITACIÓN #{num}** — *{tit}*" if num else f"🧘 **{tit}**"
+            if es_msg:
+                encabezado = f"📜✨ **MENSAJE #{num}** — *{tit}*" if num else f"📜✨ **{tit}**"
+            else:
+                encabezado = f"🧘✨ **MEDITACIÓN #{num}** — *{tit}*" if num else f"🧘✨ **{tit}**"
 
             # Información de la cola de reproducción
             total_cola = len(cola_reproduccion)
@@ -1918,9 +1944,13 @@ async def main() -> None:
                 sig_txt = ""
                 if indice_pista_actual + 1 < total_cola:
                     sig_item = cola_reproduccion[indice_pista_actual + 1]
-                    sig_num = (sig_item.get("info") or {}).get("numero")
-                    sig_nom = sig_item.get("titulo") or (sig_item.get("info") or {}).get("titulo") or "Audio"
-                    pref_sig = f"#{sig_num} " if sig_num else ""
+                    sig_info = sig_item.get("info") or {}
+                    sig_num = sig_info.get("numero")
+                    sig_nom = sig_item.get("titulo") or sig_info.get("titulo") or "Audio"
+                    sig_tipo_raw = str(sig_info.get("tipo", "")).upper()
+                    sig_es_msg = "MENSAJE" in sig_tipo_raw or "MENSAJE" in str(sig_nom).upper()
+                    sig_tipo = "Mensaje" if sig_es_msg else "Meditación"
+                    pref_sig = f"{sig_tipo} #{sig_num}: " if sig_num else f"{sig_tipo}: "
                     sig_txt = f"\n⏳ **Próximo en cola:** *{pref_sig}{sig_nom}*"
                 info_cola = f"📋 **Cola:** Pista {indice_pista_actual + 1} de {total_cola}{sig_txt}\n\n"
             else:
@@ -2079,17 +2109,18 @@ async def main() -> None:
                         n_act = inf_act.get("numero", "")
                         t_act = inf_act.get("titulo", "Meditación Diaria")
                         m_act = inf_act.get("maestro", "Alaniso")
+                        tipo_act = inf_act.get("tipo") or ("MENSAJE" if "MENSAJE" in str(t_act).upper() else "MEDITACION")
                         dur_base_orig = obtener_duracion_segundos(audio_base)
                         dur_e = obtener_duracion_segundos(audio_con_gong if os.path.exists(audio_con_gong) else audio_base)
                         if dur_e < (dur_base_orig - 5.0):
                             dur_e = dur_base_orig
                         if dur_e <= 0:
                             dur_e = 1800.0
-                        vid = await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e)
+                        vid = await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e, None, tipo_act)
                         if vid and os.path.exists(vid) and vid.lower().endswith(".mp4"):
                             recursos_meditacion_preparados["video"] = os.path.abspath(vid)
                             ruta_caratula_actual = recursos_meditacion_preparados["video"]
-                        print("✨ Recursos de meditación (audio con gong y video carátula MP4) pre-generados exitosamente en segundo plano.")
+                        print(f"✨ Recursos ({tipo_act} #{n_act}) pre-generados exitosamente en segundo plano.")
                 except Exception as e_p:
                     print("Nota pre-procesando meditacion en segundo plano:", e_p)
             tarea_preparacion_recursos = asyncio.create_task(_preparar_meditacion_completa())
@@ -2107,9 +2138,20 @@ async def main() -> None:
                 if msg_panel_meditacion_id:
                     try:
                         t_tot_str = formatear_tiempo_mm_ss(dur_s)
-                        num_med = (info_catalogo_hoy or {}).get("numero", "")
+                        inf_wd = (cola_reproduccion[p_idx].get("info") if (cola_reproduccion and p_idx < len(cola_reproduccion)) else (info_catalogo_hoy or {})) or {}
+                        num_wd = inf_wd.get("numero", "")
+                        tit_wd = inf_wd.get("titulo", "")
+                        tipo_wd = str(inf_wd.get("tipo", "MEDITACION")).strip().upper()
+                        if not tipo_wd or tipo_wd == "MEDITACION":
+                            if "MENSAJE" in str(tit_wd).upper():
+                                tipo_wd = "MENSAJE"
+                        es_msg_wd = "MENSAJE" in tipo_wd
+                        lbl_item = "MENSAJE" if es_msg_wd else "MEDITACIÓN"
+                        lbl_concluido = "CONCLUIDO" if es_msg_wd else "CONCLUIDA"
+                        icono_item = "📜" if es_msg_wd else "🧘"
+                        cabecera_fin = f"{icono_item} **{lbl_item} #{num_wd} {lbl_concluido}**" if num_wd else f"{icono_item} **{lbl_item} {lbl_concluido}**"
                         txt_fin = (
-                            f"🧘 **MEDITACIÓN #{num_med} CONCLUIDA**\n\n"
+                            f"{cabecera_fin}\n\n"
                             f"⏱️ **Duración:** {t_tot_str}\n"
                             f"🔓 **Micrófonos restablecidos.** ¡Gracias por su práctica y presencia!"
                         )
@@ -2122,17 +2164,19 @@ async def main() -> None:
                     print(f"Watchdog pasando a pista {sig_idx + 1} de {len(cola_reproduccion)}...")
                     siguiente_item = cola_reproduccion[sig_idx]
                     inf_sig = siguiente_item.get("info")
-                    txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"🧘 **Audio #{sig_idx + 1}:** {siguiente_item.get('titulo', 'Meditación')}"
+                    tit_sig_raw = siguiente_item.get('titulo', 'Audio')
+                    ico_sig = "📜" if (inf_sig and "MENSAJE" in str(inf_sig.get("tipo", "")).upper()) or ("MENSAJE" in str(tit_sig_raw).upper()) else "🧘"
+                    txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"{ico_sig} **Audio #{sig_idx + 1}:** {tit_sig_raw}"
                     avisar_con_bot(
-                        f"🔔 **Pista {p_idx + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {len(cola_reproduccion)}:**\n{txt_sig}\n\n🧘 Por favor continúen en silencio...",
+                        f"🔔 **Pista {p_idx + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {len(cola_reproduccion)}:**\n{txt_sig}\n\n{ico_sig} Por favor continúen en silencio...",
                         es_efimero=True
                     )
                     await reproducir_meditacion(sig_idx)
                 else:
                     reproduciendo_meditacion = False
-                    print("Watchdog: Sesión de meditación concluida exitosamente.")
+                    print("Watchdog: Sesión de meditación/mensaje concluida exitosamente.")
                     await desbloquear_todos_los_participantes()
-                    avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
+                    avisar_con_bot("🧘 **Sesión finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
                     if not grabacion_cancelada and not grabacion_pausada:
                         if ruta_grabacion_post not in segmentos_grabados:
                             segmentos_grabados.append(ruta_grabacion_post)
@@ -2167,7 +2211,10 @@ async def main() -> None:
                     num_m = (info_catalogo_hoy or {}).get("numero", "")
                     tit_m = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
                     m_m = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
-                    ruta_video_base = os.path.join(CARPETA_MEDITACIONES, "caratula_meditacion.mp4")
+                    tipo_m = (info_catalogo_hoy or {}).get("tipo") or ("MENSAJE" if "MENSAJE" in str(tit_m).upper() else "MEDITACION")
+                    tipo_tag_seek = "mensaje" if "MENSAJE" in str(tipo_m).upper() else "meditacion"
+                    tag_seek = f"{tipo_tag_seek}_{num_m}" if num_m else f"{tipo_tag_seek}_diario"
+                    ruta_video_base = ruta_caratula_actual if (ruta_caratula_actual and os.path.exists(ruta_caratula_actual) and ruta_caratula_actual.lower().endswith(".mp4")) else os.path.join(CARPETA_MEDITACIONES, f"caratula_{tag_seek}.mp4")
                     destino_video_seek = os.path.join(CARPETA_MEDITACIONES, f"caratula_seek_{token_seek}.mp4")
                     if os.path.exists(ruta_video_base) and os.path.getsize(ruta_video_base) > 5000:
                         import subprocess
@@ -2183,7 +2230,7 @@ async def main() -> None:
                     else:
                         ruta_caratula_actual = await asyncio.to_thread(
                             generar_caratula_meditacion,
-                            num_m, tit_m, m_m, dur_total
+                            num_m, tit_m, m_m, dur_total, None, tipo_m
                         )
                 except Exception as e_car_seek:
                     print("Nota actualizando carátula en salto:", e_car_seek)
@@ -2415,21 +2462,27 @@ async def main() -> None:
             info_catalogo_hoy = pista_actual.get("info")
 
             try:
-                # 1. Anuncio de voz por Toby antes de la meditación oficial (pista inicial)
+                # 1. Anuncio de voz por Toby antes de la meditación/mensaje oficial (pista inicial)
                 if pista_idx == 0:
                     try:
                         num = (info_catalogo_hoy or {}).get("numero", "")
                         tit = (info_catalogo_hoy or {}).get("titulo", "Meditación diaria")
                         maestro = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                        tipo_item = str((info_catalogo_hoy or {}).get("tipo", "MEDITACION")).strip().upper()
+                        if not tipo_item or tipo_item == "MEDITACION":
+                            if "MENSAJE" in str(tit).upper():
+                                tipo_item = "MENSAJE"
+                        es_msg = "MENSAJE" in tipo_item
+                        lbl_anuncio = "el mensaje" if es_msg else "la meditación diaria"
                         if num:
-                            txt_med = f"A continuación daremos inicio a la meditación diaria, Hoy número {num}: {tit}, del maestro {maestro}."
+                            txt_med = f"A continuación daremos inicio a {lbl_anuncio}, Hoy número {num}: {tit}, del maestro {maestro}."
                         else:
-                            txt_med = f"A continuación daremos inicio a la meditación diaria: {tit}, del maestro {maestro}."
-                        print(f"🧘🎙️ Emitiendo anuncio de meditación #{num or 'diaria'} con voz de Toby...")
+                            txt_med = f"A continuación daremos inicio a {lbl_anuncio}: {tit}, del maestro {maestro}."
+                        print(f"🎙️ Emitiendo anuncio de {lbl_anuncio} #{num or 'diario'} con voz de Toby...")
                         await emitir_anuncio_tts(txt_med)
                         await asyncio.sleep(0.5)
                     except Exception as e_tts_med:
-                        print("Nota emitiendo anuncio TTS de meditación:", e_tts_med)
+                        print("Nota emitiendo anuncio TTS:", e_tts_med)
 
                 # 2. Si hay preparación de recursos en segundo plano para esta pista, esperarla (máximo 60s)
                 if pista_idx == 0 and tarea_preparacion_recursos and not tarea_preparacion_recursos.done():
@@ -2453,16 +2506,18 @@ async def main() -> None:
                     ruta_caratula_actual = recursos_meditacion_preparados["video"]
                 else:
                     try:
-                        num_med = (info_catalogo_hoy or {}).get("numero", "")
-                        tit_med = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
-                        m_med = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
+                        inf_pista = pista_actual.get("info") or info_catalogo_hoy or {}
+                        num_med = inf_pista.get("numero", "")
+                        tit_med = inf_pista.get("titulo") or pista_actual.get("titulo", "Meditación Diaria")
+                        m_med = inf_pista.get("maestro", "Alaniso")
+                        tipo_med = inf_pista.get("tipo") or ("MENSAJE" if "MENSAJE" in str(tit_med).upper() else "MEDITACION")
                         dur_pista_orig = obtener_duracion_segundos(ruta_pista)
                         dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
                         if dur_exacta < (dur_pista_orig - 5.0):
                             dur_exacta = dur_pista_orig
                         if dur_exacta <= 0:
                             dur_exacta = 1800.0
-                        ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta)
+                        ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta, None, tipo_med)
                     except Exception as e_car:
                         print("Nota generando carátula:", e_car)
                         ruta_caratula_actual = ""
@@ -2570,14 +2625,22 @@ async def main() -> None:
 
                 total_pistas = len(cola_reproduccion)
                 info_act = pista_actual.get("info")
+                tipo_act_repro = str((info_act or {}).get("tipo", "MEDITACION")).strip().upper()
+                if not tipo_act_repro or tipo_act_repro == "MEDITACION":
+                    if "MENSAJE" in str(pista_actual.get("titulo", "")).upper():
+                        tipo_act_repro = "MENSAJE"
+                es_msg_repro = "MENSAJE" in tipo_act_repro
+                lbl_repro = "mensaje" if es_msg_repro else "meditación oficial"
+                icono_repro = "📜" if es_msg_repro else "🧘"
+
                 if total_pistas == 1:
                     if info_act:
-                        avisar_con_bot(f"▶️ **Reproduciendo meditación oficial:**\n{formatear_info_audio(info_act)}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=False)
+                        avisar_con_bot(f"▶️ **Reproduciendo {lbl_repro}:**\n{formatear_info_audio(info_act)}\n{icono_repro} Por favor disfruten de su sesión en silencio.", es_efimero=False)
                     else:
-                        avisar_con_bot("▶️ **Iniciando reproducción de la meditación diaria en la sala de voz.**\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=False)
+                        avisar_con_bot(f"▶️ **Iniciando reproducción de {lbl_repro} en la sala de voz.**\n{icono_repro} Por favor disfruten de su sesión en silencio.", es_efimero=False)
                 else:
-                    txt_act = formatear_info_audio(info_act) if info_act else f"🧘 **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Meditación')}"
-                    avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n🧘 Por favor disfruten de su sesión en silencio.", es_efimero=False)
+                    txt_act = formatear_info_audio(info_act) if info_act else f"{icono_repro} **Pista #{indice_pista_actual + 1}:** {pista_actual.get('titulo', 'Audio')}"
+                    avisar_con_bot(f"▶️ **Iniciando reproducción (Pista {indice_pista_actual + 1} de {total_pistas}):**\n\n{txt_act}\n\n📋 Total de pistas programadas: {total_pistas}\n{icono_repro} Por favor disfruten de su sesión en silencio.", es_efimero=False)
                 # Determinar duración total de la pista
                 dur_pista_orig = obtener_duracion_segundos(ruta_pista)
                 dur_audio = obtener_duracion_segundos(ruta_a_reproducir)
@@ -2963,9 +3026,11 @@ async def main() -> None:
                                 siguiente_item = cola_reproduccion[sig_idx]
                                 total_p = len(cola_reproduccion)
                                 inf_sig = siguiente_item.get("info")
-                                txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"🧘 **Audio #{sig_idx + 1}:** {siguiente_item.get('titulo', 'Meditación')}"
+                                tit_sig_raw = siguiente_item.get('titulo', 'Audio')
+                                ico_sig = "📜" if (inf_sig and "MENSAJE" in str(inf_sig.get("tipo", "")).upper()) or ("MENSAJE" in str(tit_sig_raw).upper()) else "🧘"
+                                txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"{ico_sig} **Audio #{sig_idx + 1}:** {tit_sig_raw}"
                                 avisar_con_bot(
-                                    f"🔔 **Pista {indice_pista_actual + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {total_p}:**\n{txt_sig}\n\n🧘 Por favor continúen en silencio...",
+                                    f"🔔 **Pista {indice_pista_actual + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {total_p}:**\n{txt_sig}\n\n{ico_sig} Por favor continúen en silencio...",
                                     es_efimero=True
                                 )
                                 ok_sig = await reproducir_meditacion(sig_idx)
@@ -2990,9 +3055,9 @@ async def main() -> None:
                                     except Exception:
                                         pass
                                     msg_panel_meditacion_id = None
-                                print("Reproducción de la sesión de meditación concluida automáticamente.")
+                                print("Reproducción de la sesión concluida automáticamente.")
                                 await desbloquear_todos_los_participantes()
-                                avisar_con_bot("🧘 **Meditación finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
+                                avisar_con_bot("🧘 **Sesión finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
                                 # Reanudar grabación para el segmento post-meditación si no fue cancelada
                                 if not grabacion_cancelada and not grabacion_pausada:
                                     if ruta_grabacion_post not in segmentos_grabados:

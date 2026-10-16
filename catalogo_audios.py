@@ -89,6 +89,10 @@ def identificar_audio_catalogo(texto: str = "", nombre_archivo: str = "") -> dic
             item = dict(meditaciones[num_str])
             item["detectado_como"] = "MEDITACION"
             return item
+        if num_str in mensajes:
+            item = dict(mensajes[num_str])
+            item["detectado_como"] = "MENSAJE"
+            return item
 
     # 4. Búsqueda por número aislado en el texto si se menciona tarea o meditación
     if any(k in texto_combinado.upper() for k in ["MEDITACION", "MEDITACIÓN", "TAREA"]):
