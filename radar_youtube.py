@@ -168,10 +168,16 @@ def obtener_url_miniatura(vid: str) -> str:
     return f"https://img.youtube.com/vi/{vid}/hqdefault.jpg"
 
 
-def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_enviar_foto_func=None) -> bool:
+def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_enviar_foto_func=None, forzar: bool = False) -> bool:
     """Publica manualmente el anuncio de un video con su miniatura HD y botones interactivos."""
     if not vid:
         return False
+
+    vistos = cargar_vistos()
+    if not forzar and vid in vistos:
+        print(f"📡 Radar YouTube: El video {vid} ya fue anunciado previamente. Omitiendo duplicado.")
+        return True
+
     info = obtener_info_oembed(vid)
     titulo = info.get("title", "").strip() or obtener_titulo_video(vid) or f"Video {vid}"
     autor = info.get("author_name", "").strip()
@@ -223,6 +229,12 @@ def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_en
                 enviado = True
         except Exception as e_m:
             print(f"⚠️ Error mensaje en anuncio manual ({vid}): {e_m}")
+
+    if enviado:
+        if vid not in vistos:
+            vistos.append(vid)
+            guardar_vistos(vistos)
+            threading.Thread(target=sincronizar_github_vistos, args=(vistos,), daemon=True).start()
 
     return enviado
 
@@ -457,7 +469,7 @@ def extraer_videos_canal(canal: dict) -> list:
         for v in web_vids:
             if v["video_id"] not in ids_vistos:
                 ids_vistos.add(v["video_id"])
-                videos.append(v)
+                videos.insert(0, v)
     except Exception as e_web:
         print(f"Nota extrayendo web ({canal.get('nombre')}): {e_web}")
 
@@ -594,7 +606,7 @@ def radar_loop(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None
 
     while True:
         try:
-            time.sleep(90)  # Cada 90 segundos (1.5 minutos)
+            time.sleep(60)  # Cada 60 segundos (1 minuto) para detección casi instantánea
             chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=bot_enviar_foto_func, es_arranque=False)
         except Exception as e:
             print(f"⚠️ Error en loop radar YouTube: {e}")
