@@ -1,15 +1,88 @@
 import os
 import zipfile
+import json
+import sqlite3
+import hashlib
+import shutil
 
-db_path = os.path.join("data", "biblioteca_conocimiento_universal.db")
-zip_path = os.path.join("data", "biblioteca.zip")
-if not os.path.exists(db_path) and os.path.exists(zip_path):
+# Ruta unificada oficial de la base de datos de la Biblioteca (despliegue único)
+DB_BIBLIO_PATH = os.path.join("data", "biblioteca_v2.db")
+ZIP_BIBLIO_PATH = os.path.join("data", "biblioteca_v2.zip")
+
+# Limpieza de archivo temporal huérfano dejado por cortes abruptos previos en Render
+_db_tmp_orphan = DB_BIBLIO_PATH + ".tmp"
+if os.path.exists(_db_tmp_orphan):
     try:
-        print("Descomprimiendo la Biblioteca del Conocimiento Universal...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall("data")
-    except Exception as e:
-        print("Error descomprimiendo BD:", e)
+        print(f"[Biblioteca Startup] Eliminando archivo temporal huérfano: {_db_tmp_orphan}...")
+        os.remove(_db_tmp_orphan)
+        print("[Biblioteca Startup] Temporal huérfano eliminado con éxito.")
+    except Exception as _e_clean:
+        print(f"[Biblioteca Startup] Advertencia al eliminar temporal huérfano: {_e_clean}")
+
+# Descompresión atómica y control de versión automático al arrancar en Render
+if os.path.exists(ZIP_BIBLIO_PATH):
+    debe_descomprimir = False
+    v_zip = 0
+    if not os.path.exists(DB_BIBLIO_PATH):
+        print("[Biblioteca Startup] Base no encontrada en disco. Descomprimiendo...")
+        debe_descomprimir = True
+    else:
+        # 1. Comparar fecha de modificación
+        if os.path.getmtime(ZIP_BIBLIO_PATH) > os.path.getmtime(DB_BIBLIO_PATH):
+            print("[Biblioteca Startup] Archivo zip más reciente que la base en disco. Actualizando...")
+            debe_descomprimir = True
+        else:
+            # 2. Comparar versión interna (version.json en zip vs PRAGMA user_version en DB)
+            try:
+                with zipfile.ZipFile(ZIP_BIBLIO_PATH, 'r') as zf:
+                    if "version.json" in zf.namelist():
+                        v_zip = int(json.loads(zf.read("version.json").decode("utf-8")).get("version", 0))
+                conn_chk = sqlite3.connect(DB_BIBLIO_PATH)
+                c_chk = conn_chk.cursor()
+                c_chk.execute("PRAGMA user_version")
+                v_db = c_chk.fetchone()[0]
+                conn_chk.close()
+                if v_zip > 0 and v_db != v_zip:
+                    print(f"[Biblioteca Startup] Discrepancia de versión: DB={v_db} vs ZIP={v_zip}. Actualizando...")
+                    debe_descomprimir = True
+            except Exception as e_v:
+                print(f"[Biblioteca Startup] Error comprobando versiones: {e_v}")
+
+    if debe_descomprimir:
+        db_tmp = DB_BIBLIO_PATH + ".tmp"
+        try:
+            print("[Biblioteca Startup] Extrayendo a archivo temporal para descompresión atómica...")
+            with zipfile.ZipFile(ZIP_BIBLIO_PATH, 'r') as zip_ref:
+                with zip_ref.open("biblioteca_v2.db") as source, open(db_tmp, "wb") as target:
+                    shutil.copyfileobj(source, target)
+                if "version.json" in zip_ref.namelist():
+                    zip_ref.extract("version.json", "data")
+
+            # Verificación estricta antes del reemplazo
+            print("[Biblioteca Startup] Verificando integridad y versión de la base temporal...")
+            conn_verif = sqlite3.connect(db_tmp)
+            c_verif = conn_verif.cursor()
+            c_verif.execute("PRAGMA quick_check")
+            chk_status = c_verif.fetchone()[0]
+            c_verif.execute("PRAGMA user_version")
+            v_extraida = c_verif.fetchone()[0]
+            conn_verif.close()
+
+            if chk_status != "ok":
+                raise ValueError(f"Integridad SQLite corrupta en archivo temporal: {chk_status}")
+            if v_zip > 0 and v_extraida > 0 and v_extraida != v_zip:
+                raise ValueError(f"user_version extraída ({v_extraida}) no coincide con version.json ({v_zip})")
+
+            # Reemplazo atómico
+            os.replace(db_tmp, DB_BIBLIO_PATH)
+            print(f"[Biblioteca Startup] Reemplazo atómico exitoso. Base activa user_version={v_extraida}.")
+        except Exception as e_atomic:
+            print(f"[Biblioteca Startup] ERROR en descompresión atómica: {e_atomic}. La base previa sigue intacta.")
+            if os.path.exists(db_tmp):
+                try:
+                    os.remove(db_tmp)
+                except Exception:
+                    pass
 
 import asyncio
 import json
@@ -35,6 +108,113 @@ if sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
+
+# Función de registro del consumo real de memoria RSS para monitoreo en Render
+def log_rss_memoria(etiqueta: str = ""):
+    """Registra en log el consumo real de memoria RSS (psutil o resource) en Render."""
+    try:
+        import psutil
+        rss_mb = psutil.Process().memory_info().rss / (1024 * 1024)
+        print(f"[Memoria RSS] {etiqueta}: {rss_mb:.2f} MB")
+        return rss_mb
+    except Exception:
+        try:
+            import resource
+            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+            print(f"[Memoria RSS] {etiqueta}: {rss_mb:.2f} MB")
+            return rss_mb
+        except Exception:
+            return None
+
+log_rss_memoria("Arranque inicial de bot_comandos")
+
+# Validación exhaustiva de compatibilidad del índice vectorial en arranque
+def validar_indice_vectorial(dir_vectores: str = os.path.join("data", "vectores_v2")) -> bool:
+    """
+    Verifica que el índice vectorial en disco sea 100% compatible con la base SQLite activa.
+    Valida en metadata.json:
+      1. Nombre de modelo ('modelo')
+      2. Dimensiones ('dimension_nativa', 'dimensiones_almacenadas')
+      3. user_version ('base_user_version' vs PRAGMA user_version)
+      4. Conteo de ventanas ('total_ventanas' vs COUNT(*) en transcripciones_v2)
+      5. Checksum SHA256 ('checksum_ventanas' de id:video_id:inicio ordenado)
+    Si hay discrepancia, archivo faltante o corrupción, emite aviso y cae limpiamente a FTS5.
+    """
+    meta_path = os.path.join(dir_vectores, "metadata.json")
+    if not os.path.exists(meta_path):
+        return False
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+
+        modelo = meta.get("modelo")
+        dim_nat = meta.get("dimension_nativa")
+        dims_alm = meta.get("dimensiones_almacenadas")
+        v_idx = meta.get("base_user_version")
+        w_idx = meta.get("total_ventanas") or meta.get("total_ventanas_db")
+        chk_idx = meta.get("checksum_ventanas")
+
+        if not modelo or not dim_nat or not dims_alm:
+            print("[Vectores Startup] ADVERTENCIA: Metadatos vectoriales incompletos (modelo o dimensiones ausentes). Fallback FTS5.")
+            return False
+
+        if not os.path.exists(DB_BIBLIO_PATH):
+            print("[Vectores Startup] Base SQLite no existe en disco. Fallback FTS5.")
+            return False
+
+        conn = sqlite3.connect(DB_BIBLIO_PATH)
+        c = conn.cursor()
+        c.execute("PRAGMA user_version")
+        v_db = c.fetchone()[0]
+        c.execute("SELECT count(*) FROM transcripciones_v2")
+        w_db = c.fetchone()[0]
+
+        if v_idx != v_db:
+            conn.close()
+            print(f"[Vectores Startup] ADVERTENCIA: Discrepancia de user_version (DB={v_db} vs Vectores={v_idx}). Fallback FTS5.")
+            return False
+
+        if w_idx != w_db:
+            conn.close()
+            print(f"[Vectores Startup] ADVERTENCIA: Discrepancia en número de ventanas (DB={w_db} vs Vectores={w_idx}). Fallback FTS5.")
+            return False
+
+        # Validación estricta de Checksum SHA256 si está presente en metadatos
+        if chk_idx:
+            c.execute("SELECT id, video_id, inicio_segundos FROM transcripciones_v2 ORDER BY id")
+            h = hashlib.sha256()
+            for r in c:
+                h.update(f"{r[0]}:{r[1]}:{r[2]};".encode("utf-8"))
+            chk_db = h.hexdigest()
+            conn.close()
+            if chk_idx != chk_db:
+                print(f"[Vectores Startup] ADVERTENCIA: Checksum de ventanas no coincide (DB={chk_db[:8]}... vs Vectores={chk_idx[:8]}...). Fallback FTS5.")
+                return False
+        else:
+            conn.close()
+
+        print(f"[Vectores Startup] Índice vectorial 100% verificado: modelo={modelo}, dims={dims_alm}, user_version={v_db}, ventanas={w_db}. OK.")
+        return True
+    except Exception as e_vidx:
+        print(f"[Vectores Startup] Error validando índice vectorial ({e_vidx}). Fallback FTS5.")
+        return False
+
+# Registro de diagnóstico de SQLite y FTS5 al arrancar
+try:
+    print(f"[SQLite Startup] Versión de SQLite del sistema: {sqlite3.sqlite_version}")
+    _db_v2_check = os.path.join("data", "biblioteca_v2.db")
+    if os.path.exists(_db_v2_check):
+        _conn_diag = sqlite3.connect(_db_v2_check)
+        _c_diag = _conn_diag.cursor()
+        _c_diag.execute("SELECT count(*) FROM transcripciones_fts WHERE transcripciones_fts MATCH 'alanis*'")
+        _cnt_diag = _c_diag.fetchone()[0]
+        _conn_diag.close()
+        print(f"[SQLite Startup] Consulta de prueba FTS5 en biblioteca_v2.db OK: {_cnt_diag} registros encontrados.")
+    else:
+        print("[SQLite Startup] biblioteca_v2.db no está presente aún; FTS5 se activará al existir el archivo.")
+except Exception as _e_diag:
+    print(f"[SQLite Startup] Advertencia al verificar FTS5: {_e_diag}")
+
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, identificar_todos_los_audios, formatear_cola_audios
 from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
@@ -312,12 +492,42 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "message_id": m_id}).encode())
             return
+        if self.path in ("/radar", "/escanear", "/scan"):
+            try:
+                from radar_youtube import chequear_canales
+                cant = chequear_canales(enviar_mensaje, CHAT_ID, bot_enviar_foto_func=enviar_foto)
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "anunciados": cant}).encode())
+                return
+            except Exception as e_rad:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e_rad)}).encode())
+                return
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot Comandos OK")
 
     def do_POST(self):
+        if self.path in ("/radar", "/escanear", "/scan"):
+            try:
+                from radar_youtube import chequear_canales
+                cant = chequear_canales(enviar_mensaje, CHAT_ID, bot_enviar_foto_func=enviar_foto)
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "anunciados": cant}).encode())
+                return
+            except Exception as e_rad:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e_rad)}).encode())
+                return
         if self.path in ("/aviso", "/aviso_previo", "/recordatorio"):
             m_id = enviar_aviso_preparacion_sala()
             self.send_response(200)
@@ -1343,13 +1553,64 @@ def responder_consulta_biblioteca(chat_id: int | str, texto: str, msg_id_reply: 
     except Exception:
         pass
 
-    db_path = os.path.join("data", "biblioteca_conocimiento_universal.db")
-    if not os.path.exists(db_path):
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # MOTOR DE BÚSQUEDA BIBLIOTECA (Base unificada: biblioteca_v2.db)
+    # V2 controlado por variable de entorno BUSQUEDA_V2 (OFF por defecto: "0")
+    # Si BUSQUEDA_V2=0 o si V2 falla, ejecuta automáticamente V1 sobre la misma base
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    db_activa = DB_BIBLIO_PATH if os.path.exists(DB_BIBLIO_PATH) else os.path.join("data", "biblioteca_conocimiento_universal.db")
+
+    if os.environ.get("BUSQUEDA_V2", "0") == "1":
+        if os.path.exists(DB_BIBLIO_PATH):
+            try:
+                from buscador_biblioteca_v2 import buscar_v2
+                conn_v2 = sqlite3.connect(DB_BIBLIO_PATH)
+                resultados_v2 = buscar_v2(conn_v2, texto, limit=5, max_por_video=2)
+                conn_v2.close()
+
+                if resultados_v2:
+                    nombre_u = ((from_u or {}).get("first_name") or (from_u or {}).get("username") or "").strip()
+                    saludo_u = f"**{nombre_u}** " if nombre_u else ""
+                    resp = f"📚 {saludo_u}Aquí tienes lo que encontré en la Biblioteca del Conocimiento Universal (Motor V2):\n\n"
+                    for idx, r in enumerate(resultados_v2):
+                        seg = r["inicio_segundos"]
+                        m = seg // 60
+                        s = seg % 60
+                        seg_link = r.get("inicio_link_segundos", max(0, seg - 5))
+                        url = f"https://youtu.be/{r['video_id']}?t={seg_link}"
+                        resp += f"**{idx+1}. {r['titulo']}**\n"
+                        resp += f"⏱️ *Minuto:* [{m:02d}:{s:02d}]({url})\n"
+                        txt_mostrar = r["texto"].strip()
+                        if len(txt_mostrar) > 180:
+                            txt_mostrar = txt_mostrar[:180] + "..."
+                        resp += f"💬 \"{txt_mostrar}\"\n\n"
+
+                    reply_markup = None
+                    if str(chat_id).startswith("-"):
+                        reply_markup = {
+                            "inline_keyboard": [
+                                [{"text": "📩 Enviar a mi Telegram Privado", "callback_data": "biblio_priv"}]
+                            ]
+                        }
+                    m_id = enviar_mensaje(chat_id, resp, reply_to_message_id=msg_id_reply, reply_markup=reply_markup)
+                    if m_id:
+                        _CACHE_RESPUESTAS_BIBLIO[str(m_id)] = resp
+                        if len(_CACHE_RESPUESTAS_BIBLIO) > 200:
+                            _CACHE_RESPUESTAS_BIBLIO.pop(next(iter(_CACHE_RESPUESTAS_BIBLIO)), None)
+                    return True
+                else:
+                    enviar_mensaje(chat_id, "😔 No encontré ninguna enseñanza sobre ese tema en la Biblioteca. Intenta con otros términos clave.", reply_to_message_id=msg_id_reply)
+                    return True
+            except Exception as e_v2:
+                print(f"[Biblioteca V2] Error en motor V2, ejecutando fallback automático a V1: {e_v2}")
+
+    # Búsqueda V1 tradicional (funciona sobre la base unificada biblioteca_v2.db)
+    if not os.path.exists(db_activa):
         enviar_mensaje(chat_id, "⏳ La Biblioteca de transcripciones aún se está construyendo. Intenta más tarde.", reply_to_message_id=msg_id_reply)
         return True
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_activa)
         c = conn.cursor()
         conditions = []
         params = []
