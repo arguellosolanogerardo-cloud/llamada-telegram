@@ -1,0 +1,23 @@
+name: Keep-Alive y Sondeo Radar Render
+
+on:
+  schedule:
+    # Ejecuta cada 10 minutos para mantener Render despierto y verificar canales
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Keep-Alive y Escaneo Radar en Render
+        run: |
+          echo "Enviando ping a Render..."
+          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" --max-time 45 "https://bot-meditaciones.onrender.com/radar" || true)
+          echo "$RESPONSE"
+          if echo "$RESPONSE" | grep -q "HTTP_CODE:200"; then
+            echo "✅ Render está activo y respondió 200 OK con escaneo de radar."
+          else
+            echo "⚠️ Reintentando ping al endpoint base..."
+            curl -s -m 30 "https://bot-meditaciones.onrender.com/" || true
+          fi
