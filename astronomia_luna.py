@@ -434,11 +434,17 @@ def generar_video_meditacion_luna(
     maestro: str,
     duracion_seg: float = 1800.0,
     ruta_salida: str = None,
+    tipo: str = "MEDITACION",
 ) -> str | None:
     """Genera el video MP4 HD con estrellas en movimiento, Orión titilando y reloj/barra animados en tiempo real."""
+    tipo_norm = str(tipo or "MEDITACION").strip().upper()
+    es_mensaje = "MENSAJE" in tipo_norm
+    tipo_tag = "mensaje" if es_mensaje else "meditacion"
+
     if not ruta_salida:
         os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
-        ruta_salida = os.path.join("data", "meditaciones", "caratula_meditacion.mp4")
+        nombre_base = f"caratula_{tipo_tag}_{numero}.mp4" if numero else f"caratula_{tipo_tag}.mp4"
+        ruta_salida = os.path.join("data", "meditaciones", nombre_base)
 
     try:
         import subprocess
@@ -511,7 +517,10 @@ def generar_video_meditacion_luna(
                 font_card_tit = font_card_val = font_astro_det = font_med
 
             # Cabecera dinámica
-            num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
+            if es_mensaje:
+                num_txt = f"MENSAJE #{numero}" if numero else "MENSAJE DE ALANISO"
+            else:
+                num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
             draw.text((640, 56), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")
 
             tit_raw = (titulo or "").strip()
@@ -682,11 +691,17 @@ def generar_caratula_meditacion_luna(
     duracion_seg: float = 0.0,
     progreso_seg: float = 0.0,
     ruta_salida: str = None,
+    tipo: str = "MEDITACION",
 ) -> str | None:
     """Genera la imagen HD 1280x720 con la luna diaria, datos astronómicos y la barra de avance."""
+    tipo_norm = str(tipo or "MEDITACION").strip().upper()
+    es_mensaje = "MENSAJE" in tipo_norm
+    tipo_tag = "mensaje" if es_mensaje else "meditacion"
+
     if not ruta_salida:
         os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
-        ruta_salida = os.path.join("data", "meditaciones", "caratula_meditacion.jpg")
+        nombre_base = f"caratula_{tipo_tag}_{numero}.jpg" if numero else f"caratula_{tipo_tag}.jpg"
+        ruta_salida = os.path.join("data", "meditaciones", nombre_base)
 
     try:
         os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
@@ -723,8 +738,11 @@ def generar_caratula_meditacion_luna(
             font_med = font_tit = font_tit_small = font_sub = font_phase = font_astro = font_time_prog = font_time_tot = ImageFont.load_default()
             font_card_tit = font_card_val = font_astro_det = font_med
 
-        # 4. Cabecera dinámica (Meditación #, Título multilínea y Maestro)
-        num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
+        # 4. Cabecera dinámica (Meditación / Mensaje #, Título multilínea y Maestro)
+        if es_mensaje:
+            num_txt = f"MENSAJE #{numero}" if numero else "MENSAJE DE ALANISO"
+        else:
+            num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
         draw.text((640, 56), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")
 
         tit_raw = (titulo or "").strip()
