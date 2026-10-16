@@ -5,25 +5,5 @@
   "fecha": "08/29/20",
   "maestro": "Aliestro",
   "detectado_como": "MEDITACION",
-  "fecha_tarea_admin": "15/10/2026",
-  "cola_audios": [
-    {
-      "numero": 1092,
-      "tipo": "MEDITACION",
-      "titulo": "Vivir para conocer al Padre que les creo",
-      "fecha": "08/29/20",
-      "maestro": "Aliestro",
-      "detectado_como": "MEDITACION"
-    },
-    {
-      "numero": 729,
-      "tipo": "MENSAJE",
-      "subtipo": "Antes y Después",
-      "titulo": "Mensaje del 19 jun 2015",
-      "fecha_original": "19 jun 2015",
-      "fecha_difusion": "09/11/23",
-      "maestro": "Alaniso y Alan",
-      "detectado_como": "MENSAJE"
-    }
-  ]
+  "fecha_tarea_admin": "15/10/2026"
 }
