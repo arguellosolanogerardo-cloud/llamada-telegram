@@ -2161,16 +2161,36 @@ async def main() -> None:
                     msg_panel_meditacion_id = None
                 if indice_pista_actual + 1 < len(cola_reproduccion):
                     sig_idx = indice_pista_actual + 1
-                    print(f"Watchdog pasando a pista {sig_idx + 1} de {len(cola_reproduccion)}...")
                     siguiente_item = cola_reproduccion[sig_idx]
                     inf_sig = siguiente_item.get("info")
                     tit_sig_raw = siguiente_item.get('titulo', 'Audio')
                     ico_sig = "📜" if (inf_sig and "MENSAJE" in str(inf_sig.get("tipo", "")).upper()) or ("MENSAJE" in str(tit_sig_raw).upper()) else "🧘"
                     txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"{ico_sig} **Audio #{sig_idx + 1}:** {tit_sig_raw}"
-                    avisar_con_bot(
-                        f"🔔 **Pista {p_idx + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {len(cola_reproduccion)}:**\n{txt_sig}\n\n{ico_sig} Por favor continúen en silencio...",
-                        es_efimero=True
-                    )
+                    espera_min = int((inf_sig or {}).get("espera_post_meditacion_min", 30 if p_idx == 0 else 0))
+                    if espera_min > 0:
+                        reproduciendo_meditacion = False
+                        await desbloquear_todos_los_participantes()
+                        if not grabacion_cancelada and not grabacion_pausada:
+                            if ruta_grabacion_post not in segmentos_grabados:
+                                segmentos_grabados.append(ruta_grabacion_post)
+                            try:
+                                from pytgcalls.types import RecordStream
+                                os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_post)), exist_ok=True)
+                                await tgcalls.record(destino, RecordStream(ruta_grabacion_post))
+                            except Exception as e_rec:
+                                print("Nota reanudando grabación durante espera de 30m:", e_rec)
+                        avisar_con_bot(
+                            f"🧘 **Primera reproducción finalizada.** Los micrófonos han sido restablecidos.\n\n"
+                            f"⏳ **En {espera_min} minutos se reproducirá automáticamente el siguiente audio encolado:**\n{txt_sig}",
+                            es_efimero=False
+                        )
+                        print(f"⏳ Esperando {espera_min} minutos antes de reproducir pista {sig_idx + 1}...")
+                        await asyncio.sleep(espera_min * 60)
+                    else:
+                        avisar_con_bot(
+                            f"🔔 **Pista {p_idx + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {len(cola_reproduccion)}:**\n{txt_sig}\n\n{ico_sig} Por favor continúen en silencio...",
+                            es_efimero=True
+                        )
                     await reproducir_meditacion(sig_idx)
                 else:
                     reproduciendo_meditacion = False
@@ -3021,7 +3041,6 @@ async def main() -> None:
                         if reproduciendo_meditacion and not eq_estado["cambiando"]:
                             # Verificar si aún quedan más audios en la cola
                             if indice_pista_actual + 1 < len(cola_reproduccion):
-                                print(f"Pista {indice_pista_actual + 1} finalizada. Pasando a pista {indice_pista_actual + 2} de {len(cola_reproduccion)}...")
                                 sig_idx = indice_pista_actual + 1
                                 siguiente_item = cola_reproduccion[sig_idx]
                                 total_p = len(cola_reproduccion)
@@ -3029,18 +3048,44 @@ async def main() -> None:
                                 tit_sig_raw = siguiente_item.get('titulo', 'Audio')
                                 ico_sig = "📜" if (inf_sig and "MENSAJE" in str(inf_sig.get("tipo", "")).upper()) or ("MENSAJE" in str(tit_sig_raw).upper()) else "🧘"
                                 txt_sig = formatear_info_audio(inf_sig) if inf_sig else f"{ico_sig} **Audio #{sig_idx + 1}:** {tit_sig_raw}"
-                                avisar_con_bot(
-                                    f"🔔 **Pista {indice_pista_actual + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {total_p}:**\n{txt_sig}\n\n{ico_sig} Por favor continúen en silencio...",
-                                    es_efimero=True
-                                )
-                                ok_sig = await reproducir_meditacion(sig_idx)
-                                if not ok_sig:
-                                    print("Error reproduciendo siguiente pista, finalizando sesión de meditación.")
+                                espera_min = int((inf_sig or {}).get("espera_post_meditacion_min", 30 if indice_pista_actual == 0 else 0))
+                                if espera_min > 0:
                                     reproduciendo_meditacion = False
                                     if tarea_panel_progreso and not tarea_panel_progreso.done():
                                         tarea_panel_progreso.cancel()
-                                    msg_panel_meditacion_id = None
+                                    if msg_panel_meditacion_id:
+                                        try:
+                                            await editar_mensaje_bot(
+                                                msg_panel_meditacion_id,
+                                                "⏹️ **PRIMERA REPRODUCCIÓN FINALIZADA**\n🔓 Micrófonos desbloqueados.",
+                                                reply_markup={"inline_keyboard": []}
+                                            )
+                                        except Exception:
+                                            pass
+                                        msg_panel_meditacion_id = None
                                     await desbloquear_todos_los_participantes()
+                                    avisar_con_bot(
+                                        f"🧘 **Primera reproducción finalizada.** Los micrófonos han sido restablecidos.\n\n"
+                                        f"⏳ **En {espera_min} minutos se reproducirá automáticamente el siguiente audio encolado:**\n{txt_sig}",
+                                        es_efimero=False
+                                    )
+                                    async def _esperar_y_reproducir_sig(idx_target, mins):
+                                        await asyncio.sleep(mins * 60)
+                                        await reproducir_meditacion(idx_target)
+                                    asyncio.create_task(_esperar_y_reproducir_sig(sig_idx, espera_min))
+                                else:
+                                    avisar_con_bot(
+                                        f"🔔 **Pista {indice_pista_actual + 1} finalizada.**\n\n▶️ **Continuando con la pista {sig_idx + 1} de {total_p}:**\n{txt_sig}\n\n{ico_sig} Por favor continúen en silencio...",
+                                        es_efimero=True
+                                    )
+                                    ok_sig = await reproducir_meditacion(sig_idx)
+                                    if not ok_sig:
+                                        print("Error reproduciendo siguiente pista, finalizando sesión de meditación.")
+                                        reproduciendo_meditacion = False
+                                        if tarea_panel_progreso and not tarea_panel_progreso.done():
+                                            tarea_panel_progreso.cancel()
+                                        msg_panel_meditacion_id = None
+                                        await desbloquear_todos_los_participantes()
                             else:
                                 reproduciendo_meditacion = False
                                 if tarea_panel_progreso and not tarea_panel_progreso.done():
@@ -3729,7 +3774,20 @@ async def main() -> None:
                         idx_n = len(cola_reproduccion) + 1
                         r_dest = os.path.join(CARPETA_MEDITACIONES, f"meditacion_extra_{idx_n}.mp3")
                         await client.download_media(reply_msg, file=r_dest)
-                        info_cat = identificar_audio_catalogo(reply_msg.raw_text or "", n_arch)
+                        txt_raw_rep = reply_msg.raw_text or ""
+                        info_cat = identificar_audio_catalogo(txt_raw_rep, n_arch)
+                        if not info_cat and ("MARIO CARRILLO" in txt_raw_rep.upper() or "MARIO CARRILLO" in n_arch.upper()):
+                            m_tit = re.search(r"«([^»]+)»", txt_raw_rep)
+                            tit_m = m_tit.group(1).strip() if m_tit else n_arch.replace(".mp3", "")
+                            info_cat = {
+                                "numero": "",
+                                "tipo": "MENSAJE",
+                                "titulo": tit_m,
+                                "maestro": "JESUS MARIO CARRILLO DURAN",
+                                "es_mario": True,
+                                "es_adicional": True,
+                                "espera_post_meditacion_min": 30
+                            }
                         item_c = {
                             "ruta": r_dest,
                             "info": info_cat,
@@ -3739,7 +3797,7 @@ async def main() -> None:
                         guardar_cola_hoy(cola_reproduccion)
                         if MEJORA_AUDIO:
                             asyncio.create_task(preparar_audio_eq(r_dest))
-                        await resp_q(f"▶️ **Audio añadido a la cola de reproducción:** «{item_c['titulo']}»\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (sonará tras la meditación actual).")
+                        await resp_q(f"▶️ **Audio añadido a la cola de reproducción:** «{item_c['titulo']}»\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (se reproducirá 30 min después de terminar la 1.ª reproducción).")
                         await actualizar_panel_progreso(forzar=True)
                         return
 
