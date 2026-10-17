@@ -205,10 +205,11 @@ def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_en
         f"🔗 **Ver en YouTube:**\n{link_limpio}"
     )
 
+    btn_tarea_lbl = "📅 Programar Audio Adicional" if ("MARIO" in str(canal_nombre).upper() or "CARRILLO" in str(canal_nombre).upper()) else "📅 Programar como Tarea"
     teclado = {
         "inline_keyboard": [
             [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
-             {"text": "📅 Programar como Tarea", "callback_data": f"yttarea_{vid}"}],
+             {"text": btn_tarea_lbl, "callback_data": f"yttarea_{vid}"}],
             [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
         ]
     }
@@ -552,10 +553,11 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                     f"🔗 **Ver en YouTube:**\n{link_limpio}"
                 )
 
+                btn_tarea_lbl = "📅 Programar Audio Adicional" if ("MARIO" in str(canal['nombre']).upper() or "CARRILLO" in str(canal['nombre']).upper()) else "📅 Programar como Tarea"
                 teclado = {
                     "inline_keyboard": [
                         [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
-                         {"text": "📅 Programar como Tarea", "callback_data": f"yttarea_{vid}"}],
+                         {"text": btn_tarea_lbl, "callback_data": f"yttarea_{vid}"}],
                         [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
                     ]
                 }

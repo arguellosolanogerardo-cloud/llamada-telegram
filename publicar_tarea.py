@@ -190,17 +190,28 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     if isinstance(info, list) and len(info) > 1:
         bloques_items = []
         for idx, it in enumerate(info, 1):
-            tipo_raw = str(it.get("tipo", "")).upper()
-            tipo = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
-            num = it.get("numero", "")
-            titulo = it.get("titulo", "")
-            maestro = it.get("maestro", "Alaniso")
-            fecha_orig = it.get("fecha_original") or it.get("fecha", "")
-            icono = "🧘" if tipo == "Meditación" else "📜"
-            bloques_items.append(
-                f"{idx}️⃣ {icono} **{tipo} #{num}:** «{titulo}»\n"
-                f"    👤 **Maestro:** {maestro} | 📅 **Grabación original:** {fecha_orig}"
+            it_mario = (
+                it.get("es_mario", False)
+                or any(k in str(it.get("maestro", "")).upper() for k in ["MARIO CARRILLO", "JESUS MARIO", "JESÚS MARIO"])
+                or any(k in str(it.get("canal", "")).upper() for k in ["MARIO CARRILLO", "JESUS MARIO", "JESÚS MARIO"])
             )
+            fecha_orig = it.get("fecha_original") or it.get("fecha", "")
+            if it_mario:
+                bloques_items.append(
+                    f"{idx}️⃣ 🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN:** «{it.get('titulo', '')}»\n"
+                    f"    👤 **Maestro:** JESUS MARIO CARRILLO DURAN | 📅 **Grabación original:** {fecha_orig}"
+                )
+            else:
+                tipo_raw = str(it.get("tipo", "")).upper()
+                tipo = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
+                num = it.get("numero", "")
+                titulo = it.get("titulo", "")
+                maestro = it.get("maestro", "Alaniso")
+                icono = "🧘" if tipo == "Meditación" else "📜"
+                bloques_items.append(
+                    f"{idx}️⃣ {icono} **{tipo} #{num}:** «{titulo}»\n"
+                    f"    👤 **Maestro:** {maestro} | 📅 **Grabación original:** {fecha_orig}"
+                )
         txt_items = "\n\n".join(bloques_items)
         return (
             f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
@@ -234,6 +245,38 @@ def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     titulo = info.get("titulo", "")
     maestro = info.get("maestro", "Alaniso")
     fecha_orig = info.get("fecha_original") or info.get("fecha", "")
+
+    es_mario = (
+        info.get("es_mario", False)
+        or any(k in str(maestro).upper() for k in ["MARIO CARRILLO", "JESUS MARIO", "JESÚS MARIO"])
+        or any(k in str(info.get("canal", "")).upper() for k in ["MARIO CARRILLO", "JESUS MARIO", "JESÚS MARIO"])
+        or any(k in str(titulo).upper() for k in ["MARIO CARRILLO", "JESUS MARIO", "JESÚS MARIO"])
+    )
+
+    if es_mario:
+        return (
+            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+            f"📢 ⚠️ **¡ATENCIÓN COMUNIDAD!** ⚠️ 📢\n"
+            f"🕊️✨ **SE PROGRAMO NUEVO AUDIO A LA T A R E A   D E L   D Í A** ✨🕊️\n"
+            f"🗓️ **{dia_semana_upper}  {fecha_str}**\n"
+            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+            f"👥 **GRUPO: LA VERDAD OS HARÁ LIBRES**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Para {tiempo_palabra} ({fecha_str}) trabajaremos con la siguiente práctica:\n\n"
+            f"🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN**\n"
+            f"📌 **Título:** «{titulo}»\n"
+            f"👤 **Maestro:** JESUS MARIO CARRILLO DURAN\n"
+            f"🗓️ **Grabación original:** {fecha_orig}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏰ **HORARIOS PARA ESTA NOCHE (COLOMBIA):**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 📞 **7:56 PM** → Apertura de la **REUNIÓN VIRTUAL** en Telegram.\n"
+            f"• 🤫 **8:28 PM** → Oración y recogimiento (3 min). 🔇 **MICROFONOS APAGADOS**\n"
+            f"• 🎧 **8:32 PM** → Reproducción en vivo de la meditación PROGRAMADA Y LUEGO ESTE AUDIO NUEVO🔇 **MICROFONOS APAGADOS**\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎧 **EL AUDIO YA FUE PUBLICADO EN EL GRUPO**\n"
+            f"👇 *Pueden escucharlo previamente tocando el mensaje de arriba o en el botón oficial.*"
+        )
 
     return (
         f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
