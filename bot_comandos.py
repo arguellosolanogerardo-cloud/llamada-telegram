@@ -528,6 +528,60 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": str(e_rad)}).encode())
                 return
+        if self.path.startswith("/estado_cola"):
+            try:
+                tz_col = ZoneInfo("America/Bogota")
+                ahora_c = datetime.now(tz_col)
+                if ahora_c.hour < 4:
+                    ahora_c -= timedelta(days=1)
+                fecha_h = ahora_c.strftime("%d/%m/%Y")
+                info_h = obtener_info_tarea_hoy() or {}
+                cola_h = []
+                r_cola = os.path.join("data", "meditaciones", "cola_hoy.json")
+                if os.path.exists(r_cola):
+                    try:
+                        with open(r_cola, "r", encoding="utf-8") as fc:
+                            dc = json.load(fc)
+                            if isinstance(dc, dict) and dc.get("fecha") == fecha_h:
+                                cola_h = dc.get("cola", [])
+                    except Exception:
+                        pass
+                payload_resp = {
+                    "status": "ok",
+                    "fecha": fecha_h,
+                    "info_hoy": info_h,
+                    "cola_hoy": cola_h,
+                    "audios_registrados": cargar_audios_registrados()
+                }
+                self.send_response(200)
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(payload_resp, ensure_ascii=False).encode("utf-8"))
+                return
+            except Exception as e_ec:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e_ec)}).encode())
+                return
+        if self.path.startswith("/ipc_panel"):
+            try:
+                ipc_f = os.path.join("data", "control_panel_ipc.json")
+                datos_ipc = {}
+                if os.path.exists(ipc_f):
+                    with open(ipc_f, "r", encoding="utf-8") as fi:
+                        datos_ipc = json.load(fi)
+                self.send_response(200)
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(datos_ipc, ensure_ascii=False).encode("utf-8"))
+                return
+            except Exception as e_ip:
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({}).encode())
+                return
         if self.path.startswith("/programar_yt"):
             try:
                 parsed_q = urllib.parse.urlparse(self.path)
@@ -1798,29 +1852,8 @@ def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
 
 
 def _limpiar_avisos_descarga_colgados(chat_destino) -> None:
-    """Usa Telethon (TG_SESSION) para borrar avisos colgados de 'Descargando audio de YouTube y programando' en el grupo."""
-    if not (TG_SESSION and TG_API_ID and TG_API_HASH and chat_destino):
-        return
-    try:
-        import asyncio
-        from telethon import TelegramClient
-        from telethon.sessions import StringSession
-
-        async def _clean():
-            async with TelegramClient(StringSession(TG_SESSION), int(TG_API_ID), TG_API_HASH) as cl:
-                target = int(str(chat_destino)) if str(chat_destino).lstrip("-").isdigit() else chat_destino
-                ids_borrar = []
-                async for m in cl.iter_messages(target, limit=40):
-                    txt_m = (m.raw_text or "").strip()
-                    if "Descargando audio de YouTube y programando" in txt_m:
-                        ids_borrar.append(m.id)
-                if ids_borrar:
-                    await cl.delete_messages(target, ids_borrar)
-                    log_debug(f"🧹 Eliminados {len(ids_borrar)} avisos colgados de descarga en grupo: {ids_borrar}")
-
-        asyncio.run(_clean())
-    except Exception as e_cl:
-        log_debug(f"Nota limpiando avisos colgados: {e_cl}")
+    """No usar TG_SESSION en Render para evitar AuthKeyDuplicatedError con GitHub Actions."""
+    return
 
 
 _TIMER_TAREA_ADICIONAL = {"vid": None}
@@ -2125,38 +2158,16 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
             f"🎧 El archivo MP3 ya está descargado y listo para sonar en la reunión de las 7:56 PM."
         )
 
-    # Encolar en la llamada en vivo (si está activa en GitHub Actions) y programar disparo a los 30 min post-meditación
+    # Encolar en la llamada en vivo (si está activa en GitHub Actions)
     if es_mario and msg_id_audio_final:
         def _sincronizar_con_sala_en_vivo():
             try:
                 m_enc = enviar_mensaje(chat_destino, "/encolar", reply_to_message_id=msg_id_audio_final)
-                time.sleep(6)
+                time.sleep(8)
                 if m_enc:
                     eliminar_mensaje(chat_destino, m_enc)
             except Exception as e_sync:
                 log_debug(f"Nota encolando en sala en vivo: {e_sync}")
-
-            # Si estamos en la ventana de llamada nocturna post-meditación (20:55 - 22:25 Colombia),
-            # programar disparo automático a los 30 minutos de haber finalizado la 1.ª meditación (~21:31 PM)
-            ahora_c = datetime.now(ZoneInfo("America/Bogota"))
-            min_dia = ahora_c.hour * 60 + ahora_c.minute
-            if (20 * 60 + 55) <= min_dia <= (22 * 60 + 25) and _TIMER_TAREA_ADICIONAL.get("vid") != vid_tarea:
-                _TIMER_TAREA_ADICIONAL["vid"] = vid_tarea
-                target_dt = ahora_c.replace(hour=21, minute=31, second=15, microsecond=0)
-                espera_seg = max(15.0, (target_dt - ahora_c).total_seconds())
-                log_debug(f"⏳ Programado disparo de Tarea Adicional ({vid_tarea}) en sala en vivo en {int(espera_seg)}s (30 min post-meditación)...")
-                time.sleep(espera_seg)
-                try:
-                    m_q1 = enviar_mensaje(chat_destino, "/quitar 1")
-                    time.sleep(4)
-                    m_rep = enviar_mensaje(chat_destino, "/reproducir")
-                    time.sleep(6)
-                    if m_q1:
-                        eliminar_mensaje(chat_destino, m_q1)
-                    if m_rep:
-                        eliminar_mensaje(chat_destino, m_rep)
-                except Exception as e_play:
-                    log_debug(f"Nota disparando reproducción +30min: {e_play}")
 
         threading.Thread(target=_sincronizar_con_sala_en_vivo, daemon=True).start()
 
@@ -2570,8 +2581,10 @@ def escuchar_comandos() -> None:
                         if comando and chat_id_cb:
                             m_id_cmd = enviar_mensaje(chat_id_cb, comando)
                             if m_id_cmd:
-                                time.sleep(0.5)
-                                eliminar_mensaje(chat_id_cb, m_id_cmd)
+                                def _borrar_cmd_diferido(_cid=chat_id_cb, _mid=m_id_cmd):
+                                    time.sleep(8.0)
+                                    eliminar_mensaje(_cid, _mid)
+                                threading.Thread(target=_borrar_cmd_diferido, daemon=True).start()
 
                         try:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
