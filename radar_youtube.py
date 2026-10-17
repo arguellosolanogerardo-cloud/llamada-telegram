@@ -37,27 +37,38 @@ GITHUB_RAW_VISTOS = "https://raw.githubusercontent.com/arguellosolanogerardo-clo
 
 
 def cargar_vistos() -> list:
+    locales = []
     if os.path.exists(RADAR_DB_PATH):
         try:
             with open(RADAR_DB_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if isinstance(data, list) and len(data) > 0:
-                    return [str(x) for x in data]
+                if isinstance(data, list):
+                    locales = [str(x) for x in data]
         except Exception as e:
             print("Nota leyendo radar_vistos local:", e)
 
-    # Fallback: cargar de GitHub repo si no existe localmente o está vacío
+    remotos = []
     try:
-        req = urllib.request.Request(GITHUB_RAW_VISTOS, headers={"User-Agent": "BotRadarYouTube"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        url_nocache = f"{GITHUB_RAW_VISTOS}?t={int(time.time() // 60)}"
+        req = urllib.request.Request(url_nocache, headers={"User-Agent": "BotRadarYouTube"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            if isinstance(data, list) and len(data) > 0:
-                guardar_vistos(data)
-                return [str(x) for x in data]
-    except Exception as e:
-        print("Nota cargando radar_vistos desde GitHub:", e)
+            if isinstance(data, list):
+                remotos = [str(x) for x in data]
+    except Exception:
+        pass
 
-    return []
+    combinados = list(locales)
+    nuevo_remoto = False
+    for x in remotos:
+        if x not in combinados:
+            combinados.append(x)
+            nuevo_remoto = True
+
+    if nuevo_remoto and combinados:
+        guardar_vistos(combinados)
+
+    return combinados
 
 
 def guardar_vistos(vistos: list) -> None:
@@ -290,16 +301,34 @@ def extraer_videos_web(url_canal: str) -> list:
         title = metadata.get("title", {}).get("content", "")
         meta_rows = metadata.get("metadata", {}).get("contentMetadataViewModel", {}).get("metadataRows", [])
         pub_txt = ""
+        fallback_txt = ""
         for r in meta_rows:
             for p in r.get("metadataParts", []):
                 lbl = p.get("accessibilityLabel", "")
                 txt = p.get("text", {}).get("content", "")
-                candidate = lbl or txt
-                if any(w in candidate.lower() for w in ["min", "hora", "seg", "día", "dia", "semana", "mes", "año", "day", "hour", "week", "month", "year"]):
+                candidate = (lbl or txt).strip()
+                cand_low = candidate.lower()
+                if not candidate:
+                    continue
+                # Ignorar contadores de vistas/usuarios
+                es_vistas = (
+                    bool(p.get("leadingIcon"))
+                    or any(v_w in cand_low for v_w in ["vista", "view", "visualizaci", "watching", "esperando", "waiting"])
+                )
+                if any(w in cand_low for w in [
+                    "min", "hora", "seg", "día", "dia", "semana", "mes", "año",
+                    "day", "hour", "week", "month", "year", "hace", "ago",
+                    "momento", "ahora", "now", "estreno", "premiere", "premier",
+                    "vivo", "live", "directo", "streamed", "ayer", "yesterday"
+                ]) or re.search(r'\b\d+\s*(?:s|sec|seg|m|min|h|hr|hrs|d|w|mo|y|yr)\b', cand_low):
                     pub_txt = candidate
                     break
+                if not es_vistas and not fallback_txt:
+                    fallback_txt = candidate
             if pub_txt:
                 break
+        if not pub_txt and fallback_txt:
+            pub_txt = fallback_txt
         vistos_set.add(vid)
         videos.append({
             "video_id": vid,
@@ -413,66 +442,103 @@ def extraer_entradas_xml(xml_texto: str) -> list:
     return entradas
 
 
-def evaluar_recencia_texto(pub_txt: str) -> bool:
-    """Evalúa de forma robusta si un texto relativo de tiempo (en español o inglés)
-    corresponde a una publicación reciente (dentro de las últimas 6 horas)."""
+def es_programado_futuro(pub_txt: str) -> bool:
+    """Detecta si el video es un estreno futuro programado que aún no ha salido."""
     if not pub_txt:
         return False
     txt = pub_txt.lower().strip()
+    return any(w in txt for w in ["próximamente", "proximamente", "upcoming", "programado", "scheduled", "se estrena", "premieres"])
+
+
+def es_antiguo_explicito(pub_txt: str) -> bool:
+    """Evalúa si el texto de tiempo indica explícitamente que el video tiene más de 12 horas (días, semanas, meses, años)."""
+    if not pub_txt:
+        return False
+    txt = pub_txt.lower().strip()
+    palabras_antiguas = [
+        "día", "días", "dia", "dias", "day", "days",
+        "semana", "semanas", "week", "weeks",
+        "mes", "meses", "month", "months",
+        "año", "años", "year", "years",
+        "ayer", "yesterday"
+    ]
+    if any(w in txt for w in palabras_antiguas):
+        return True
+    if re.search(r'\b\d+\s*(?:d|w|mo|y|yr)\b', txt):
+        return True
+    m_horas = re.search(r'(?:hace\s*|streamed\s*)?(\d+)\s*(?:hora|horas|hour|hours|h|hr|hrs)\b', txt)
+    if m_horas:
+        return int(m_horas.group(1)) > 12
+    return False
+
+
+def evaluar_recencia_texto(pub_txt: str) -> bool:
+    """Evalúa de forma robusta si un texto relativo de tiempo (en español o inglés)
+    corresponde a una publicación reciente (dentro de las últimas 12 horas)."""
+    if not pub_txt:
+        return False
+    txt = pub_txt.lower().strip()
+    if es_programado_futuro(txt) or es_antiguo_explicito(txt):
+        return False
 
     # Publicaciones inmediatas, minutos o transmisiones en directo
     inmediatos = [
         "seg", "sec", "min", "ahora", "now", "vivo", "live", "directo",
-        "estreno", "premier", "premiere", "momentos"
+        "estreno", "premier", "premiere", "momento", "momentos", "reciente"
     ]
-    if any(w in txt for w in inmediatos):
+    if any(w in txt for w in inmediatos) or re.search(r'\b\d+\s*(?:s|sec|seg|m|min)\b', txt):
         return True
 
-    # Horas: "hace 1 hora", "hace 2 horas", "hace 1 h", "1 hour ago", "2 hours ago", "streamed 1 hr ago"
+    # Horas: "hace 1 hora", "hace 2 horas", "hace 1 h", "1 hour ago", "1h ago", "streamed 1 hr ago"
     m_horas = re.search(r'(?:hace\s*|streamed\s*)?(\d+)\s*(?:hora|horas|hour|hours|h|hr|hrs)\b', txt)
     if m_horas:
         horas = int(m_horas.group(1))
-        return horas <= 6
+        return horas <= 12
 
     return False
 
 
 def extraer_videos_canal(canal: dict) -> list:
-    """Estrategia Multi-Tier robusta para obtener videos del canal:
-       Tier 1: XML RSS Feed (oficial, fecha exacta ISO 8601 UTC)
-       Tier 2: Web scraping de ytInitialData (lockupViewModel) para complementar estrenos inmediatos
+    """Estrategia Multi-Tier preservando estrictamente el orden cronológico (idx 0 = más reciente):
+       Tier 1: Web scraping de ytInitialData (lockupViewModel / videoRenderer) en orden natural
+       Tier 2: XML RSS Feed (para enriquecer published_dt si responde)
        Tier 3: yt-dlp como fallback final
     """
     videos = []
-    ids_vistos = set()
+    por_id = {}
 
-    # Tier 1: XML RSS Feed
+    # Tier 1: Web Scraping directo (Mantiene orden exacto: índice 0 = video más nuevo)
+    url_canal = canal.get("url") or f"https://www.youtube.com/{canal.get('handle', '')}/videos"
+    try:
+        web_vids = extraer_videos_web(url_canal)
+        for v in web_vids:
+            vid = v["video_id"]
+            if vid not in por_id:
+                por_id[vid] = v
+                videos.append(v)
+    except Exception as e_web:
+        print(f"Nota extrayendo web ({canal.get('nombre')}): {e_web}")
+
+    # Tier 2: XML RSS Feed (enriquece timestamps exactos o agrega si web falló)
     if canal.get("id"):
         try:
             url_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={canal['id']}"
             req = urllib.request.Request(url_rss, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
             })
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 xml_texto = resp.read().decode('utf-8', errors='ignore')
                 if xml_texto:
                     for v in extraer_entradas_xml(xml_texto):
-                        if v["video_id"] not in ids_vistos:
-                            ids_vistos.add(v["video_id"])
+                        vid = v["video_id"]
+                        if vid in por_id:
+                            por_id[vid]["published_dt"] = v.get("published_dt")
+                            por_id[vid]["published_str"] = v.get("published_str")
+                        else:
+                            por_id[vid] = v
                             videos.append(v)
-        except Exception as e_rss:
-            print(f"Nota extrayendo RSS ({canal.get('nombre')}): {e_rss}")
-
-    # Tier 2: Web Scraping complementario
-    url_canal = canal.get("url") or f"https://www.youtube.com/{canal.get('handle', '')}/videos"
-    try:
-        web_vids = extraer_videos_web(url_canal)
-        for v in web_vids:
-            if v["video_id"] not in ids_vistos:
-                ids_vistos.add(v["video_id"])
-                videos.insert(0, v)
-    except Exception as e_web:
-        print(f"Nota extrayendo web ({canal.get('nombre')}): {e_web}")
+        except Exception:
+            pass
 
     # Tier 3: yt-dlp si ambos fallaron
     if not videos:
@@ -508,25 +574,33 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                     nuevos_vistos.append(vid)
                     continue
 
+                # Si es un estreno programado a futuro que aún no ha iniciado, esperar sin marcar como visto
+                if es_programado_futuro(pub_txt):
+                    continue
+
                 # Criterio robusto de novedad:
-                # Permitir hasta 6 horas (o hasta 12 horas para el video más reciente del canal)
                 es_reciente = False
                 if dt_pub:
                     segundos = (ahora_utc - dt_pub).total_seconds()
-                    limite_seg = 43200 if idx == 0 else 21600
+                    if segundos < 0:
+                        continue
+                    limite_seg = 43200 if idx < 3 else 21600
                     es_reciente = 0 <= segundos < limite_seg
-                elif pub_txt:
-                    es_reciente = evaluar_recencia_texto(pub_txt)
-                elif source == "ytdlp":
-                    es_reciente = idx == 0
-
-                # Si no es reciente (ej: video publicado hace días/semanas), registrar como visto sin spamear
-                if not es_reciente:
+                    if not es_reciente:
+                        nuevos_vistos.append(vid)
+                        continue
+                elif es_antiguo_explicito(pub_txt):
+                    # El video dice explícitamente días, semanas, meses, años o >12h -> marcar visto sin anunciar
                     nuevos_vistos.append(vid)
                     continue
-
-                # Marcar como visto para el ciclo
-                nuevos_vistos.append(vid)
+                elif evaluar_recencia_texto(pub_txt):
+                    es_reciente = True
+                elif idx < 3:
+                    # Está en el Top 3 más reciente del canal, no está en vistos y NO es antiguo -> ¡Es nuevo!
+                    es_reciente = True
+                else:
+                    # Posición >= 3 sin texto de tiempo claro: no anunciar, pero no envenenar vistos si es ambiguo
+                    continue
 
                 # Formatear fecha para Colombia
                 fecha_txt = ""
@@ -580,10 +654,16 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                 # 2. Si falló la foto o no se configuró, fallback a enviar_mensaje con vista previa solicitada
                 if not enviado and bot_enviar_mensaje_func:
                     try:
-                        bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
-                        anunciados += 1
+                        m_id_msg = bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
+                        if m_id_msg:
+                            enviado = True
+                            anunciados += 1
                     except Exception as e_send:
                         print(f"⚠️ Error enviando anuncio de radar ({vid}): {e_send}")
+
+                # SOLO marcar como visto si fue efectivamente enviado a Telegram
+                if enviado:
+                    nuevos_vistos.append(vid)
 
                 # Pausa de 3 segundos entre anuncios para evitar rate-limits de Telegram
                 time.sleep(3)
