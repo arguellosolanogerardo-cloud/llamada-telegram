@@ -490,10 +490,18 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
             print(f"⚠️ Nota descargando/publicando audio en el grupo: {e_aud_pub}")
 
 
-    # Guardar metadatos del día
-    os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
-    ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
+    # Guardar metadatos del día y reiniciar cola_hoy.json limpia
+    carp_med_pub = os.path.join("data", "meditaciones")
+    os.makedirs(carp_med_pub, exist_ok=True)
+    ruta_meta = os.path.join(carp_med_pub, "meta_hoy.json")
     try:
+        # Limpiar audios adicionales residuales de sesiones anteriores
+        for fn in os.listdir(carp_med_pub):
+            if fn.startswith(("meditacion_hoy_", "meditacion_extra", "yt_extra_")) and fn.endswith((".mp3", ".m4a", ".wav", ".ogg", ".mp4")):
+                try:
+                    os.remove(os.path.join(carp_med_pub, fn))
+                except Exception:
+                    pass
         info_guardar = dict(info)
         info_guardar["fecha_tarea_admin"] = fecha_final
         if len(items) > 1:
@@ -502,8 +510,20 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
             info_guardar["msg_id_audio"] = msg_id_audio
         with open(ruta_meta, "w", encoding="utf-8") as f:
             json.dump(info_guardar, f, ensure_ascii=False, indent=2)
+        # Dejar cola_hoy.json limpia únicamente con la(s) pista(s) de la tarea oficial
+        cola_limpia = []
+        for idx_it, it_p in enumerate(items, 1):
+            r_it = os.path.join(carp_med_pub, "meditacion_hoy.mp3" if idx_it == 1 else f"meditacion_hoy_{idx_it}.mp3")
+            t_it = "Meditación" if "MEDITACI" in str(it_p.get("tipo", "MEDITACION")).upper() else "Mensaje"
+            cola_limpia.append({
+                "ruta": os.path.abspath(r_it),
+                "info": dict(it_p, msg_id_audio=msg_id_audio) if idx_it == 1 and msg_id_audio else it_p,
+                "titulo": f"{t_it} #{it_p.get('numero', '')} - {it_p.get('titulo', '')}".strip(" -#")
+            })
+        with open(os.path.join(carp_med_pub, "cola_hoy.json"), "w", encoding="utf-8") as fc:
+            json.dump({"fecha": fecha_final, "cola": cola_limpia}, fc, ensure_ascii=False, indent=2)
     except Exception as e:
-        print("Nota guardando meta_hoy:", e)
+        print("Nota guardando meta_hoy y cola_hoy:", e)
 
     # Sincronizar metadatos con el bot en Render si está activo
     try:

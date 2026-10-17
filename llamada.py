@@ -5104,7 +5104,13 @@ async def main() -> None:
                 part["ultima_salida"] = fin_llamada
                 part["activo_ahora"] = False
 
-        # Desconectar reproductor de PyTgCalls y cerrar sala
+        # Desconectar reproductor de PyTgCalls, cancelar esperas de cola y cerrar sala
+        cancelar_espera_post_meditacion()
+        token_reproduccion += 1
+        reproduciendo_meditacion = False
+        eq_estado["cambiando"] = False
+        if tarea_panel_progreso and not tarea_panel_progreso.done():
+            tarea_panel_progreso.cancel()
         if tgcalls:
             try:
                 await tgcalls.leave_call(destino)
@@ -5662,13 +5668,51 @@ async def main() -> None:
             info_catalogo=info_catalogo_hoy,
         )
 
-        # Registrar reproducción oficial en log histórico y sincronizar estado
+        # Registrar reproducción oficial en log histórico y sincronizar estado (usando la Pista #1 oficial antes de vaciar la cola)
         try:
             from schedule_meditaciones import registrar_reproduccion_en_log_y_estado
-            if info_catalogo_hoy:
-                registrar_reproduccion_en_log_y_estado(info_catalogo_hoy, fecha_hoy)
+            info_oficial_log = (cola_reproduccion[0].get("info") if cola_reproduccion and (cola_reproduccion[0].get("info") or {}).get("numero") else None) or info_catalogo_hoy
+            if info_oficial_log and info_oficial_log.get("numero"):
+                registrar_reproduccion_en_log_y_estado(info_oficial_log, fecha_hoy)
+                info_catalogo_hoy = info_oficial_log
         except Exception as e_reg:
             print("Nota registrando reproduccion en log oficial:", e_reg)
+
+        # ── LIMPIEZA TOTAL DE LA COLA AL CERRAR LA SALA ──
+        # Borra cualquier audio que haya quedado encolado sin reproducirse para que a las 3:00 AM
+        # del día siguiente se encole limpia y sin conflicto la Meditación Diaria oficial.
+        try:
+            cancelar_espera_post_meditacion()
+            cola_reproduccion.clear()
+            pistas_completadas.clear()
+            for jf_clean in ("cola_hoy.json", "meta_hoy.json", "cola_manana.json"):
+                r_jf = os.path.join(CARPETA_MEDITACIONES, jf_clean)
+                if os.path.exists(r_jf):
+                    try:
+                        os.remove(r_jf)
+                    except Exception:
+                        pass
+            if os.path.exists(CARPETA_MEDITACIONES):
+                for fn_med in os.listdir(CARPETA_MEDITACIONES):
+                    if fn_med.startswith(("meditacion_hoy", "meditacion_extra", "yt_extra_", "meditacion_manana")) or fn_med.endswith(("_gongs.mp3", "_video.mp4")):
+                        try:
+                            os.remove(os.path.join(CARPETA_MEDITACIONES, fn_med))
+                        except Exception:
+                            pass
+            # Notificar también al servidor de Render para que vacíe su cola_hoy.json y temporales
+            try:
+                req_clean_r = urllib.request.Request(
+                    "https://bot-meditaciones.onrender.com/limpiar_cola",
+                    method="POST",
+                    headers={"User-Agent": "LlamadaCierreSala"}
+                )
+                with urllib.request.urlopen(req_clean_r, timeout=8) as r_cl:
+                    print(f"🧹 Cola de reproducción limpiada en Render al cerrar sala: HTTP {r_cl.status}")
+            except Exception as e_cl_r:
+                print(f"Nota limpiando cola en Render al cerrar sala: {e_cl_r}")
+            print("🧹 Cola de reproducción local y audios no reproducidos eliminados exitosamente al cerrar la sala.")
+        except Exception as e_clean_cola:
+            print("Nota en limpieza final de cola:", e_clean_cola)
 
         try:
             if not client.is_connected():

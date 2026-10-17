@@ -564,6 +564,20 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": str(e_ec)}).encode())
                 return
+        if self.path.startswith("/limpiar_cola"):
+            try:
+                limpiar_cola_y_temporales_render()
+                self.send_response(200)
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "cleaned": True}).encode("utf-8"))
+                return
+            except Exception as e_lc:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e_lc)}).encode())
+                return
         if self.path.startswith("/ipc_panel"):
             try:
                 ipc_f = os.path.join("data", "control_panel_ipc.json")
@@ -615,6 +629,20 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot Comandos OK")
 
     def do_POST(self):
+        if self.path.startswith("/limpiar_cola"):
+            try:
+                limpiar_cola_y_temporales_render()
+                self.send_response(200)
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "cleaned": True}).encode("utf-8"))
+                return
+            except Exception as e_lc:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e_lc)}).encode())
+                return
         if self.path in ("/radar", "/escanear", "/scan"):
             try:
                 from radar_youtube import chequear_canales
@@ -647,8 +675,23 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if info:
                     if msg_id_audio:
                         info["msg_id_audio"] = msg_id_audio
-                    os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
-                    ruta_meta = os.path.join("data", "meditaciones", "meta_hoy.json")
+                    carp_m = os.path.join("data", "meditaciones")
+                    os.makedirs(carp_m, exist_ok=True)
+                    # Si es una meditación oficial nueva (no audio adicional de Mario), limpiar cualquier cola previa
+                    if not info.get("es_mario") and not info.get("es_adicional"):
+                        limpiar_cola_y_temporales_render(conservar_meta=True)
+                        fecha_t = info.get("fecha_tarea_admin") or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
+                        r_mp3 = info.get("audio_path") or os.path.join(carp_m, "meditacion_hoy.mp3")
+                        t_nom = "Meditación" if "MEDITACI" in str(info.get("tipo", "MEDITACION")).upper() else "Mensaje"
+                        num_s = info.get("numero", "")
+                        pista_unica = {
+                            "ruta": os.path.abspath(r_mp3),
+                            "info": info,
+                            "titulo": f"{t_nom} #{num_s} - {info.get('titulo', '')}".strip(" -#")
+                        }
+                        with open(os.path.join(carp_m, "cola_hoy.json"), "w", encoding="utf-8") as fc:
+                            json.dump({"fecha": fecha_t, "cola": [pista_unica]}, fc, ensure_ascii=False, indent=2)
+                    ruta_meta = os.path.join(carp_m, "meta_hoy.json")
                     with open(ruta_meta, "w", encoding="utf-8") as f:
                         json.dump(info, f, ensure_ascii=False, indent=2)
                     guardar_audio_registrado(info, file_id=info.get("file_id"), msg_id=msg_id_audio)
@@ -668,6 +711,38 @@ class HealthHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         pass
+
+
+def limpiar_cola_y_temporales_render(conservar_meta: bool = False) -> None:
+    """Borra la cola de reproducción y cualquier audio temporal no reproducido al cerrar la sala o cambiar de día."""
+    carp_m = os.path.join("data", "meditaciones")
+    os.makedirs(carp_m, exist_ok=True)
+    archivos_json = ["cola_hoy.json", "cola_manana.json"]
+    if not conservar_meta:
+        archivos_json.append("meta_hoy.json")
+    for jf in archivos_json:
+        rj = os.path.join(carp_m, jf)
+        if os.path.exists(rj):
+            try:
+                os.remove(rj)
+            except Exception:
+                pass
+    ipc_f = os.path.join("data", "control_panel_ipc.json")
+    if os.path.exists(ipc_f):
+        try:
+            os.remove(ipc_f)
+        except Exception:
+            pass
+    try:
+        for fn in os.listdir(carp_m):
+            if fn.startswith(("meditacion_hoy", "meditacion_extra", "yt_extra_", "meditacion_manana")) and fn.endswith((".mp3", ".m4a", ".wav", ".ogg", ".mp4")):
+                try:
+                    os.remove(os.path.join(carp_m, fn))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    print("🧹 Cola de reproducción y audios temporales limpiados en Render.")
 
 
 def iniciar_servidor_health():

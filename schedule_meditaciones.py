@@ -306,9 +306,33 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     info_cat["indice_secuencia"] = indice
     info_cat["timestamp_programacion"] = ahora.isoformat()
 
-    # ── GUARDAR meta_hoy.json (atómico) ──
+    # ── LIMPIAR CUALQUIER COLA O AUDIO NO REPRODUCIDO DEL DÍA ANTERIOR ──
+    try:
+        MEDIT_DIR.mkdir(parents=True, exist_ok=True)
+        for jf in ("cola_hoy.json", "cola_manana.json"):
+            p_jf = MEDIT_DIR / jf
+            if p_jf.exists():
+                p_jf.unlink(missing_ok=True)
+        for f_old in MEDIT_DIR.iterdir():
+            if f_old.is_file() and f_old.name.startswith(("meditacion_hoy", "meditacion_extra", "yt_extra_", "meditacion_manana")) and f_old.suffix.lower() in (".mp3", ".m4a", ".wav", ".ogg", ".mp4"):
+                try:
+                    f_old.unlink(missing_ok=True)
+                except Exception:
+                    pass
+    except Exception as e_clean_3am:
+        print(f"Nota limpiando cola previa a las 3 AM: {e_clean_3am}")
+
+    # ── GUARDAR meta_hoy.json y cola_hoy.json limpia (atómico) ──
     _guardar_json(META_HOY, info_cat)
-    print(f"✅ meta_hoy.json actualizado: #{numero} para {fecha_hoy_display}")
+    _guardar_json(MEDIT_DIR / "cola_hoy.json", {
+        "fecha": fecha_hoy_display,
+        "cola": [{
+            "ruta": str((MEDIT_DIR / "meditacion_hoy.mp3").resolve()),
+            "info": info_cat,
+            "titulo": f"Meditación #{numero} - {info_cat.get('titulo', '')}".strip(" -")
+        }]
+    })
+    print(f"✅ meta_hoy.json y cola_hoy.json inicializados limpios: #{numero} para {fecha_hoy_display}")
 
     # ── AÑADIR AL LOG HISTÓRICO ──
     log = _cargar_json(LOG_FILE)
