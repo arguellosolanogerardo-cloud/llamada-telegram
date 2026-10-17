@@ -238,11 +238,13 @@ def formatear_cola_audios(cola: list[dict], indice_actual: int = 0, reproduciend
 
     for idx, item in enumerate(cola):
         info = item.get("info") or {}
-        tipo = info.get("tipo", "MEDITACION").upper()
+        tipo = str(info.get("tipo", "MEDITACION")).upper()
         num = info.get("numero", "")
         titulo = info.get("titulo") or item.get("titulo", "Audio")
         maestro = info.get("maestro", "Alaniso")
-        icono_tipo = "🧘" if tipo == "MEDITACION" else "📜"
+        es_mario = bool(info.get("es_mario") or "MARIO CARRILLO" in maestro.upper() or "MARIO CARRILLO" in str(titulo).upper())
+        espera_min = item.get("espera_post_meditacion_min") or info.get("espera_post_meditacion_min") or (30 if (idx > 0 or es_mario) else 0)
+        icono_tipo = "🧘" if (tipo == "MEDITACION" or es_mario) else "📜"
 
         pref_num = emojis_num[idx] if idx < len(emojis_num) else f"[{idx+1}]"
 
@@ -253,9 +255,21 @@ def formatear_cola_audios(cola: list[dict], indice_actual: int = 0, reproduciend
             elif idx < indice_actual:
                 estado_pista = " ✅ *(Finalizado)*"
             else:
-                estado_pista = " ⏳ *(En espera)*"
+                if espera_min:
+                    estado_pista = f" ⏳ *(En cola: sonará {espera_min} min después de terminar la 1.ª reproducción)*"
+                else:
+                    estado_pista = " ⏳ *(En espera)*"
+        elif idx > 0 and espera_min:
+            estado_pista = f" ⏳ *(Encolado: se reproducirá {espera_min} min después de terminar la 1.ª reproducción)*"
 
-        num_txt = f" #{num}" if num else ""
-        lineas.append(f"{pref_num} {icono_tipo} **{tipo.capitalize()}{num_txt}:** *«{titulo}»*{estado_pista}\n   🎙️ Maestro: {maestro}")
+        if es_mario:
+            lineas.append(
+                f"{pref_num} {icono_tipo} **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN:** *«{titulo}»*{estado_pista}\n"
+                f"   🎙️ Maestro: {maestro}"
+            )
+        else:
+            num_txt = f" #{num}" if num else ""
+            lineas.append(f"{pref_num} {icono_tipo} **{tipo.capitalize()}{num_txt}:** *«{titulo}»*{estado_pista}\n   🎙️ Maestro: {maestro}")
 
     return "\n\n".join(lineas)
+
