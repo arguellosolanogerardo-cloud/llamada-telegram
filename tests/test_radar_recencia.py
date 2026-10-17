@@ -11,7 +11,7 @@ class TestRadarRecencia(unittest.TestCase):
         self.assertTrue(evaluar_recencia_texto("hace 15 minutos"))
         self.assertTrue(evaluar_recencia_texto("hace 35 min"))
         self.assertTrue(evaluar_recencia_texto("En vivo"))
-        self.assertFalse(evaluar_recencia_texto("hace 8 horas"))
+        self.assertFalse(evaluar_recencia_texto("hace 14 horas"))
         self.assertFalse(evaluar_recencia_texto("hace 2 días"))
 
     def test_evaluar_recencia_texto_ingles(self):
@@ -21,7 +21,7 @@ class TestRadarRecencia(unittest.TestCase):
         self.assertTrue(evaluar_recencia_texto("streamed 1 hour ago"))
         self.assertTrue(evaluar_recencia_texto("15 minutes ago"))
         self.assertTrue(evaluar_recencia_texto("Live now"))
-        self.assertFalse(evaluar_recencia_texto("12 hours ago"))
+        self.assertFalse(evaluar_recencia_texto("16 hours ago"))
         self.assertFalse(evaluar_recencia_texto("3 days ago"))
 
     def test_oembed_mario_carrillo(self):

@@ -35,8 +35,15 @@ CANALES_RADAR = [
 RADAR_DB_PATH = os.path.join("data", "radar_vistos.json")
 GITHUB_RAW_VISTOS = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/radar_vistos.json"
 
+# Candados y conjuntos en memoria para evitar colisiones y publicaciones duplicadas por concurrencia
+_RADAR_LOCK = threading.Lock()
+_MEMORIA_LOCK = threading.Lock()
+_VIDEOS_EN_PROCESO = set()
+_VIDEOS_VISTOS_MEMORIA = set()
+
 
 def cargar_vistos() -> list:
+    global _VIDEOS_VISTOS_MEMORIA
     locales = []
     if os.path.exists(RADAR_DB_PATH):
         try:
@@ -65,6 +72,13 @@ def cargar_vistos() -> list:
             combinados.append(x)
             nuevo_remoto = True
 
+    with _MEMORIA_LOCK:
+        for x in combinados:
+            _VIDEOS_VISTOS_MEMORIA.add(x)
+        for x in _VIDEOS_VISTOS_MEMORIA:
+            if x not in combinados:
+                combinados.append(x)
+
     if nuevo_remoto and combinados:
         guardar_vistos(combinados)
 
@@ -72,14 +86,18 @@ def cargar_vistos() -> list:
 
 
 def guardar_vistos(vistos: list) -> None:
+    global _VIDEOS_VISTOS_MEMORIA
     try:
         os.makedirs(os.path.dirname(RADAR_DB_PATH), exist_ok=True)
         unicos = []
-        for x in vistos:
-            if x not in unicos:
-                unicos.append(x)
+        with _MEMORIA_LOCK:
+            for x in vistos:
+                _VIDEOS_VISTOS_MEMORIA.add(str(x))
+            for x in _VIDEOS_VISTOS_MEMORIA:
+                if x not in unicos:
+                    unicos.append(x)
         with open(RADAR_DB_PATH, "w", encoding="utf-8") as f:
-            json.dump(unicos[-100:], f, indent=2)
+            json.dump(unicos[-150:], f, indent=2)
     except Exception as e:
         print("Nota guardando radar_vistos:", e)
 
@@ -185,70 +203,78 @@ def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_en
         return False
 
     vistos = cargar_vistos()
-    if not forzar and vid in vistos:
-        print(f"📡 Radar YouTube: El video {vid} ya fue anunciado previamente. Omitiendo duplicado.")
-        return True
+    with _MEMORIA_LOCK:
+        if not forzar and (vid in vistos or vid in _VIDEOS_VISTOS_MEMORIA or vid in _VIDEOS_EN_PROCESO):
+            print(f"📡 Radar YouTube: El video {vid} ya fue anunciado previamente o está en proceso. Omitiendo duplicado.")
+            return True
+        _VIDEOS_EN_PROCESO.add(vid)
 
-    info = obtener_info_oembed(vid)
-    titulo = info.get("title", "").strip() or obtener_titulo_video(vid) or f"Video {vid}"
-    autor = info.get("author_name", "").strip()
+    try:
+        info = obtener_info_oembed(vid)
+        titulo = info.get("title", "").strip() or obtener_titulo_video(vid) or f"Video {vid}"
+        autor = info.get("author_name", "").strip()
 
-    canal_nombre = "ALANISO 2012"
-    if any(m in autor.lower() for m in ["mario", "carrillo"]):
-        canal_nombre = "Maestro Mario Carrillo"
-    elif any(a in autor.lower() for a in ["alaniso"]):
         canal_nombre = "ALANISO 2012"
-    elif autor:
-        canal_nombre = autor
+        if any(m in autor.lower() for m in ["mario", "carrillo"]):
+            canal_nombre = "Maestro Mario Carrillo"
+        elif any(a in autor.lower() for a in ["alaniso"]):
+            canal_nombre = "ALANISO 2012"
+        elif autor:
+            canal_nombre = autor
 
-    url_foto = obtener_url_miniatura(vid)
-    ahora_col = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
+        url_foto = obtener_url_miniatura(vid)
+        ahora_col = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
 
-    tit_limpio = str(titulo).replace("_", "\\_").replace("*", "")
-    link_limpio = f"https://www.youtube.com/watch?v={vid}".replace("_", "\\_")
+        tit_limpio = str(titulo).replace("_", "\\_").replace("*", "")
+        link_limpio = f"https://www.youtube.com/watch?v={vid}".replace("_", "\\_")
 
-    texto_anuncio = (
-        f"🔔 **¡NUEVO VIDEO PUBLICADO EN YOUTUBE!** 🐼\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📺 **Canal:** {canal_nombre}\n"
-        f"✨ **Título:** «{tit_limpio}»\n"
-        f"🗓️ **Publicado:** Recientemente ({ahora_col})\n\n"
-        f"🔗 **Ver en YouTube:**\n{link_limpio}"
-    )
+        texto_anuncio = (
+            f"🔔 **¡NUEVO VIDEO PUBLICADO EN YOUTUBE!** 🐼\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📺 **Canal:** {canal_nombre}\n"
+            f"✨ **Título:** «{tit_limpio}»\n"
+            f"🗓️ **Publicado:** Recientemente ({ahora_col})\n\n"
+            f"🔗 **Ver en YouTube:**\n{link_limpio}"
+        )
 
-    btn_tarea_lbl = "📅 Programar Audio Adicional" if ("MARIO" in str(canal_nombre).upper() or "CARRILLO" in str(canal_nombre).upper()) else "📅 Programar como Tarea"
-    teclado = {
-        "inline_keyboard": [
-            [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
-             {"text": btn_tarea_lbl, "callback_data": f"yttarea_{vid}"}],
-            [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
-        ]
-    }
+        btn_tarea_lbl = "📅 Programar Audio Adicional" if ("MARIO" in str(canal_nombre).upper() or "CARRILLO" in str(canal_nombre).upper()) else "📅 Programar como Tarea"
+        teclado = {
+            "inline_keyboard": [
+                [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
+                 {"text": btn_tarea_lbl, "callback_data": f"yttarea_{vid}"}],
+                [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
+            ]
+        }
 
-    enviado = False
-    if bot_enviar_foto_func:
-        try:
-            m_id = bot_enviar_foto_func(target_chat, url_foto, caption=texto_anuncio, reply_markup=teclado)
-            if m_id:
-                enviado = True
-        except Exception as e_f:
-            print(f"⚠️ Error foto en anuncio manual ({vid}): {e_f}")
+        enviado = False
+        if bot_enviar_foto_func:
+            try:
+                m_id = bot_enviar_foto_func(target_chat, url_foto, caption=texto_anuncio, reply_markup=teclado)
+                if m_id:
+                    enviado = True
+            except Exception as e_f:
+                print(f"⚠️ Error foto en anuncio manual ({vid}): {e_f}")
 
-    if not enviado and bot_enviar_mensaje_func:
-        try:
-            m_id = bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
-            if m_id:
-                enviado = True
-        except Exception as e_m:
-            print(f"⚠️ Error mensaje en anuncio manual ({vid}): {e_m}")
+        if not enviado and bot_enviar_mensaje_func:
+            try:
+                m_id = bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
+                if m_id:
+                    enviado = True
+            except Exception as e_m:
+                print(f"⚠️ Error mensaje en anuncio manual ({vid}): {e_m}")
 
-    if enviado:
-        if vid not in vistos:
-            vistos.append(vid)
+        if enviado:
+            with _MEMORIA_LOCK:
+                _VIDEOS_VISTOS_MEMORIA.add(vid)
+                if vid not in vistos:
+                    vistos.append(vid)
             guardar_vistos(vistos)
             threading.Thread(target=sincronizar_github_vistos, args=(vistos,), daemon=True).start()
 
-    return enviado
+        return enviado
+    finally:
+        with _MEMORIA_LOCK:
+            _VIDEOS_EN_PROCESO.discard(vid)
 
 
 def extraer_videos_web(url_canal: str) -> list:
@@ -549,133 +575,163 @@ def extraer_videos_canal(canal: dict) -> list:
 
 def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None, es_arranque: bool = False) -> int:
     """Revisa los canales de YouTube y anuncia nuevos videos. Retorna cantidad de videos anunciados."""
-    vistos = cargar_vistos()
-    es_primera_vez = len(vistos) == 0
-    nuevos_vistos = list(vistos)
-    ahora_utc = datetime.now(timezone.utc)
-    target_chat = chat_id_grupo or os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP") or -1002963691819
-    anunciados = 0
+    if not _RADAR_LOCK.acquire(blocking=False):
+        print("📡 Radar YouTube: Chequeo de canales ya en curso por otro hilo/petición. Omitiendo ejecución concurrente.")
+        return 0
 
-    for canal in CANALES_RADAR:
-        try:
-            entradas = extraer_videos_canal(canal)
-            for idx, datos in enumerate(entradas):
-                vid = datos["video_id"]
-                dt_pub = datos.get("published_dt")
-                pub_txt = (datos.get("published_text") or "").lower()
-                source = datos.get("source", "")
+    try:
+        vistos = cargar_vistos()
+        es_primera_vez = len(vistos) == 0
+        nuevos_vistos = list(vistos)
+        ahora_utc = datetime.now(timezone.utc)
+        target_chat = chat_id_grupo or os.environ.get("CHAT_ID") or os.environ.get("TG_GROUP") or -1002963691819
+        anunciados = 0
 
-                if vid in vistos or vid in nuevos_vistos:
-                    continue
+        for canal in CANALES_RADAR:
+            try:
+                entradas = extraer_videos_canal(canal)
+                for idx, datos in enumerate(entradas):
+                    vid = datos["video_id"]
+                    dt_pub = datos.get("published_dt")
+                    pub_txt = (datos.get("published_text") or "").lower()
+                    source = datos.get("source", "")
 
-                # Si es la primera vez absoluta que se inicializa la BD (0 videos registrados),
-                # registrar existentes en silencio para no spamear todo el histórico
-                if es_primera_vez:
-                    nuevos_vistos.append(vid)
-                    continue
+                    with _MEMORIA_LOCK:
+                        if vid in vistos or vid in nuevos_vistos or vid in _VIDEOS_VISTOS_MEMORIA or vid in _VIDEOS_EN_PROCESO:
+                            continue
 
-                # Si es un estreno programado a futuro que aún no ha iniciado, esperar sin marcar como visto
-                if es_programado_futuro(pub_txt):
-                    continue
-
-                # Criterio robusto de novedad:
-                es_reciente = False
-                if dt_pub:
-                    segundos = (ahora_utc - dt_pub).total_seconds()
-                    if segundos < 0:
-                        continue
-                    limite_seg = 43200 if idx < 3 else 21600
-                    es_reciente = 0 <= segundos < limite_seg
-                    if not es_reciente:
+                    # Si es la primera vez absoluta que se inicializa la BD (0 videos registrados),
+                    # registrar existentes en silencio para no spamear todo el histórico
+                    if es_primera_vez:
+                        with _MEMORIA_LOCK:
+                            _VIDEOS_VISTOS_MEMORIA.add(vid)
                         nuevos_vistos.append(vid)
                         continue
-                elif es_antiguo_explicito(pub_txt):
-                    # El video dice explícitamente días, semanas, meses, años o >12h -> marcar visto sin anunciar
-                    nuevos_vistos.append(vid)
-                    continue
-                elif evaluar_recencia_texto(pub_txt):
-                    es_reciente = True
-                elif idx < 3:
-                    # Está en el Top 3 más reciente del canal, no está en vistos y NO es antiguo -> ¡Es nuevo!
-                    es_reciente = True
-                else:
-                    # Posición >= 3 sin texto de tiempo claro: no anunciar, pero no envenenar vistos si es ambiguo
-                    continue
 
-                # Formatear fecha para Colombia
-                fecha_txt = ""
-                if dt_pub:
+                    # Si es un estreno programado a futuro que aún no ha iniciado, esperar sin marcar como visto
+                    if es_programado_futuro(pub_txt):
+                        continue
+
+                    # Criterio robusto de novedad:
+                    es_reciente = False
+                    if dt_pub:
+                        segundos = (ahora_utc - dt_pub).total_seconds()
+                        if segundos < 0:
+                            continue
+                        limite_seg = 43200 if idx < 3 else 21600
+                        es_reciente = 0 <= segundos < limite_seg
+                        if not es_reciente:
+                            with _MEMORIA_LOCK:
+                                _VIDEOS_VISTOS_MEMORIA.add(vid)
+                            nuevos_vistos.append(vid)
+                            continue
+                    elif es_antiguo_explicito(pub_txt):
+                        # El video dice explícitamente días, semanas, meses, años o >12h -> marcar visto sin anunciar
+                        with _MEMORIA_LOCK:
+                            _VIDEOS_VISTOS_MEMORIA.add(vid)
+                        nuevos_vistos.append(vid)
+                        continue
+                    elif evaluar_recencia_texto(pub_txt):
+                        es_reciente = True
+                    elif idx < 3:
+                        # Está en el Top 3 más reciente del canal, no está en vistos y NO es antiguo -> ¡Es nuevo!
+                        es_reciente = True
+                    else:
+                        # Posición >= 3 sin texto de tiempo claro: no anunciar, pero no envenenar vistos si es ambiguo
+                        continue
+
+                    # Reservar el video en proceso para evitar duplicados si otra llamada llega
+                    with _MEMORIA_LOCK:
+                        if vid in _VIDEOS_VISTOS_MEMORIA or vid in _VIDEOS_EN_PROCESO:
+                            continue
+                        _VIDEOS_EN_PROCESO.add(vid)
+
                     try:
-                        dt_col = dt_pub.astimezone(ZoneInfo("America/Bogota"))
-                        fecha_txt = dt_col.strftime("%d/%m/%Y a las %I:%M %p")
-                    except Exception:
-                        fecha_txt = dt_pub.strftime("%d/%m/%Y")
-                elif datos.get("published_text"):
-                    fecha_txt = datos["published_text"].capitalize()
-                else:
-                    fecha_txt = "Hace unos momentos"
+                        # Formatear fecha para Colombia
+                        fecha_txt = ""
+                        if dt_pub:
+                            try:
+                                dt_col = dt_pub.astimezone(ZoneInfo("America/Bogota"))
+                                fecha_txt = dt_col.strftime("%d/%m/%Y a las %I:%M %p")
+                            except Exception:
+                                fecha_txt = dt_pub.strftime("%d/%m/%Y")
+                        elif datos.get("published_text"):
+                            fecha_txt = datos["published_text"].capitalize()
+                        else:
+                            fecha_txt = "Hace unos momentos"
 
-                tit_limpio = str(datos['titulo']).replace("_", "\\_").replace("*", "")
-                link_limpio = str(datos['link']).replace("_", "\\_")
+                        tit_limpio = str(datos['titulo']).replace("_", "\\_").replace("*", "")
+                        link_limpio = str(datos['link']).replace("_", "\\_")
 
-                texto_anuncio = (
-                    f"🔔 **¡NUEVO VIDEO PUBLICADO EN YOUTUBE!** 🐼\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📺 **Canal:** {canal['nombre']}\n"
-                    f"✨ **Título:** «{tit_limpio}»\n"
-                    f"🗓️ **Publicado:** {fecha_txt}\n\n"
-                    f"🔗 **Ver en YouTube:**\n{link_limpio}"
-                )
+                        texto_anuncio = (
+                            f"🔔 **¡NUEVO VIDEO PUBLICADO EN YOUTUBE!** 🐼\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"📺 **Canal:** {canal['nombre']}\n"
+                            f"✨ **Título:** «{tit_limpio}»\n"
+                            f"🗓️ **Publicado:** {fecha_txt}\n\n"
+                            f"🔗 **Ver en YouTube:**\n{link_limpio}"
+                        )
 
-                btn_tarea_lbl = "📅 Programar Audio Adicional" if ("MARIO" in str(canal['nombre']).upper() or "CARRILLO" in str(canal['nombre']).upper()) else "📅 Programar como Tarea"
-                teclado = {
-                    "inline_keyboard": [
-                        [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
-                         {"text": btn_tarea_lbl, "callback_data": f"yttarea_{vid}"}],
-                        [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
-                    ]
-                }
+                        btn_tarea_lbl = "📅 Programar Audio Adicional" if ("MARIO" in str(canal['nombre']).upper() or "CARRILLO" in str(canal['nombre']).upper()) else "📅 Programar como Tarea"
+                        teclado = {
+                            "inline_keyboard": [
+                                [{"text": "🎧 Obtener Audio MP3", "callback_data": f"ytmp3_{vid}"},
+                                 {"text": btn_tarea_lbl, "callback_data": f"yttarea_{vid}"}],
+                                [{"text": "📺 Ver en YouTube ↗️", "url": f"https://www.youtube.com/watch?v={vid}"}]
+                            ]
+                        }
 
-                url_foto = obtener_url_miniatura(vid)
-                enviado = False
+                        url_foto = obtener_url_miniatura(vid)
+                        enviado = False
 
-                print(f"📡 Radar YouTube: Anunciando nuevo video de {canal['nombre']} ({vid}): «{datos['titulo']}»")
+                        print(f"📡 Radar YouTube: Anunciando nuevo video de {canal['nombre']} ({vid}): «{datos['titulo']}»")
 
-                # 1. Enviar con Foto de alta resolución (100% garantizado que muestra la miniatura HD)
-                if bot_enviar_foto_func:
-                    try:
-                        m_id = bot_enviar_foto_func(target_chat, url_foto, caption=texto_anuncio, reply_markup=teclado)
-                        if m_id:
-                            enviado = True
-                            anunciados += 1
-                    except Exception as e_foto:
-                        print(f"⚠️ Error enviando anuncio con foto ({vid}): {e_foto}")
+                        # 1. Enviar con Foto de alta resolución (100% garantizado que muestra la miniatura HD)
+                        if bot_enviar_foto_func:
+                            try:
+                                m_id = bot_enviar_foto_func(target_chat, url_foto, caption=texto_anuncio, reply_markup=teclado)
+                                if m_id:
+                                    enviado = True
+                                    anunciados += 1
+                            except Exception as e_foto:
+                                print(f"⚠️ Error enviando anuncio con foto ({vid}): {e_foto}")
 
-                # 2. Si falló la foto o no se configuró, fallback a enviar_mensaje con vista previa solicitada
-                if not enviado and bot_enviar_mensaje_func:
-                    try:
-                        m_id_msg = bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
-                        if m_id_msg:
-                            enviado = True
-                            anunciados += 1
-                    except Exception as e_send:
-                        print(f"⚠️ Error enviando anuncio de radar ({vid}): {e_send}")
+                        # 2. Si falló la foto o no se configuró, fallback a enviar_mensaje con vista previa solicitada
+                        if not enviado and bot_enviar_mensaje_func:
+                            try:
+                                m_id_msg = bot_enviar_mensaje_func(target_chat, texto_anuncio, reply_markup=teclado)
+                                if m_id_msg:
+                                    enviado = True
+                                    anunciados += 1
+                            except Exception as e_send:
+                                print(f"⚠️ Error enviando anuncio de radar ({vid}): {e_send}")
 
-                # SOLO marcar como visto si fue efectivamente enviado a Telegram
-                if enviado:
-                    nuevos_vistos.append(vid)
+                        # SOLO marcar como visto si fue efectivamente enviado a Telegram
+                        if enviado:
+                            with _MEMORIA_LOCK:
+                                _VIDEOS_VISTOS_MEMORIA.add(vid)
+                            nuevos_vistos.append(vid)
+                            # Guardar inmediatamente en disco para que ningún otro proceso lo duplique
+                            guardar_vistos(nuevos_vistos)
+                            threading.Thread(target=sincronizar_github_vistos, args=(nuevos_vistos,), daemon=True).start()
 
-                # Pausa de 3 segundos entre anuncios para evitar rate-limits de Telegram
-                time.sleep(3)
-        except Exception as e:
-            print(f"⚠️ Error revisando radar {canal['nombre']}: {e}")
+                        # Pausa de 3 segundos entre anuncios para evitar rate-limits de Telegram
+                        time.sleep(3)
+                    finally:
+                        with _MEMORIA_LOCK:
+                            _VIDEOS_EN_PROCESO.discard(vid)
 
-    if len(nuevos_vistos) > len(vistos):
-        guardar_vistos(nuevos_vistos)
-        if anunciados > 0:
-            threading.Thread(target=sincronizar_github_vistos, args=(nuevos_vistos,), daemon=True).start()
+            except Exception as e:
+                print(f"⚠️ Error revisando radar {canal['nombre']}: {e}")
 
-    return anunciados
+        if len(nuevos_vistos) > len(vistos):
+            guardar_vistos(nuevos_vistos)
+            if anunciados > 0:
+                threading.Thread(target=sincronizar_github_vistos, args=(nuevos_vistos,), daemon=True).start()
+
+        return anunciados
+    finally:
+        _RADAR_LOCK.release()
 
 
 def radar_loop(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_func=None):

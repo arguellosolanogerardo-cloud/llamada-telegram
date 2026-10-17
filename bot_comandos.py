@@ -467,6 +467,9 @@ def limpiar_sala_notificaciones(chat_id: int | str) -> int:
     return borrados
 
 
+_ULTIMO_SCAN_RADAR = 0.0
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/logs":
@@ -515,6 +518,15 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
         if self.path in ("/radar", "/escanear", "/scan"):
             try:
+                global _ULTIMO_SCAN_RADAR
+                ahora_ts = time.time()
+                if (ahora_ts - _ULTIMO_SCAN_RADAR) < 45:
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "ok", "anunciados": 0, "cooldown": True}).encode())
+                    return
+                _ULTIMO_SCAN_RADAR = ahora_ts
                 from radar_youtube import chequear_canales
                 cant = chequear_canales(enviar_mensaje, CHAT_ID, bot_enviar_foto_func=enviar_foto)
                 self.send_response(200)
@@ -645,6 +657,15 @@ class HealthHandler(BaseHTTPRequestHandler):
                 return
         if self.path in ("/radar", "/escanear", "/scan"):
             try:
+                global _ULTIMO_SCAN_RADAR
+                ahora_ts = time.time()
+                if (ahora_ts - _ULTIMO_SCAN_RADAR) < 45:
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "ok", "anunciados": 0, "cooldown": True}).encode())
+                    return
+                _ULTIMO_SCAN_RADAR = ahora_ts
                 from radar_youtube import chequear_canales
                 cant = chequear_canales(enviar_mensaje, CHAT_ID, bot_enviar_foto_func=enviar_foto)
                 self.send_response(200)
