@@ -3200,7 +3200,7 @@ def escuchar_comandos() -> None:
                     vid_target = m_vid.group(1) if m_vid else arg.strip()
                     try:
                         from radar_youtube import anunciar_video_manual
-                        ok = anunciar_video_manual(vid_target, enviar_mensaje, CHAT_ID or chat_id, bot_enviar_foto_func=enviar_foto)
+                        ok = anunciar_video_manual(vid_target, enviar_mensaje, CHAT_ID or chat_id, bot_enviar_foto_func=enviar_foto, forzar=True)
                         if ok:
                             enviar_mensaje(chat_id, f"✅ Video `{vid_target}` anunciado exitosamente con miniatura HD.", reply_to_message_id=msg_id)
                         else:
