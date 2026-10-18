@@ -197,7 +197,7 @@ def obtener_url_miniatura(vid: str) -> str:
     return f"https://img.youtube.com/vi/{vid}/hqdefault.jpg"
 
 
-def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_enviar_foto_func=None, forzar: bool = False) -> bool:
+def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_enviar_foto_func=None, forzar: bool = True) -> bool:
     """Publica manualmente el anuncio de un video con su miniatura HD y botones interactivos."""
     if not vid:
         return False
@@ -206,7 +206,7 @@ def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_en
     with _MEMORIA_LOCK:
         if not forzar and (vid in vistos or vid in _VIDEOS_VISTOS_MEMORIA or vid in _VIDEOS_EN_PROCESO):
             print(f"📡 Radar YouTube: El video {vid} ya fue anunciado previamente o está en proceso. Omitiendo duplicado.")
-            return True
+            return False
         _VIDEOS_EN_PROCESO.add(vid)
 
     try:
