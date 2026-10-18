@@ -2194,6 +2194,51 @@ async def main() -> None:
             ref = eq_estado["t_pausa"] or time.monotonic()
             return max(0.0, eq_estado["offset"] + ref - eq_estado["t_play"] - eq_estado["seg_pausa"])
 
+        async def cerrar_pantalla_emision_video():
+            """Cierra de forma limpia la transmisión de video/pantalla compartida en Telegram sin salir de la llamada ni interrumpir micrófonos ni grabación."""
+            nonlocal ruta_caratula_actual, tgcalls, destino, client, input_call
+            print("📺 Cerrando pantalla de emisión de video en Telegram...")
+            ruta_caratula_actual = ""
+
+            # 1. Detener presentación a nivel PyTgCalls / WebRTC si estaba activa
+            if tgcalls:
+                try:
+                    resolved_dest = await tgcalls.resolve_chat_id(destino)
+                    if hasattr(tgcalls, "_join_presentation"):
+                        await tgcalls._join_presentation(resolved_dest, False)
+                    if hasattr(tgcalls, "_binding") and hasattr(tgcalls._binding, "stop_presentation"):
+                        try:
+                            await tgcalls._binding.stop_presentation(resolved_dest)
+                        except Exception:
+                            pass
+                    if hasattr(tgcalls, "_presentations"):
+                        tgcalls._presentations.discard(resolved_dest)
+                        tgcalls._presentations.discard(destino)
+                except Exception as e_tg_pres:
+                    print("Nota cerrando presentación en PyTgCalls:", e_tg_pres)
+
+            # 2. Dejar la presentación en Telegram MTProto para que la ventana de video se cierre en todos los dispositivos
+            if client and input_call:
+                try:
+                    from telethon.tl.functions.phone import LeaveGroupCallPresentationRequest
+                    await client(LeaveGroupCallPresentationRequest(call=input_call))
+                    print("✅ Pantalla de emisión cerrada con LeaveGroupCallPresentationRequest.")
+                except Exception as e_lv_pres:
+                    print("Nota enviando LeaveGroupCallPresentationRequest:", e_lv_pres)
+
+                # 3. Notificar video_stopped=True para el robot
+                try:
+                    from telethon.tl.types import InputPeerSelf
+                    from telethon.tl.functions.phone import EditGroupCallParticipantRequest
+                    await client(EditGroupCallParticipantRequest(
+                        call=input_call,
+                        participant=InputPeerSelf(),
+                        video_stopped=True
+                    ))
+                    print("✅ Video confirmado detenido con EditGroupCallParticipantRequest(video_stopped=True).")
+                except Exception as e_ed_vid:
+                    print("Nota notificando video_stopped:", e_ed_vid)
+
         async def preparar_audio_eq(ruta_especifica: str | None = None) -> str:
             """Devuelve el audio ya mejorado (con caché) o el original si algo falla."""
             if not MEJORA_AUDIO:
@@ -2579,6 +2624,10 @@ async def main() -> None:
                         token_reproduccion += 1
                         reproduciendo_meditacion = False
                         print(f"⏹️ Botón [Detener] presionado por {nom_sender}.")
+                        try:
+                            await cerrar_pantalla_emision_video()
+                        except Exception:
+                            pass
                         if tgcalls:
                             try:
                                 await tgcalls.leave_call(destino)
@@ -3286,6 +3335,10 @@ async def main() -> None:
                                 espera_min = int((inf_sig or {}).get("espera_post_meditacion_min", 30 if p_fin == 0 else 0))
                                 if espera_min > 0:
                                     reproduciendo_meditacion = False
+                                    try:
+                                        await cerrar_pantalla_emision_video()
+                                    except Exception as e_cpv:
+                                        print("Nota cerrando video post-pista:", e_cpv)
                                     if tarea_panel_progreso and not tarea_panel_progreso.done():
                                         tarea_panel_progreso.cancel()
                                     if msg_panel_meditacion_id:
@@ -3325,12 +3378,20 @@ async def main() -> None:
                                     if not ok_sig:
                                         print("Error reproduciendo siguiente pista, finalizando sesión de meditación.")
                                         reproduciendo_meditacion = False
+                                        try:
+                                            await cerrar_pantalla_emision_video()
+                                        except Exception:
+                                            pass
                                         if tarea_panel_progreso and not tarea_panel_progreso.done():
                                             tarea_panel_progreso.cancel()
                                         msg_panel_meditacion_id = None
                                         await desbloquear_todos_los_participantes()
                             else:
                                 reproduciendo_meditacion = False
+                                try:
+                                    await cerrar_pantalla_emision_video()
+                                except Exception as e_cpv_fin:
+                                    print("Nota cerrando video fin sesión:", e_cpv_fin)
                                 if tarea_panel_progreso and not tarea_panel_progreso.done():
                                     tarea_panel_progreso.cancel()
                                 if msg_panel_meditacion_id:
@@ -3577,6 +3638,10 @@ async def main() -> None:
                     token_reproduccion += 1
                     reproduciendo_meditacion = False
                     eq_estado["cambiando"] = False
+                    try:
+                        await cerrar_pantalla_emision_video()
+                    except Exception:
+                        pass
                     if tgcalls:
                         try:
                             await tgcalls.leave_call(destino)
@@ -3689,6 +3754,10 @@ async def main() -> None:
                 eq_estado["cambiando"] = False
                 segundos_inactividad_mic.clear()
                 avisados_auto_mute.clear()
+                try:
+                    await cerrar_pantalla_emision_video()
+                except Exception:
+                    pass
                 if tarea_panel_progreso and not tarea_panel_progreso.done():
                     tarea_panel_progreso.cancel()
                 if msg_panel_meditacion_id:
@@ -5111,6 +5180,10 @@ async def main() -> None:
         eq_estado["cambiando"] = False
         if tarea_panel_progreso and not tarea_panel_progreso.done():
             tarea_panel_progreso.cancel()
+        try:
+            await cerrar_pantalla_emision_video()
+        except Exception:
+            pass
         if tgcalls:
             try:
                 await tgcalls.leave_call(destino)
