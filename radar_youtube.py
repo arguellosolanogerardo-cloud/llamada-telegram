@@ -477,7 +477,7 @@ def es_programado_futuro(pub_txt: str) -> bool:
 
 
 def es_antiguo_explicito(pub_txt: str) -> bool:
-    """Evalúa si el texto de tiempo indica explícitamente que el video tiene más de 12 horas (días, semanas, meses, años)."""
+    """Evalúa si el texto de tiempo indica explícitamente que el video tiene más de 2 horas (días, semanas, meses, años o > 2h)."""
     if not pub_txt:
         return False
     txt = pub_txt.lower().strip()
@@ -494,13 +494,13 @@ def es_antiguo_explicito(pub_txt: str) -> bool:
         return True
     m_horas = re.search(r'(?:hace\s*|streamed\s*)?(\d+)\s*(?:hora|horas|hour|hours|h|hr|hrs)\b', txt)
     if m_horas:
-        return int(m_horas.group(1)) > 12
+        return int(m_horas.group(1)) > 2
     return False
 
 
 def evaluar_recencia_texto(pub_txt: str) -> bool:
     """Evalúa de forma robusta si un texto relativo de tiempo (en español o inglés)
-    corresponde a una publicación reciente (dentro de las últimas 12 horas)."""
+    corresponde a una publicación reciente (dentro de las últimas 2 horas)."""
     if not pub_txt:
         return False
     txt = pub_txt.lower().strip()
@@ -519,7 +519,7 @@ def evaluar_recencia_texto(pub_txt: str) -> bool:
     m_horas = re.search(r'(?:hace\s*|streamed\s*)?(\d+)\s*(?:hora|horas|hour|hours|h|hr|hrs)\b', txt)
     if m_horas:
         horas = int(m_horas.group(1))
-        return horas <= 12
+        return horas <= 2
 
     return False
 
@@ -588,6 +588,7 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
         anunciados = 0
 
         for canal in CANALES_RADAR:
+            anunciados_canal = 0
             try:
                 entradas = extraer_videos_canal(canal)
                 for idx, datos in enumerate(entradas):
@@ -608,17 +609,27 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                         nuevos_vistos.append(vid)
                         continue
 
+                    # Si ya se anunció un video de este canal en este ciclo, registrar el resto en silencio
+                    # para evitar ráfagas o spam por subidas por lotes o archivos históricos
+                    if anunciados_canal >= 1:
+                        with _MEMORIA_LOCK:
+                            _VIDEOS_VISTOS_MEMORIA.add(vid)
+                        nuevos_vistos.append(vid)
+                        continue
+
                     # Si es un estreno programado a futuro que aún no ha iniciado, esperar sin marcar como visto
                     if es_programado_futuro(pub_txt):
                         continue
 
                     # Criterio robusto de novedad:
+                    # En operación normal: máximo 2 horas (7200s).
+                    # En arranque (deploy/reinicio Render): máximo 30 minutos (1800s) para no anunciar backlog acumulado.
+                    limite_seg = 1800 if es_arranque else 7200
                     es_reciente = False
                     if dt_pub:
                         segundos = (ahora_utc - dt_pub).total_seconds()
                         if segundos < 0:
                             continue
-                        limite_seg = 43200 if idx < 3 else 21600
                         es_reciente = 0 <= segundos < limite_seg
                         if not es_reciente:
                             with _MEMORIA_LOCK:
@@ -626,7 +637,13 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                             nuevos_vistos.append(vid)
                             continue
                     elif es_antiguo_explicito(pub_txt):
-                        # El video dice explícitamente días, semanas, meses, años o >12h -> marcar visto sin anunciar
+                        # El video dice explícitamente días, semanas, meses, años o > 2h -> marcar visto sin anunciar
+                        with _MEMORIA_LOCK:
+                            _VIDEOS_VISTOS_MEMORIA.add(vid)
+                        nuevos_vistos.append(vid)
+                        continue
+                    elif es_arranque and re.search(r'(?:hace\s*|streamed\s*)?\d+\s*(?:hora|horas|hour|hours|h|hr|hrs)\b', pub_txt):
+                        # En arranque del bot, si el texto dice horas, es backlog previo -> registrar en silencio
                         with _MEMORIA_LOCK:
                             _VIDEOS_VISTOS_MEMORIA.add(vid)
                         nuevos_vistos.append(vid)
@@ -634,6 +651,12 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                     elif evaluar_recencia_texto(pub_txt):
                         es_reciente = True
                     elif idx < 3:
+                        if es_arranque:
+                            # En arranque sin fecha comprobable, no arriesgar spam -> registrar en silencio
+                            with _MEMORIA_LOCK:
+                                _VIDEOS_VISTOS_MEMORIA.add(vid)
+                            nuevos_vistos.append(vid)
+                            continue
                         # Está en el Top 3 más reciente del canal, no está en vistos y NO es antiguo -> ¡Es nuevo!
                         es_reciente = True
                     else:
@@ -708,6 +731,7 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
 
                         # SOLO marcar como visto si fue efectivamente enviado a Telegram
                         if enviado:
+                            anunciados_canal += 1
                             with _MEMORIA_LOCK:
                                 _VIDEOS_VISTOS_MEMORIA.add(vid)
                             nuevos_vistos.append(vid)

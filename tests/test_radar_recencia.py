@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 from radar_youtube import evaluar_recencia_texto, extraer_entradas_xml, CANALES_RADAR, obtener_info_oembed
 
@@ -11,6 +12,9 @@ class TestRadarRecencia(unittest.TestCase):
         self.assertTrue(evaluar_recencia_texto("hace 15 minutos"))
         self.assertTrue(evaluar_recencia_texto("hace 35 min"))
         self.assertTrue(evaluar_recencia_texto("En vivo"))
+        self.assertFalse(evaluar_recencia_texto("hace 3 horas"))
+        self.assertFalse(evaluar_recencia_texto("hace 7 horas"))
+        self.assertFalse(evaluar_recencia_texto("hace 11 horas"))
         self.assertFalse(evaluar_recencia_texto("hace 14 horas"))
         self.assertFalse(evaluar_recencia_texto("hace 2 días"))
 
@@ -21,6 +25,8 @@ class TestRadarRecencia(unittest.TestCase):
         self.assertTrue(evaluar_recencia_texto("streamed 1 hour ago"))
         self.assertTrue(evaluar_recencia_texto("15 minutes ago"))
         self.assertTrue(evaluar_recencia_texto("Live now"))
+        self.assertFalse(evaluar_recencia_texto("3 hours ago"))
+        self.assertFalse(evaluar_recencia_texto("7 hours ago"))
         self.assertFalse(evaluar_recencia_texto("16 hours ago"))
         self.assertFalse(evaluar_recencia_texto("3 days ago"))
 
@@ -42,5 +48,28 @@ class TestRadarRecencia(unittest.TestCase):
         self.assertEqual(entries[0]["video_id"], "v5zwtMKOj3A")
         self.assertIsNotNone(entries[0]["published_dt"])
 
+    @patch("radar_youtube.extraer_videos_canal")
+    @patch("radar_youtube.sincronizar_github_vistos")
+    def test_chequear_canales_limite_un_anuncio_por_canal(self, mock_gh, mock_extraer):
+        mock_extraer.return_value = [
+            {"video_id": "BATCH_1", "titulo": "Video 1", "published_text": "hace 10 minutos", "published_dt": None, "link": "https://youtu.be/BATCH_1"},
+            {"video_id": "BATCH_2", "titulo": "Video 2", "published_text": "hace 15 minutos", "published_dt": None, "link": "https://youtu.be/BATCH_2"},
+            {"video_id": "BATCH_3", "titulo": "Video 3", "published_text": "hace 20 minutos", "published_dt": None, "link": "https://youtu.be/BATCH_3"},
+        ]
+        from radar_youtube import chequear_canales, _MEMORIA_LOCK, _VIDEOS_VISTOS_MEMORIA
+        mensajes = []
+        def mock_enviar(chat_id, txt, reply_markup=None):
+            mensajes.append(txt)
+            return 12345
+
+        anunciados = chequear_canales(mock_enviar, 9999)
+        # Debe anunciar a lo sumo 1 por canal y registrar el resto en silencio
+        self.assertLessEqual(anunciados, 2)
+        with _MEMORIA_LOCK:
+            self.assertIn("BATCH_1", _VIDEOS_VISTOS_MEMORIA)
+            self.assertIn("BATCH_2", _VIDEOS_VISTOS_MEMORIA)
+            self.assertIn("BATCH_3", _VIDEOS_VISTOS_MEMORIA)
+
 if __name__ == "__main__":
     unittest.main()
+
