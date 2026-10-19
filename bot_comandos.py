@@ -317,11 +317,13 @@ def _obtener_ffmpeg_bin() -> str | None:
 
 
 def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> str | None:
-    """Descarga o recupera el audio de un video de YouTube de forma ultra-robusta:
-    1. Verifica si ya existe en caché local de meditaciones.
-    2. Si corresponde al catálogo de meditaciones/mensajes, lo descarga directamente desde Google Drive.
-    3. Si no, usa yt-dlp con múltiples clientes de fallback (ios, web, android, mweb, tv) y formatos livianos.
-    4. Garantiza conversión a MP3 y control de tamaño (<50MB para Telegram).
+    """Descarga el audio remasterizado y limpiado directamente de YouTube con la máxima calidad:
+    1. Revisa si ya fue descargado previamente desde YouTube en la caché local (yt_dl_<ID>.mp3).
+    2. Descarga directamente de YouTube con yt-dlp multi-cliente (ios, web, android, mweb, tv)
+       para capturar el audio limpiado y con la voz resaltada a máxima fidelidad (audio-quality 0 / 192k).
+    3. Si yt-dlp requiere postprocesamiento manual, usa FFmpeg a 192 kbps.
+    4. Garantiza que el tamaño no supere los 49.5 MB para cumplir el límite de Telegram Bot API.
+    5. Si YouTube estuviera 100% inaccesible o bloqueado, recurre al catálogo de Drive como último recurso.
     """
     if not vid_target:
         return None
@@ -331,7 +333,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     os.makedirs(carp_med, exist_ok=True)
     cache_oficial = os.path.join(carp_med, f"yt_dl_{vid_target}.mp3")
 
-    # 1. Caché existente
+    # 1. Caché existente (ya descargado de YouTube previamente)
     if os.path.exists(cache_oficial) and os.path.getsize(cache_oficial) > 1000:
         return cache_oficial
 
@@ -352,36 +354,21 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception:
             titulo_pista = f"Audio {vid_target}"
 
-    # 2. Respaldo directo desde Google Drive si está en el catálogo oficial
-    try:
-        info_cat = identificar_audio_catalogo(titulo_pista)
-        if info_cat and info_cat.get("numero") and info_cat.get("tipo"):
-            ruta_drive = obtener_o_descargar_audio(info_cat["tipo"], info_cat["numero"])
-            if ruta_drive and os.path.exists(ruta_drive) and os.path.getsize(ruta_drive) > 1000:
-                try:
-                    shutil.copy2(ruta_drive, cache_oficial)
-                    print(f"✅ Audio {vid_target} ({titulo_pista}) obtenido exitosamente desde Google Drive.")
-                    return cache_oficial
-                except Exception:
-                    return ruta_drive
-    except Exception as e_cat:
-        print(f"Nota buscando en catálogo Drive para {vid_target}: {e_cat}")
-
-    # 3. Descarga desde YouTube con yt-dlp multi-cliente
+    # 2. Descarga directa desde YouTube con la máxima fidelidad de audio
     ff_bin = _obtener_ffmpeg_bin()
     tmp_out_tmpl = os.path.join("data", f"ytmp3_{vid_target}.%(ext)s")
     url_yt = f"https://www.youtube.com/watch?v={vid_target}"
 
-    # Intento 1: Multi-cliente (ios primero para evitar PO Token y SABR)
+    # Intento 1: Multi-cliente antibloqueo con máxima calidad de audio (ios prioritario)
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--extractor-args", "youtube:player_client=ios,web,android,mweb,tv",
         "-f", "ba/ba*/b[ext=mp4]/b/18/best",
         "-x", "--audio-format", "mp3",
-        "--audio-quality", "4",
+        "--audio-quality", "0",
         "--no-playlist",
         "--no-check-certificates",
-        "--socket-timeout", "30",
+        "--socket-timeout", "35",
         "--retries", "3"
     ]
     if ff_bin:
@@ -390,7 +377,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
 
     exito = False
     try:
-        r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=180)
+        r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=240)
         if r1.returncode == 0:
             exito = True
         else:
@@ -398,28 +385,28 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     except Exception as e1:
         print(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Fallback estándar de yt-dlp
+    # Intento 2: Fallback estándar de yt-dlp con máxima calidad
     if not exito and not os.path.exists(tmp_mp3):
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
             "-f", "ba/ba*/b[ext=mp4]/b/18/best",
             "-x", "--audio-format", "mp3",
-            "--audio-quality", "4",
+            "--audio-quality", "0",
             "--no-playlist",
             "--no-check-certificates",
-            "--socket-timeout", "30"
+            "--socket-timeout", "35"
         ]
         if ff_bin:
             cmd2.extend(["--ffmpeg-location", ff_bin])
         cmd2.extend(["--output", tmp_out_tmpl, url_yt])
         try:
-            r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=180)
+            r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=240)
             if r2.returncode == 0:
                 exito = True
         except Exception as e2:
             print(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
-    # Intento 3: Descarga directa de stream crudo sin -x (independiente de ffprobe)
+    # Intento 3: Descarga directa de stream de audio crudo sin -x (para extraer con FFmpeg propio)
     if not os.path.exists(tmp_mp3):
         import glob
         matches_pre = glob.glob(os.path.join("data", f"ytmp3_{vid_target}.*"))
@@ -429,16 +416,16 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                 "-f", "ba/ba*/b[ext=mp4]/b/18/best",
                 "--no-playlist",
                 "--no-check-certificates",
-                "--socket-timeout", "30",
+                "--socket-timeout", "35",
                 "--output", tmp_out_tmpl,
                 url_yt
             ]
             try:
-                subprocess.run(cmd3, capture_output=True, text=True, timeout=180)
+                subprocess.run(cmd3, capture_output=True, text=True, timeout=240)
             except Exception as e3:
                 print(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
 
-    # 4. Localizar y convertir archivo descargado
+    # 3. Localizar y convertir archivo de YouTube a MP3 de alta resolución (192k)
     import glob
     archivo_final = None
     if os.path.exists(tmp_mp3) and os.path.getsize(tmp_mp3) > 1000:
@@ -450,8 +437,8 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                 if not m.endswith(".mp3") and ff_bin:
                     try:
                         r_c = subprocess.run(
-                            [ff_bin, "-y", "-i", m, "-vn", "-acodec", "libmp3lame", "-b:a", "96k", "-ar", "44100", tmp_mp3],
-                            capture_output=True, timeout=120
+                            [ff_bin, "-y", "-i", m, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", "-ar", "44100", tmp_mp3],
+                            capture_output=True, timeout=150
                         )
                         if os.path.exists(tmp_mp3) and os.path.getsize(tmp_mp3) > 1000:
                             archivo_final = tmp_mp3
@@ -465,7 +452,21 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                 archivo_final = m
                 break
 
+    # 4. Fallback de emergencia a Google Drive SOLO si YouTube falló completamente
     if not archivo_final or not os.path.exists(archivo_final) or os.path.getsize(archivo_final) <= 1000:
+        try:
+            info_cat = identificar_audio_catalogo(titulo_pista)
+            if info_cat and info_cat.get("numero") and info_cat.get("tipo"):
+                ruta_drive = obtener_o_descargar_audio(info_cat["tipo"], info_cat["numero"])
+                if ruta_drive and os.path.exists(ruta_drive) and os.path.getsize(ruta_drive) > 1000:
+                    try:
+                        shutil.copy2(ruta_drive, cache_oficial)
+                        print(f"⚠️ YouTube inaccesible para {vid_target}, usando respaldo de Drive: {ruta_drive}")
+                        return cache_oficial
+                    except Exception:
+                        return ruta_drive
+        except Exception as e_cat:
+            print(f"Nota buscando en catálogo Drive para {vid_target}: {e_cat}")
         return None
 
     # 5. Control de tamaño para Telegram Bot API (límite estricto 50 MB)
@@ -474,7 +475,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         archivo_comp = os.path.join("data", f"ytmp3_{vid_target}_comp.mp3")
         try:
             subprocess.run(
-                [ff_bin, "-y", "-i", archivo_final, "-vn", "-acodec", "libmp3lame", "-b:a", "48k", "-ac", "1", archivo_comp],
+                [ff_bin, "-y", "-i", archivo_final, "-vn", "-acodec", "libmp3lame", "-b:a", "64k", archivo_comp],
                 capture_output=True, timeout=120
             )
             if os.path.exists(archivo_comp) and os.path.getsize(archivo_comp) > 1000:
@@ -486,9 +487,10 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception as e_comp:
             print(f"Error comprimiendo audio grande: {e_comp}")
 
-    # 6. Copiar a caché permanente oficial
+    # 6. Guardar en caché permanente oficial
     try:
         shutil.copy2(archivo_final, cache_oficial)
+        print(f"✅ Audio {vid_target} ({titulo_pista}) extraído exitosamente de YouTube a máxima calidad.")
         return cache_oficial
     except Exception:
         return archivo_final
