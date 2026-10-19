@@ -305,10 +305,194 @@ def _obtener_ffmpeg_bin() -> str | None:
         import imageio_ffmpeg
         f_img = imageio_ffmpeg.get_ffmpeg_exe()
         if f_img and os.path.exists(f_img):
+            try:
+                import stat
+                os.chmod(f_img, os.stat(f_img).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            except Exception:
+                pass
             return f_img
     except Exception:
         pass
     return None
+
+
+def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> str | None:
+    """Descarga o recupera el audio de un video de YouTube de forma ultra-robusta:
+    1. Verifica si ya existe en caché local de meditaciones.
+    2. Si corresponde al catálogo de meditaciones/mensajes, lo descarga directamente desde Google Drive.
+    3. Si no, usa yt-dlp con múltiples clientes de fallback (ios, web, android, mweb, tv) y formatos livianos.
+    4. Garantiza conversión a MP3 y control de tamaño (<50MB para Telegram).
+    """
+    if not vid_target:
+        return None
+
+    vid_target = str(vid_target).strip()
+    carp_med = os.path.join("data", "meditaciones")
+    os.makedirs(carp_med, exist_ok=True)
+    cache_oficial = os.path.join(carp_med, f"yt_dl_{vid_target}.mp3")
+
+    # 1. Caché existente
+    if os.path.exists(cache_oficial) and os.path.getsize(cache_oficial) > 1000:
+        return cache_oficial
+
+    tmp_mp3 = os.path.join("data", f"ytmp3_{vid_target}.mp3")
+    if os.path.exists(tmp_mp3) and os.path.getsize(tmp_mp3) > 1000:
+        try:
+            shutil.copy2(tmp_mp3, cache_oficial)
+        except Exception:
+            pass
+        return cache_oficial
+
+    # Obtener título si no fue provisto
+    if not titulo_pista:
+        try:
+            from radar_youtube import obtener_info_oembed, obtener_titulo_video
+            info_oe = obtener_info_oembed(vid_target)
+            titulo_pista = info_oe.get("title", "").strip() or obtener_titulo_video(vid_target) or f"Audio {vid_target}"
+        except Exception:
+            titulo_pista = f"Audio {vid_target}"
+
+    # 2. Respaldo directo desde Google Drive si está en el catálogo oficial
+    try:
+        info_cat = identificar_audio_catalogo(titulo_pista)
+        if info_cat and info_cat.get("numero") and info_cat.get("tipo"):
+            ruta_drive = obtener_o_descargar_audio(info_cat["tipo"], info_cat["numero"])
+            if ruta_drive and os.path.exists(ruta_drive) and os.path.getsize(ruta_drive) > 1000:
+                try:
+                    shutil.copy2(ruta_drive, cache_oficial)
+                    print(f"✅ Audio {vid_target} ({titulo_pista}) obtenido exitosamente desde Google Drive.")
+                    return cache_oficial
+                except Exception:
+                    return ruta_drive
+    except Exception as e_cat:
+        print(f"Nota buscando en catálogo Drive para {vid_target}: {e_cat}")
+
+    # 3. Descarga desde YouTube con yt-dlp multi-cliente
+    ff_bin = _obtener_ffmpeg_bin()
+    tmp_out_tmpl = os.path.join("data", f"ytmp3_{vid_target}.%(ext)s")
+    url_yt = f"https://www.youtube.com/watch?v={vid_target}"
+
+    # Intento 1: Multi-cliente (ios primero para evitar PO Token y SABR)
+    cmd1 = [
+        sys.executable, "-m", "yt_dlp",
+        "--extractor-args", "youtube:player_client=ios,web,android,mweb,tv",
+        "-f", "ba/ba*/b[ext=mp4]/b/18/best",
+        "-x", "--audio-format", "mp3",
+        "--audio-quality", "4",
+        "--no-playlist",
+        "--no-check-certificates",
+        "--socket-timeout", "30",
+        "--retries", "3"
+    ]
+    if ff_bin:
+        cmd1.extend(["--ffmpeg-location", ff_bin])
+    cmd1.extend(["--output", tmp_out_tmpl, url_yt])
+
+    exito = False
+    try:
+        r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=180)
+        if r1.returncode == 0:
+            exito = True
+        else:
+            print(f"Aviso yt-dlp intento 1 ({vid_target}): {r1.stderr[:200] if r1.stderr else ''}")
+    except Exception as e1:
+        print(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
+
+    # Intento 2: Fallback estándar de yt-dlp
+    if not exito and not os.path.exists(tmp_mp3):
+        cmd2 = [
+            sys.executable, "-m", "yt_dlp",
+            "-f", "ba/ba*/b[ext=mp4]/b/18/best",
+            "-x", "--audio-format", "mp3",
+            "--audio-quality", "4",
+            "--no-playlist",
+            "--no-check-certificates",
+            "--socket-timeout", "30"
+        ]
+        if ff_bin:
+            cmd2.extend(["--ffmpeg-location", ff_bin])
+        cmd2.extend(["--output", tmp_out_tmpl, url_yt])
+        try:
+            r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=180)
+            if r2.returncode == 0:
+                exito = True
+        except Exception as e2:
+            print(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
+
+    # Intento 3: Descarga directa de stream crudo sin -x (independiente de ffprobe)
+    if not os.path.exists(tmp_mp3):
+        import glob
+        matches_pre = glob.glob(os.path.join("data", f"ytmp3_{vid_target}.*"))
+        if not any(os.path.getsize(m) > 1000 for m in matches_pre):
+            cmd3 = [
+                sys.executable, "-m", "yt_dlp",
+                "-f", "ba/ba*/b[ext=mp4]/b/18/best",
+                "--no-playlist",
+                "--no-check-certificates",
+                "--socket-timeout", "30",
+                "--output", tmp_out_tmpl,
+                url_yt
+            ]
+            try:
+                subprocess.run(cmd3, capture_output=True, text=True, timeout=180)
+            except Exception as e3:
+                print(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
+
+    # 4. Localizar y convertir archivo descargado
+    import glob
+    archivo_final = None
+    if os.path.exists(tmp_mp3) and os.path.getsize(tmp_mp3) > 1000:
+        archivo_final = tmp_mp3
+    else:
+        matches = glob.glob(os.path.join("data", f"ytmp3_{vid_target}.*"))
+        for m in matches:
+            if m.endswith((".mp3", ".m4a", ".webm", ".opus", ".mp4", ".ogg")) and os.path.getsize(m) > 1000:
+                if not m.endswith(".mp3") and ff_bin:
+                    try:
+                        r_c = subprocess.run(
+                            [ff_bin, "-y", "-i", m, "-vn", "-acodec", "libmp3lame", "-b:a", "96k", "-ar", "44100", tmp_mp3],
+                            capture_output=True, timeout=120
+                        )
+                        if os.path.exists(tmp_mp3) and os.path.getsize(tmp_mp3) > 1000:
+                            archivo_final = tmp_mp3
+                            try:
+                                os.remove(m)
+                            except Exception:
+                                pass
+                            break
+                    except Exception as e_conv:
+                        print(f"Error convirtiendo manual {m}: {e_conv}")
+                archivo_final = m
+                break
+
+    if not archivo_final or not os.path.exists(archivo_final) or os.path.getsize(archivo_final) <= 1000:
+        return None
+
+    # 5. Control de tamaño para Telegram Bot API (límite estricto 50 MB)
+    tam_mb = os.path.getsize(archivo_final) / (1024 * 1024)
+    if tam_mb > 49.0 and ff_bin:
+        archivo_comp = os.path.join("data", f"ytmp3_{vid_target}_comp.mp3")
+        try:
+            subprocess.run(
+                [ff_bin, "-y", "-i", archivo_final, "-vn", "-acodec", "libmp3lame", "-b:a", "48k", "-ac", "1", archivo_comp],
+                capture_output=True, timeout=120
+            )
+            if os.path.exists(archivo_comp) and os.path.getsize(archivo_comp) > 1000:
+                try:
+                    os.remove(archivo_final)
+                except Exception:
+                    pass
+                archivo_final = archivo_comp
+        except Exception as e_comp:
+            print(f"Error comprimiendo audio grande: {e_comp}")
+
+    # 6. Copiar a caché permanente oficial
+    try:
+        shutil.copy2(archivo_final, cache_oficial)
+        return cache_oficial
+    except Exception:
+        return archivo_final
+
 
 
 def guardar_audio_registrado(info_cat: dict, file_id: str = None, msg_id: int | str = None) -> None:
@@ -2023,47 +2207,9 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
     if not tit_found:
         tit_found = "El significado .de los 666y el signo del poder de la bestia$$$" if vid_tarea == "v5zwtMKOj3A" else f"Enseñanza / Práctica {vid_tarea}"
 
-    # Descargar o reutilizar audio en disco
-    carp_med = os.path.join("data", "meditaciones")
-    os.makedirs(carp_med, exist_ok=True)
-    archivo_descargado = os.path.join(carp_med, f"yt_dl_{vid_tarea}.mp3")
+    # Descargar o reutilizar audio en disco de forma robusta
+    archivo_descargado = descargar_audio_youtube_robusto(vid_tarea, tit_found)
 
-    if not (os.path.exists(archivo_descargado) and os.path.getsize(archivo_descargado) > 1000):
-        tmp_out = os.path.join(carp_med, f"yt_dl_{vid_tarea}.%(ext)s")
-        ff_bin = _obtener_ffmpeg_bin()
-        cmd_dl = [
-            sys.executable, "-m", "yt_dlp",
-            "--extractor-args", "youtube:player_client=android,mweb",
-            "-x", "--audio-format", "mp3",
-            "--audio-quality", "0",
-            "--no-playlist",
-        ]
-        if ff_bin:
-            cmd_dl.extend(["--ffmpeg-location", ff_bin])
-        cmd_dl.extend(["--output", tmp_out, url_yt])
-        try:
-            r_cmd = subprocess.run(cmd_dl, capture_output=True, text=True, timeout=180)
-            if r_cmd.returncode != 0:
-                log_debug(f"Nota yt-dlp tarea {vid_tarea}: {r_cmd.stderr[:200]}")
-        except Exception as e_cmd:
-            log_debug(f"Error descargando yt para tarea: {e_cmd}")
-
-        if not (os.path.exists(archivo_descargado) and os.path.getsize(archivo_descargado) > 1000):
-            matches = glob.glob(os.path.join(carp_med, f"yt_dl_{vid_tarea}.*"))
-            for m in matches:
-                if m.endswith((".mp3", ".m4a", ".webm", ".opus", ".mp4")) and os.path.getsize(m) > 1000:
-                    if not m.endswith(".mp3") and ff_bin:
-                        try:
-                            subprocess.run(
-                                [ff_bin, "-y", "-i", m, "-vn", "-acodec", "libmp3lame", "-b:a", "64k", archivo_descargado],
-                                capture_output=True, timeout=120
-                            )
-                            if os.path.exists(archivo_descargado) and os.path.getsize(archivo_descargado) > 1000:
-                                break
-                        except Exception:
-                            pass
-                    archivo_descargado = m
-                    break
 
     ahora_col = datetime.now(ZoneInfo("America/Bogota"))
     fecha_hoy_str = ahora_col.strftime("%d/%m/%Y")
@@ -2452,62 +2598,19 @@ def escuchar_comandos() -> None:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                             urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
                                 "callback_query_id": cb_id,
-                                "text": "⏳ Descargando MP3 desde YouTube... En breve te lo entregamos.",
-                                "show_alert": False
+                                "text": "🎧 Obteniendo audio MP3...\n\nEstamos extrayendo el audio en alta calidad. En breves momentos te lo entregaremos por aquí.",
+                                "show_alert": True
                             }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
                         except Exception:
                             pass
 
                         def procesar_descarga_ytmp3(vid_target, user_id_target, user_nombre_target, chat_origen):
-                            url_yt = f"https://www.youtube.com/watch?v={vid_target}"
-                            os.makedirs("data", exist_ok=True)
-                            tmp_out_tmpl = os.path.join("data", f"ytmp3_{vid_target}.%(ext)s")
-
                             from radar_youtube import obtener_titulo_video
                             tit_v = obtener_titulo_video(vid_target) or f"Audio {vid_target}"
 
-                            archivo_mp3 = os.path.join("data", "meditaciones", f"yt_dl_{vid_target}.mp3")
-                            es_cache_med = os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000
+                            archivo_mp3 = descargar_audio_youtube_robusto(vid_target, tit_v)
 
-                            if not es_cache_med:
-                                archivo_mp3 = os.path.join("data", f"ytmp3_{vid_target}.mp3")
-                                ff_bin = _obtener_ffmpeg_bin()
-                                cmd = [
-                                    sys.executable, "-m", "yt_dlp",
-                                    "--extractor-args", "youtube:player_client=android,mweb",
-                                    "-x", "--audio-format", "mp3",
-                                    "--audio-quality", "0",
-                                    "--no-playlist",
-                                ]
-                                if ff_bin:
-                                    cmd.extend(["--ffmpeg-location", ff_bin])
-                                cmd.extend(["--output", tmp_out_tmpl, url_yt])
-                                try:
-                                    r_dlp = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-                                    if r_dlp.returncode != 0:
-                                        print(f"Error yt-dlp descargando {vid_target}:\n{r_dlp.stderr}")
-                                except Exception as e_dlp:
-                                    print(f"Error yt-dlp descargando {vid_target}: {e_dlp}")
-
-                                if not os.path.exists(archivo_mp3):
-                                    import glob
-                                    matches = glob.glob(os.path.join("data", f"ytmp3_{vid_target}.*"))
-                                    for m in matches:
-                                        if m.endswith((".mp3", ".m4a", ".webm", ".opus", ".mp4")) and os.path.getsize(m) > 1000:
-                                            if not m.endswith(".mp3") and ff_bin:
-                                                try:
-                                                    subprocess.run(
-                                                        [ff_bin, "-y", "-i", m, "-vn", "-acodec", "libmp3lame", "-b:a", "64k", archivo_mp3],
-                                                        capture_output=True, timeout=120
-                                                    )
-                                                    if os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
-                                                        break
-                                                except Exception:
-                                                    pass
-                                            archivo_mp3 = m
-                                            break
-
-                            if os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
+                            if archivo_mp3 and os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
                                 caption_priv = (
                                     f"🎧 **Audio descargado:** «{tit_v}»\n"
                                     f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
@@ -2538,12 +2641,6 @@ def escuchar_comandos() -> None:
                                         title=tit_v,
                                         performer="ALANISO / Maestro Mario Carrillo"
                                     )
-
-                                if not es_cache_med:
-                                    try:
-                                        os.remove(archivo_mp3)
-                                    except Exception:
-                                        pass
                             else:
                                 if chat_origen:
                                     enviar_mensaje(
