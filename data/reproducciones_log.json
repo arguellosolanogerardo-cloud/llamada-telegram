@@ -67,5 +67,12 @@
     "titulo": "Un diálogo con el Padre, mi creador",
     "indice": 10,
     "fecha_iso": "2026-10-17"
+  },
+  {
+    "fecha": "2026-10-18 22:00:24",
+    "numero": 22,
+    "titulo": "Orando y escuchando al padre",
+    "indice": 11,
+    "fecha_iso": "2026-10-18"
   }
 ]
