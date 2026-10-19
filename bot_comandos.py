@@ -316,11 +316,36 @@ def _obtener_ffmpeg_bin() -> str | None:
     return None
 
 
+_YTDLP_VERIFICADO = False
+
+
+def _asegurar_ytdlp_actualizado() -> None:
+    global _YTDLP_VERIFICADO
+    if _YTDLP_VERIFICADO:
+        return
+    _YTDLP_VERIFICADO = True
+    try:
+        from yt_dlp.extractor.youtube._base import INNERTUBE_CLIENTS
+        if "visionos" in INNERTUBE_CLIENTS:
+            return
+    except Exception:
+        pass
+    try:
+        log_debug("Actualizando yt-dlp en servidor para soporte de cliente visionos...")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+            capture_output=True, text=True, timeout=90
+        )
+        log_debug("yt-dlp actualizado correctamente.")
+    except Exception as e_up:
+        log_debug(f"Nota actualizando yt-dlp: {e_up}")
+
+
 def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> tuple[str | None, str]:
     """Descarga el audio remasterizado y limpiado directamente de YouTube con la máxima calidad:
     1. Revisa si ya fue descargado previamente desde YouTube en la caché local verificada (yt_clean_<ID>.mp3).
-    2. Descarga directamente de YouTube con yt-dlp multi-cliente (ios, web, android, mweb, tv)
-       sin requerir ffprobe y forzando IPv4 para evitar bloqueos en datacenters (Render).
+    2. Descarga directamente de YouTube con yt-dlp multi-cliente (visionos, web_embedded, tv_downgraded, ios, android, web)
+       sin requerir ffprobe, forzando IPv4 y usando chunks de 10M para máxima velocidad en Render.
     3. Convierte el stream a MP3 de alta fidelidad (192 kbps, 44.1 kHz) con el FFmpeg de imageio_ffmpeg.
     4. Garantiza que el tamaño no supere los 49.0 MB para cumplir el límite de Telegram Bot API.
     5. PROHIBIDO TOTALMENTE GOOGLE DRIVE: Si es una solicitud de YouTube, SOLO se extrae de YouTube.
@@ -336,6 +361,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
 
     # 1. Caché existente verificado de YouTube (audio limpio y remasterizado ya procesado)
     if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
+        log_debug(f"Audio YouTube {vid_target} servido desde caché limpio local ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
         return (cache_clean, "YOUTUBE")
 
     # Purgar cualquier caché antiguo o de Drive para evitar servir audios ruidosos
@@ -348,6 +374,8 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                 os.remove(cache_antiguo)
             except Exception:
                 pass
+
+    _asegurar_ytdlp_actualizado()
 
     # Obtener título si no fue provisto
     if not titulo_pista:
@@ -372,13 +400,15 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception:
             pass
 
-    # Intento 1: Multi-cliente antibloqueo con --force-ipv4 (evita bloqueos IPv6 en Render/cloud)
+    # Intento 1: Clientes visionos + web_embedded + ios + android con prioridad de audio original español y chunks rápidos
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
         "--geo-bypass",
-        "--extractor-args", "youtube:player_client=ios,web,android,mweb,tv",
-        "-f", "ba/ba*/b[ext=mp4]/b/18/best",
+        "--http-chunk-size", "10M",
+        "-N", "4",
+        "--extractor-args", "youtube:player_client=visionos,web_embedded,tv_downgraded,ios,android,web",
+        "-f", "ba[language^=es]/ba[format_id*=original]/ba[format_id*=-1]/18/ba/b/best",
         "--no-playlist",
         "--no-check-certificates",
         "--socket-timeout", "35",
@@ -389,21 +419,24 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
 
     exito_yt = False
     try:
+        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: visionos/multi-client)...")
         r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=240)
         matches1 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
         if any(os.path.getsize(m) > 1000 for m in matches1):
             exito_yt = True
         else:
-            print(f"Aviso yt-dlp intento 1 ({vid_target}): {r1.stderr[:200] if r1.stderr else ''}")
+            err1 = (r1.stderr or r1.stdout or "").strip()[-300:]
+            log_debug(f"Aviso yt-dlp intento 1 ({vid_target}): {err1}")
     except Exception as e1:
-        print(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
+        log_debug(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Fallback cliente Android con formato 18 (universal y sin experimentos SABR)
+    # Intento 2: Fallback cliente visionos/android con formato 18/ba universal
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
-            "--extractor-args", "youtube:player_client=android,web",
+            "--http-chunk-size", "10M",
+            "--extractor-args", "youtube:player_client=visionos,android,web_embedded",
             "-f", "18/ba/b/best",
             "--no-playlist",
             "--no-check-certificates",
@@ -418,9 +451,10 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
             if any(os.path.getsize(m) > 1000 for m in matches2):
                 exito_yt = True
             else:
-                print(f"Aviso yt-dlp intento 2 ({vid_target}): {r2.stderr[:200] if r2.stderr else ''}")
+                err2 = (r2.stderr or r2.stdout or "").strip()[-300:]
+                log_debug(f"Aviso yt-dlp intento 2 ({vid_target}): {err2}")
         except Exception as e2:
-            print(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
+            log_debug(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
     # Intento 3: Fallback estándar simple
     if not exito_yt:
@@ -435,9 +469,13 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
             url_yt
         ]
         try:
-            subprocess.run(cmd3, capture_output=True, text=True, timeout=240)
+            r3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=240)
+            matches3 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
+            if not any(os.path.getsize(m) > 1000 for m in matches3):
+                err3 = (r3.stderr or r3.stdout or "").strip()[-300:]
+                log_debug(f"Aviso yt-dlp intento 3 ({vid_target}): {err3}")
         except Exception as e3:
-            print(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
+            log_debug(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
 
     # 3. Localizar archivo crudo descargado de YouTube y convertir a MP3 limpio (192k)
     raw_files = [m for m in glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*")) if os.path.getsize(m) > 1000]
@@ -462,7 +500,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                 else:
                     archivo_final = raw_f
             except Exception as e_conv:
-                print(f"Error convirtiendo a MP3 con FFmpeg ({vid_target}): {e_conv}")
+                log_debug(f"Error convirtiendo a MP3 con FFmpeg ({vid_target}): {e_conv}")
                 archivo_final = raw_f
         else:
             archivo_final = raw_f
@@ -485,7 +523,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                         pass
                     archivo_final = archivo_comp
             except Exception as e_comp:
-                print(f"Error comprimiendo audio grande: {e_comp}")
+                log_debug(f"Error comprimiendo audio grande: {e_comp}")
 
         # Guardar en caché verificado de YouTube
         try:
@@ -500,13 +538,13 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                     os.remove(tmp_clean_mp3)
                 except Exception:
                     pass
-            print(f"✅ Audio {vid_target} («{titulo_pista}») extraído exitosamente de YouTube a máxima fidelidad (audio limpio y remasterizado).")
+            log_debug(f"✅ Audio {vid_target} («{titulo_pista}») extraído exitosamente de YouTube a máxima fidelidad.")
             return (cache_clean, "YOUTUBE")
         except Exception:
             return (archivo_final, "YOUTUBE")
 
     # 4. PROHIBIDO TOTALMENTE GOOGLE DRIVE: Para solicitudes de videos de YouTube nunca recurrir a Drive
-    print(f"❌ Extracción de YouTube falló para {vid_target}. Google Drive queda TERMINANTEMENTE PROHIBIDO para solicitudes de YouTube.")
+    log_debug(f"❌ Extracción de YouTube falló para {vid_target}. Google Drive queda TERMINANTEMENTE PROHIBIDO para solicitudes de YouTube.")
     return (None, "")
 
 
@@ -2624,20 +2662,58 @@ def escuchar_comandos() -> None:
                             from radar_youtube import obtener_titulo_video
                             tit_v = obtener_titulo_video(vid_target) or f"Audio {vid_target}"
 
+                            texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
+                            caption_priv = (
+                                f"🎧 **Audio descargado:** «{tit_v}»\n"
+                                f"{texto_fuente}\n"
+                                f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
+                                f"✨ *Audio oficial solicitado para tu estudio.*"
+                            )
+                            caption_grp = (
+                                f"🎧 **Audio descargado:** «{tit_v}»\n"
+                                f"👤 Para: {user_nombre_target}\n"
+                                f"{texto_fuente}\n"
+                                f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
+                                f"💡 *(Para recibir los audios por privado en el futuro, abre un chat con el bot y presiona Iniciar).*"
+                            )
+
+                            # 1. Revisar si ya contamos con un file_id de Telegram verificado de YouTube (CLEAN)
+                            db_aud = cargar_audios_registrados()
+                            reg_clean = db_aud.get(f"YT_CLEAN_{vid_target}") if isinstance(db_aud, dict) else None
+                            fid_clean = reg_clean.get("file_id") if isinstance(reg_clean, dict) else None
+
+                            if fid_clean:
+                                enviado_priv_fid = False
+                                if user_id_target:
+                                    ok_pf, _, _ = enviar_audio(
+                                        user_id_target,
+                                        fid_clean,
+                                        caption=caption_priv,
+                                        title=tit_v,
+                                        performer="ALANISO / Maestro Mario Carrillo"
+                                    )
+                                    enviado_priv_fid = ok_pf
+                                if enviado_priv_fid:
+                                    return
+                                if chat_origen:
+                                    ok_gf, _, _ = enviar_audio(
+                                        chat_origen,
+                                        fid_clean,
+                                        caption=caption_grp,
+                                        title=tit_v,
+                                        performer="ALANISO / Maestro Mario Carrillo"
+                                    )
+                                    if ok_gf:
+                                        return
+
+                            # 2. Extraer o cargar desde caché limpio local de YouTube
                             archivo_mp3, origen = descargar_audio_youtube_robusto(vid_target, tit_v)
 
                             if archivo_mp3 and os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
-                                texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
-
-                                caption_priv = (
-                                    f"🎧 **Audio descargado:** «{tit_v}»\n"
-                                    f"{texto_fuente}\n"
-                                    f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
-                                    f"✨ *Audio oficial solicitado para tu estudio.*"
-                                )
                                 enviado_priv = False
+                                f_id_subido = None
                                 if user_id_target:
-                                    ok_priv, _, _ = enviar_audio(
+                                    ok_priv, _, f_id_p = enviar_audio(
                                         user_id_target,
                                         archivo_mp3,
                                         caption=caption_priv,
@@ -2645,21 +2721,22 @@ def escuchar_comandos() -> None:
                                         performer="ALANISO / Maestro Mario Carrillo"
                                     )
                                     enviado_priv = ok_priv
+                                    f_id_subido = f_id_p
 
                                 if not enviado_priv and chat_origen:
-                                    caption_grp = (
-                                        f"🎧 **Audio descargado:** «{tit_v}»\n"
-                                        f"👤 Para: {user_nombre_target}\n"
-                                        f"{texto_fuente}\n"
-                                        f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
-                                        f"💡 *(Para recibir los audios por privado en el futuro, abre un chat con el bot y presiona Iniciar).*"
-                                    )
-                                    enviar_audio(
+                                    ok_grp, _, f_id_g = enviar_audio(
                                         chat_origen,
                                         archivo_mp3,
                                         caption=caption_grp,
                                         title=tit_v,
                                         performer="ALANISO / Maestro Mario Carrillo"
+                                    )
+                                    f_id_subido = f_id_subido or f_id_g
+
+                                if f_id_subido:
+                                    guardar_audio_registrado(
+                                        {"video_id": f"CLEAN_{vid_target}", "titulo": tit_v, "fuente": "YOUTUBE"},
+                                        file_id=f_id_subido
                                     )
                             else:
                                 if chat_origen:
