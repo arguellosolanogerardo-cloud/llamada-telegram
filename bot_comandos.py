@@ -320,11 +320,11 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     """Descarga el audio remasterizado y limpiado directamente de YouTube con la máxima calidad:
     1. Revisa si ya fue descargado previamente desde YouTube en la caché local verificada (yt_clean_<ID>.mp3).
     2. Descarga directamente de YouTube con yt-dlp multi-cliente (ios, web, android, mweb, tv)
-       sin requerir ffprobe (evitando el fallo en Render/Linux).
+       sin requerir ffprobe y forzando IPv4 para evitar bloqueos en datacenters (Render).
     3. Convierte el stream a MP3 de alta fidelidad (192 kbps, 44.1 kHz) con el FFmpeg de imageio_ffmpeg.
     4. Garantiza que el tamaño no supere los 49.0 MB para cumplir el límite de Telegram Bot API.
-    5. Si YouTube estuviera 100% inaccesible o bloqueado, recurre al catálogo de Drive como último recurso.
-    Retorna: (ruta_archivo_mp3, "YOUTUBE" | "DRIVE" | "")
+    5. PROHIBIDO TOTALMENTE GOOGLE DRIVE: Si es una solicitud de YouTube, SOLO se extrae de YouTube.
+    Retorna: (ruta_archivo_mp3, "YOUTUBE") o (None, "")
     """
     if not vid_target:
         return (None, "")
@@ -337,6 +337,17 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     # 1. Caché existente verificado de YouTube (audio limpio y remasterizado ya procesado)
     if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
         return (cache_clean, "YOUTUBE")
+
+    # Purgar cualquier caché antiguo o de Drive para evitar servir audios ruidosos
+    for cache_antiguo in (
+        os.path.join(carp_med, f"yt_dl_{vid_target}.mp3"),
+        os.path.join(carp_med, f"yt_drive_{vid_target}.mp3")
+    ):
+        if os.path.exists(cache_antiguo):
+            try:
+                os.remove(cache_antiguo)
+            except Exception:
+                pass
 
     # Obtener título si no fue provisto
     if not titulo_pista:
@@ -361,9 +372,11 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception:
             pass
 
-    # Intento 1: Multi-cliente antibloqueo (ios, web, android, mweb, tv) SIN -x (no requiere ffprobe)
+    # Intento 1: Multi-cliente antibloqueo con --force-ipv4 (evita bloqueos IPv6 en Render/cloud)
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
+        "--force-ipv4",
+        "--geo-bypass",
         "--extractor-args", "youtube:player_client=ios,web,android,mweb,tv",
         "-f", "ba/ba*/b[ext=mp4]/b/18/best",
         "--no-playlist",
@@ -385,11 +398,13 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     except Exception as e1:
         print(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Fallback estándar sin extractor-args
+    # Intento 2: Fallback cliente Android con formato 18 (universal y sin experimentos SABR)
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
-            "-f", "ba/ba*/b[ext=mp4]/b/18/best",
+            "--force-ipv4",
+            "--extractor-args", "youtube:player_client=android,web",
+            "-f", "18/ba/b/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
@@ -407,12 +422,12 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception as e2:
             print(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
-    # Intento 3: Fallback enfocado en cliente Android
+    # Intento 3: Fallback estándar simple
     if not exito_yt:
         cmd3 = [
             sys.executable, "-m", "yt_dlp",
-            "--extractor-args", "youtube:player_client=android",
-            "-f", "ba/ba*/b[ext=mp4]/b/18/best",
+            "--force-ipv4",
+            "-f", "ba/b/18/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
@@ -490,23 +505,8 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception:
             return (archivo_final, "YOUTUBE")
 
-    # 4. Fallback de emergencia a Google Drive SOLO si YouTube falló completamente
-    print(f"⚠️ YouTube falló para {vid_target}. Intentando respaldo desde Google Drive...")
-    try:
-        info_cat = identificar_audio_catalogo(titulo_pista)
-        if info_cat and info_cat.get("numero") and info_cat.get("tipo"):
-            ruta_drive = obtener_o_descargar_audio(info_cat["tipo"], info_cat["numero"])
-            if ruta_drive and os.path.exists(ruta_drive) and os.path.getsize(ruta_drive) > 1000:
-                cache_drive = os.path.join(carp_med, f"yt_drive_{vid_target}.mp3")
-                try:
-                    shutil.copy2(ruta_drive, cache_drive)
-                    print(f"☁️ Audio {vid_target} respaldado desde Google Drive: {ruta_drive}")
-                    return (cache_drive, "DRIVE")
-                except Exception:
-                    return (ruta_drive, "DRIVE")
-    except Exception as e_cat:
-        print(f"Nota buscando en catálogo Drive para {vid_target}: {e_cat}")
-
+    # 4. PROHIBIDO TOTALMENTE GOOGLE DRIVE: Para solicitudes de videos de YouTube nunca recurrir a Drive
+    print(f"❌ Extracción de YouTube falló para {vid_target}. Google Drive queda TERMINANTEMENTE PROHIBIDO para solicitudes de YouTube.")
     return (None, "")
 
 
@@ -2627,12 +2627,7 @@ def escuchar_comandos() -> None:
                             archivo_mp3, origen = descargar_audio_youtube_robusto(vid_target, tit_v)
 
                             if archivo_mp3 and os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
-                                if origen == "YOUTUBE":
-                                    texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
-                                elif origen == "DRIVE":
-                                    texto_fuente = "☁️ **Fuente:** Desde la Nube MP3"
-                                else:
-                                    texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
+                                texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
 
                                 caption_priv = (
                                     f"🎧 **Audio descargado:** «{tit_v}»\n"
