@@ -2628,11 +2628,11 @@ def escuchar_comandos() -> None:
 
                             if archivo_mp3 and os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
                                 if origen == "YOUTUBE":
-                                    texto_fuente = "📺 **Fuente:** YouTube (Audio limpio y remasterizado)"
+                                    texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
                                 elif origen == "DRIVE":
-                                    texto_fuente = "☁️ **Fuente:** Desde la nube (Google Drive)"
+                                    texto_fuente = "☁️ **Fuente:** Desde la Nube MP3"
                                 else:
-                                    texto_fuente = "📺 **Fuente:** YouTube"
+                                    texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
 
                                 caption_priv = (
                                     f"🎧 **Audio descargado:** «{tit_v}»\n"
