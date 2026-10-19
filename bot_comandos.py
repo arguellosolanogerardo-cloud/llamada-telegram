@@ -2614,7 +2614,7 @@ def escuchar_comandos() -> None:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                             urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
                                 "callback_query_id": cb_id,
-                                "text": "🎧 Obteniendo audio MP3...\n\nEstamos extrayendo el audio en alta calidad. En breves momentos te lo entregaremos por aquí.",
+                                "text": "🎧 Obteniendo audio MP3...\n\nEstamos extrayendo el audio en alta calidad.\n\nTe lo entregaremos en mensaje privado con el Asistente Toby. Dale al botón Iniciar.",
                                 "show_alert": True
                             }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
                         except Exception:
