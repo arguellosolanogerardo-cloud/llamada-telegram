@@ -74,5 +74,17 @@
   "MENSAJE_1035": {
     "drive_id": "17Jcouq7eYpCDm-zd9DSYRuEuQqnQyGtd",
     "nombre_archivo": "mensaje 1035.mp3"
+  },
+  "MEDITACION_10": {
+    "drive_id": "1CnOhCjoosngLDTWewpiaEB9GQlH92w_I",
+    "nombre_archivo": "10 meditacion, Quien soy y asi porqué existo (online-audio-converter.com).mp3"
+  },
+  "MEDITACION_19": {
+    "drive_id": "1oGkS31LEbWSLRN8EXKMQl2Wbj8hyLSHU",
+    "nombre_archivo": "19 Padre, te conozco a través de Tu Creación..mp3"
+  },
+  "MEDITACION_23": {
+    "drive_id": "1CXokr2PqiUeBRi9kiRoxF9pNDEJreRkJ",
+    "nombre_archivo": "23 Padre, gracias porque soy tú hijo..mp3"
   }
 }
