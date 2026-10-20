@@ -145,6 +145,18 @@ def sincronizar_github_vistos(vistos: list) -> None:
         print("Nota sincronizando radar con GitHub:", e)
 
 
+
+def precargar_audio_segundo_plano(vid: str, titulo: str = "") -> None:
+    """Pre-extrae el audio MP3 en segundo plano tan pronto se anuncia el video."""
+    def _run():
+        try:
+            from bot_comandos import descargar_audio_youtube_robusto
+            descargar_audio_youtube_robusto(vid, titulo)
+        except Exception as e:
+            print(f"Nota en precarga en segundo plano de audio {vid}: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
 def obtener_info_oembed(vid: str) -> dict:
     """Obtiene metadatos oficiales del video de YouTube vía oEmbed (título, autor)."""
     if not vid:
@@ -270,6 +282,7 @@ def anunciar_video_manual(vid: str, bot_enviar_mensaje_func, target_chat, bot_en
                     vistos.append(vid)
             guardar_vistos(vistos)
             threading.Thread(target=sincronizar_github_vistos, args=(vistos,), daemon=True).start()
+            precargar_audio_segundo_plano(vid, titulo)
 
         return enviado
     finally:
@@ -738,6 +751,7 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                             # Guardar inmediatamente en disco para que ningún otro proceso lo duplique
                             guardar_vistos(nuevos_vistos)
                             threading.Thread(target=sincronizar_github_vistos, args=(nuevos_vistos,), daemon=True).start()
+                            precargar_audio_segundo_plano(vid, datos.get("titulo", ""))
 
                         # Pausa de 3 segundos entre anuncios para evitar rate-limits de Telegram
                         time.sleep(3)

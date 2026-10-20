@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Instalar dependencias
-        run: pip install requests pillow yt-dlp
+        run: pip install requests pillow yt-dlp imageio-ffmpeg
       - name: Publicar video en Telegram
         run: |
           python -c "
@@ -69,14 +69,29 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TG_GROUP: ${{ secrets.TG_GROUP }}
-      - name: Guardar registro de video anunciado
+
+      - name: Pre-extraer audio limpio MP3
+        if: success()
+        run: |
+          python -c "
+          import os, re
+          from bot_comandos import descargar_audio_youtube_robusto
+          raw_input = '${{ github.event.inputs.video_id }}'.strip()
+          m = re.search(r'(?:v=|\/|youtu\.be\/)([a-zA-Z0-9_-]{11})', raw_input)
+          vid = m.group(1) if m else raw_input
+          print(f'Pre-extrayendo audio limpio para video: {vid}')
+          descargar_audio_youtube_robusto(vid)
+          "
+
+      - name: Guardar registro de video anunciado y audios limpios
         if: success()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/radar_vistos.json
+          git add data/meditaciones/yt_clean_*.mp3
           if ! git diff --staged --quiet; then
-            git commit -m "chore(radar): registrar video anunciado en radar_vistos [skip ci]"
+            git commit -m "chore(radar): registrar video y audio limpio en repositorio [skip ci]"
             for i in 1 2 3; do
               git pull --rebase -X theirs origin main && git push && break
               sleep 2

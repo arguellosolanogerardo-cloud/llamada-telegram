@@ -400,26 +400,38 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception:
             pass
 
-    # Intento 1: Clientes visionos + web_embedded + ios + android con prioridad de audio original español y chunks rápidos
+    cookie_file = os.path.join("data", "cookies.txt")
+    if not os.path.exists(cookie_file) and os.environ.get("YOUTUBE_COOKIES"):
+        try:
+            with open(cookie_file, "w", encoding="utf-8") as fc:
+                fc.write(os.environ["YOUTUBE_COOKIES"].strip())
+        except Exception:
+            pass
+
+    cookie_args = ["--cookies", cookie_file] if (os.path.exists(cookie_file) and os.path.getsize(cookie_file) > 10) else []
+
+    # Intento 1: Cliente Android nativo directo (formato 18 pre-muxed mp4 / direct stream).
+    # Este stream de GoogleVideo no requiere runtime JS (n-sig) ni gatilla el bloqueo de bots en Render/cloud.
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
         "--geo-bypass",
         "--http-chunk-size", "10M",
         "-N", "4",
-        "--extractor-args", "youtube:player_client=visionos,web_embedded,tv_downgraded,ios,android,web",
-        "-f", "ba[language^=es]/ba[format_id*=original]/ba[format_id*=-1]/18/ba/b/best",
+        "--extractor-args", "youtube:player_client=android",
+        "-f", "18/ba/b/best",
         "--no-playlist",
         "--no-check-certificates",
         "--socket-timeout", "35",
         "--retries", "3",
+    ] + cookie_args + [
         "--output", raw_out_tmpl,
         url_yt
     ]
 
     exito_yt = False
     try:
-        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: visionos/multi-client)...")
+        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: Android native stream)...")
         r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=240)
         matches1 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
         if any(os.path.getsize(m) > 1000 for m in matches1):
@@ -430,22 +442,24 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     except Exception as e1:
         log_debug(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Fallback cliente visionos/android con formato 18/ba universal
+    # Intento 2: Fallback Android + Android VR (formatos 18/ba/b)
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
             "--http-chunk-size", "10M",
-            "--extractor-args", "youtube:player_client=visionos,android,web_embedded",
-            "-f", "18/ba/b/best",
+            "--extractor-args", "youtube:player_client=android,android_vr",
+            "-f", "18/ba[language^=es]/ba/b/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
             "--retries", "2",
+        ] + cookie_args + [
             "--output", raw_out_tmpl,
             url_yt
         ]
         try:
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 2: Android VR fallback)...")
             r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=240)
             matches2 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
             if any(os.path.getsize(m) > 1000 for m in matches2):
@@ -456,26 +470,55 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception as e2:
             log_debug(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
-    # Intento 3: Fallback estándar simple
+    # Intento 3: Fallback VisionOS / Web Embedded con cookies o IP residencial
     if not exito_yt:
         cmd3 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
-            "-f", "ba/b/18/best",
+            "--extractor-args", "youtube:player_client=visionos,android,web_embedded",
+            "-f", "ba[language^=es]/ba[format_id*=original]/ba[format_id*=-1]/18/ba/b/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
+            "--retries", "2",
+        ] + cookie_args + [
             "--output", raw_out_tmpl,
             url_yt
         ]
         try:
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 3: VisionOS / Multi-client)...")
             r3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=240)
             matches3 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
-            if not any(os.path.getsize(m) > 1000 for m in matches3):
+            if any(os.path.getsize(m) > 1000 for m in matches3):
+                exito_yt = True
+            else:
                 err3 = (r3.stderr or r3.stdout or "").strip()[-300:]
                 log_debug(f"Aviso yt-dlp intento 3 ({vid_target}): {err3}")
         except Exception as e3:
             log_debug(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
+
+    # Intento 4: Fallback estándar simple
+    if not exito_yt:
+        cmd4 = [
+            sys.executable, "-m", "yt_dlp",
+            "--force-ipv4",
+            "-f", "18/ba/b/best",
+            "--no-playlist",
+            "--no-check-certificates",
+            "--socket-timeout", "35",
+        ] + cookie_args + [
+            "--output", raw_out_tmpl,
+            url_yt
+        ]
+        try:
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 4: Universal fallback)...")
+            r4 = subprocess.run(cmd4, capture_output=True, text=True, timeout=240)
+            matches4 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
+            if not any(os.path.getsize(m) > 1000 for m in matches4):
+                err4 = (r4.stderr or r4.stdout or "").strip()[-300:]
+                log_debug(f"Aviso yt-dlp intento 4 ({vid_target}): {err4}")
+        except Exception as e4:
+            log_debug(f"Error yt-dlp intento 4 ({vid_target}): {e4}")
 
     # 3. Localizar archivo crudo descargado de YouTube y convertir a MP3 limpio (192k)
     raw_files = [m for m in glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*")) if os.path.getsize(m) > 1000]

@@ -13,9 +13,11 @@ build_log*.txt
 # Credentials and sensitive files
 google_credentials.json
 *.pfx
+*cookies.txt
 
 # Temporary audio & images
 data/meditaciones/*.mp3
+!data/meditaciones/yt_clean_*.mp3
 data/meditaciones/*.wav
 data/meditaciones/*.png
 data/meditaciones/*.jpg
