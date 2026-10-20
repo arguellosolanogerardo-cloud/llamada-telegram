@@ -1565,13 +1565,19 @@ def obtener_info_tarea_hoy() -> dict | None:
                 items_c = dc.get("cola", []) if isinstance(dc, dict) else (dc if isinstance(dc, list) else [])
                 validos_c = [it.get("info") for it in items_c if isinstance(it, dict) and it.get("info")]
                 if validos_c:
-                    # Si la cola solo tiene un audio adicional (ej. Maestro Mario) y falta la meditación oficial de hoy, anteponerla
+                    # Garantizar SIEMPRE que la Meditación Oficial de las 3:00 AM esté en la posición #1 (índice 0)
                     if info_valida and not info_valida.get("es_mario"):
                         num_base = str(info_valida.get("numero", "")).strip()
-                        if num_base and not any(str(v.get("numero", "")).strip() == num_base for v in validos_c):
+                        if num_base:
                             base_copia = dict(info_valida)
                             base_copia.pop("cola_audios", None)
-                            validos_c.insert(0, base_copia)
+                            base_copia["es_oficial_3am"] = True
+                            resto_c = [
+                                dict(v, es_adicional=True)
+                                for v in validos_c
+                                if str(v.get("numero", "")).strip() != num_base or v.get("es_mario")
+                            ]
+                            validos_c = [base_copia] + resto_c
                     if len(validos_c) > 1:
                         if not info_valida:
                             info_valida = dict(validos_c[0])
