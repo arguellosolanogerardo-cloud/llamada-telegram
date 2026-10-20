@@ -1107,5 +1107,32 @@
       "maestro": "Alaniso",
       "detectado_como": "MEDITACION"
     }
+  },
+  "2026-10-20": {
+    "fecha": "2026-10-20",
+    "duracion_minutos": 8,
+    "asistentes_count": 5,
+    "oradores": [
+      "GERARDO Argüello 3",
+      "Maria",
+      "Father Gerardo Perez",
+      "GERARDO ARGUELLO2",
+      "Monica Romero"
+    ],
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-20** con una duración de **8 minutos** y un total de **5 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Maria:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **GERARDO ARGUELLO2:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Monica Romero:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "ruta_pdf": "data/actas/acta_2026-10-20.pdf",
+    "info_catalogo": {
+      "numero": 24,
+      "tipo": "MEDITACION",
+      "titulo": "Sintamos con El Padre, cómo fue su Creación",
+      "fecha": "01/10/04",
+      "maestro": "Alaniso",
+      "detectado_como": "MEDITACION",
+      "fecha_tarea_admin": "20/10/2026",
+      "fecha_iso": "2026-10-20",
+      "es_oficial_3am": true,
+      "es_adicional": false,
+      "es_mario": false
+    }
   }
 }
