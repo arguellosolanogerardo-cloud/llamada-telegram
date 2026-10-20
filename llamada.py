@@ -453,18 +453,18 @@ def obtener_duracion_segundos(ruta_audio: str) -> float:
 def obtener_sonido_campana_inicio() -> str:
     """Busca el archivo de sonido para el inicio de la meditación o genera uno por defecto."""
     candidatos = [
+        "sonido inicio de meditacion.mp3",
+        os.path.join("data", "sonido inicio de meditacion.mp3"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido inicio de meditacion.mp3"),
+        "sonido inicio meditacion.mp3",
         "sonido inicio meditacion.flac",
         "sonido inicio meditacion.wav",
-        "sonido inicio meditacion.mp3",
+        os.path.join("data", "sonido inicio meditacion.mp3"),
         os.path.join("data", "sonido inicio meditacion.flac"),
         os.path.join("data", "sonido inicio meditacion.wav"),
-        os.path.join("data", "sonido inicio meditacion.mp3"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.mp3"),
         os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.flac"),
         os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.wav"),
-        os.path.join(CARPETA_MEDITACIONES, "sonido inicio meditacion.mp3"),
-        "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3",
-        os.path.join("data", "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3"),
-        os.path.join(CARPETA_MEDITACIONES, "tibetan-singing-bowl-for-meditation-cuenco-tibetano-para-meditacion.mp3"),
     ]
     for c in candidatos:
         if os.path.exists(c) and os.path.getsize(c) > 1000:
@@ -475,15 +475,18 @@ def obtener_sonido_campana_inicio() -> str:
 def obtener_sonido_campana_salida() -> str:
     """Busca el archivo de sonido para el final de la meditación o genera uno por defecto."""
     candidatos = [
+        "sonido final de meditacion.mp3",
+        os.path.join("data", "sonido final de meditacion.mp3"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido final de meditacion.mp3"),
+        "sonido salida meditacion.mp3",
         "sonido salida meditacion.wav",
         "sonido salida meditacion.flac",
-        "sonido salida meditacion.mp3",
+        os.path.join("data", "sonido salida meditacion.mp3"),
         os.path.join("data", "sonido salida meditacion.wav"),
         os.path.join("data", "sonido salida meditacion.flac"),
-        os.path.join("data", "sonido salida meditacion.mp3"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido salida meditacion.mp3"),
         os.path.join(CARPETA_MEDITACIONES, "sonido salida meditacion.wav"),
         os.path.join(CARPETA_MEDITACIONES, "sonido salida meditacion.flac"),
-        os.path.join(CARPETA_MEDITACIONES, "sonido salida meditacion.mp3"),
     ]
     for c in candidatos:
         if os.path.exists(c) and os.path.getsize(c) > 1000:
