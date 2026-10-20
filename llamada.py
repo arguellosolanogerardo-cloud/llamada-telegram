@@ -1789,6 +1789,7 @@ async def main() -> None:
         segundos_inactividad_mic = {}  # uid -> segundos con mic abierto y sin voz
         avisados_auto_mute = set()  # uids notificados cordialmente
         msg_turnos = None  # Mensaje en vivo con la cola de turnos
+        lista_turnos_activa = True  # Permite activar/desactivar el cartel de LISTA DE TURNOS EN VIVO a conveniencia
         lock_turnos = asyncio.Lock()
         mensajes_chat_recientes = 0
         ultimo_envio_turnos = 0
@@ -1798,6 +1799,8 @@ async def main() -> None:
 
         async def actualizar_mensaje_turnos(forzar_al_fondo: bool = False):
             nonlocal msg_turnos, mensajes_chat_recientes, ultimo_envio_turnos, bloqueo_flood_hasta, ultimo_texto_turnos
+            if not lista_turnos_activa:
+                return
             async with lock_turnos:
                 nombres_oradores = [
                     participantes[u]["nombre"] if u in participantes else f"ID {u}"
@@ -1848,6 +1851,26 @@ async def main() -> None:
                                 mensajes_chat_recientes = 0
                             except Exception as e2:
                                 print("Nota reenviando mensaje de turnos:", e2)
+
+        async def cambiar_estado_lista_turnos(activar: bool | None = None) -> tuple[bool, str]:
+            nonlocal lista_turnos_activa, msg_turnos, ultimo_texto_turnos, ultimo_envio_turnos
+            nuevo_estado = (not lista_turnos_activa) if activar is None else bool(activar)
+            lista_turnos_activa = nuevo_estado
+            if not lista_turnos_activa:
+                if msg_turnos:
+                    try:
+                        await client.delete_messages(entidad, msg_turnos)
+                        ids_mensajes_efimeros.discard(getattr(msg_turnos, "id", None))
+                    except Exception:
+                        pass
+                    msg_turnos = None
+                ultimo_texto_turnos = None
+                return False, "📴 **Cartel de `LISTA DE TURNOS EN VIVO` desactivado y ocultado del grupo.**\n*(Para volver a encenderlo escribe `/activarturnos` o presiona el botón en `/panel`)*."
+            else:
+                ultimo_texto_turnos = None
+                ultimo_envio_turnos = 0
+                await actualizar_mensaje_turnos(forzar_al_fondo=True)
+                return True, "✅ **Cartel de `LISTA DE TURNOS EN VIVO` activado y visible en el grupo.**\n*(Para ocultarlo escribe `/apagarturnos` o presiona el botón en `/panel`)*."
 
         # Mensaje fijado dinámico en el grupo
         msg_fijado = None
@@ -3511,7 +3534,7 @@ async def main() -> None:
                 await responder(resp)
 
         # Escuchar controles de meditación, moderación de turnos y control de grabación exclusivos para administradores
-        @client.on(events.NewMessage(pattern=r"(?i)^\s*/(reproducir|play|pausar|pause|continuar|resume|atrasar|retroceder|rewind|adelantar|avanzar|forward|volup|masvolumen|voldown|menosvolumen|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|desbloquearadmins|liberaradmins|blindaradmins|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
+        @client.on(events.NewMessage(pattern=r"(?i)^\s*/(reproducir|play|pausar|pause|continuar|resume|atrasar|retroceder|rewind|adelantar|avanzar|forward|volup|masvolumen|voldown|menosvolumen|detener|stop|volumen|vol|siguiente|next|saltaraudio|siguienteaudio|nextaudio|limpiarturnos|ocultarturnos|apagarturnos|desactivarturnos|turnosoff|mostrarturnos|encenderturnos|activarturnos|turnoson|toggleturnos|ventanaturnos|limpiarsala|limpiaravisos|hablar|desmutear|mutear|desmuteartodos|abrir|desbloquear|desbloquearadmins|liberaradmins|blindaradmins|pausargrabacion|pausar_rec|reanudargrabacion|reanudar_rec|detenergrabacion|cancelar_rec|estadograbacion|estado_rec)"))
         async def controlar_meditacion_admin(event):
             sender = await event.get_sender()
             
@@ -3811,6 +3834,15 @@ async def main() -> None:
                 cola_turnos.clear()
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
                 await responder_admin("🧹 **Lista de turnos vaciada exitosamente.**")
+            elif cmd in ("/ocultarturnos", "/apagarturnos", "/desactivarturnos", "/turnosoff"):
+                _, msg_est = await cambiar_estado_lista_turnos(False)
+                await responder_admin(msg_est)
+            elif cmd in ("/mostrarturnos", "/encenderturnos", "/activarturnos", "/turnoson"):
+                _, msg_est = await cambiar_estado_lista_turnos(True)
+                await responder_admin(msg_est)
+            elif cmd in ("/toggleturnos", "/ventanaturnos"):
+                _, msg_est = await cambiar_estado_lista_turnos(None)
+                await responder_admin(msg_est)
             elif cmd in ("/limpiarsala", "/limpiaravisos"):
                 cant = len(ids_mensajes_efimeros)
                 if cant > 0:
@@ -4557,6 +4589,23 @@ async def main() -> None:
                     avisar_con_bot(f"🎙️ **Turno de palabra:** ¡Adelante **{s_nom}**! Por favor abre tu micrófono para compartir.", es_efimero=True)
                     if not reproduciendo_meditacion:
                         lanzar_tarea(anunciar_turno_por_voz(s_nom))
+            # Apagar / ocultar el cartel de LISTA DE TURNOS EN VIVO
+            elif any(p in texto_raw for p in [
+                "apagar lista de turnos", "apaga la lista de turnos", "apagar turnos", "apaga los turnos",
+                "ocultar lista de turnos", "oculta la lista de turnos", "ocultar turnos", "oculta los turnos",
+                "desactivar lista de turnos", "desactiva la lista de turnos", "desactivar turnos", "quitar lista de turnos",
+                "quita la lista de turnos", "borrar lista de turnos"
+            ]):
+                _, msg_est = await cambiar_estado_lista_turnos(False)
+                await responder_nat(msg_est)
+            # Activar / mostrar el cartel de LISTA DE TURNOS EN VIVO
+            elif any(p in texto_raw for p in [
+                "activar lista de turnos", "activa la lista de turnos", "activar turnos", "activa los turnos",
+                "mostrar lista de turnos", "muestra la lista de turnos", "mostrar turnos", "muestra los turnos",
+                "encender lista de turnos", "enciende la lista de turnos", "encender turnos", "poner lista de turnos"
+            ]):
+                _, msg_est = await cambiar_estado_lista_turnos(True)
+                await responder_nat(msg_est)
             # Limpiar notificaciones y ventanas de la sala a petición del administrador
             elif any(p in texto_raw for p in [
                 "notificaciones del robot",

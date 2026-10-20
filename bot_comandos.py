@@ -2850,6 +2850,15 @@ def escuchar_comandos() -> None:
                         elif accion == "limpiarturnos":
                             comando = "/limpiarturnos"
                             texto_feedback = "✋ Vaciando lista de turnos..."
+                        elif accion == "toggleturnos":
+                            comando = "/toggleturnos"
+                            texto_feedback = "🔄 Alternando visibilidad de Lista de Turnos..."
+                        elif accion == "ocultarturnos":
+                            comando = "/ocultarturnos"
+                            texto_feedback = "📴 Ocultando Lista de Turnos..."
+                        elif accion == "mostrarturnos":
+                            comando = "/mostrarturnos"
+                            texto_feedback = "✅ Mostrando Lista de Turnos..."
                         elif accion == "desmutear":
                             comando = "/desmuteartodos"
                             texto_feedback = "🔓 Desbloqueando micrófonos..."
@@ -3436,7 +3445,7 @@ def escuchar_comandos() -> None:
                             [{"text": "🔉 Vol -", "callback_data": "panel_voldown"}, {"text": "⏹️ Detener", "callback_data": "panel_stop"}, {"text": "🔊 Vol +", "callback_data": "panel_volup"}],
                             [{"text": "➕ Encolar Audio", "callback_data": "panel_encolar"}, {"text": "📋 Ver Cola", "callback_data": "panel_vercola"}, {"text": "⏭️ Sig. Audio", "callback_data": "panel_nextaudio"}],
                             [{"text": "🗑️ Limpiar Cola", "callback_data": "panel_limpiarcola"}, {"text": "🎤 Sig. Turno", "callback_data": "panel_nextturno"}, {"text": "✋ Limpiar Turnos", "callback_data": "panel_limpiarturnos"}],
-                            [{"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}, {"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}]
+                            [{"text": "🔓 Abrir Micros", "callback_data": "panel_desmutear"}, {"text": "📴/✅ Cartel Turnos", "callback_data": "panel_toggleturnos"}, {"text": "🧹 Limpiar Sala", "callback_data": "panel_limpiar"}]
                         ]
                     }
                     enviar_mensaje(chat_id, "🎛 **PANEL DE CONTROL DE SALA**\n*(Solo funciona durante la llamada)*\nPresiona los botones para controlar el bot en tiempo real:", reply_markup=teclado_panel)
