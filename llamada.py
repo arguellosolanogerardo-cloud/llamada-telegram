@@ -5156,8 +5156,7 @@ async def main() -> None:
                     "🎙️ **SALA DE VOZ CONCLUIDA**\n"
                     "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
                     f"📅 Fecha: {fecha_hoy} | ⏰ Fin: {datetime.now(tz_col).strftime('%I:%M %p')}\n"
-                    "✨ Gracias a todos por su participación en la sesión diaria.\n"
-                    "📊 Los reportes y actas oficiales se publican a continuación."
+                    "✨ Gracias a todos por su participación en la sesión diaria."
                 )
                 await client.edit_message(entidad, msg_fijado, texto_concluido)
             except Exception:
@@ -5167,11 +5166,7 @@ async def main() -> None:
 
         if msg_turnos:
             try:
-                await client.edit_message(
-                    entidad,
-                    msg_turnos,
-                    "🎙️ **LISTA DE TURNOS CERRADA**\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\nLa sala de voz ha concluido por el día de hoy."
-                )
+                await client.delete_messages(entidad, msg_turnos)
             except Exception:
                 pass
             if hasattr(msg_turnos, "id"):
@@ -5489,8 +5484,8 @@ async def main() -> None:
         except Exception as e:
             print("Nota generando o enviando imagen del podio:", e)
 
+        # Reporte de asistencia y puntos omitido del grupo público (se conserva el envío privado e interno)
         reporte_publico = "\n".join(lineas_pub)
-        avisar_con_bot(reporte_publico)
 
         # Enviar notificación privada personalizada a cada asistente de la comunidad (excluye administradores)
         if BOT_TOKEN:
@@ -5725,13 +5720,7 @@ async def main() -> None:
         if grabacion_cancelada:
             resumen_ia = "🛑 *La grabación de audio fue cancelada por la administración durante la sesión. Este informe se generó con base en los datos de participación sin almacenamiento de audio.*\n\n" + resumen_ia
 
-        # Publicar Minuta Oficial en el Grupo
-        txt_minuta_grupo = (
-            f"📝 **MINUTA Y RESUMEN OFICIAL — LLAMADA {inicio_llamada.strftime('%d/%m/%Y')}**\n"
-            f"▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
-            f"{resumen_ia}"
-        )
-        avisar_con_bot(txt_minuta_grupo)
+        # Minuta Oficial omitida del grupo público (se envía únicamente en el Acta PDF a Mensajes Guardados)
 
         # Generar Acta Oficial en PDF
         ruta_acta_pdf = generar_acta_pdf(
