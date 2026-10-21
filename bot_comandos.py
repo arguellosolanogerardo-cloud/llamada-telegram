@@ -326,19 +326,26 @@ def _asegurar_ytdlp_actualizado() -> None:
     _YTDLP_VERIFICADO = True
     try:
         from yt_dlp.extractor.youtube._base import INNERTUBE_CLIENTS
-        if "visionos" in INNERTUBE_CLIENTS:
-            return
-    except Exception:
-        pass
-    try:
-        log_debug("Actualizando yt-dlp en servidor para soporte de cliente visionos...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
-            capture_output=True, text=True, timeout=90
-        )
-        log_debug("yt-dlp actualizado correctamente.")
+        if "visionos" not in INNERTUBE_CLIENTS:
+            log_debug("Actualizando yt-dlp en servidor para soporte de cliente visionos...")
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+                capture_output=True, text=True, timeout=90
+            )
+            log_debug("yt-dlp actualizado correctamente.")
     except Exception as e_up:
         log_debug(f"Nota actualizando yt-dlp: {e_up}")
+
+    try:
+        import ytdlp_jsc
+    except ImportError:
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "ytdlp-jsc"],
+                capture_output=True, text=True, timeout=45
+            )
+        except Exception:
+            pass
 
 
 def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> tuple[str | None, str]:
@@ -410,21 +417,29 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
 
     cookie_args = ["--cookies", cookie_file] if (os.path.exists(cookie_file) and os.path.getsize(cookie_file) > 10) else []
 
-    # Intento 1: Cliente Android nativo directo (formato 18 pre-muxed mp4 / direct stream).
-    # Este stream de GoogleVideo no requiere runtime JS (n-sig) ni gatilla el bloqueo de bots en Render/cloud.
+    plugin_args = []
+    try:
+        import ytdlp_jsc
+        p_dir = os.path.dirname(ytdlp_jsc.__file__)
+        if os.path.exists(p_dir):
+            plugin_args = ["--plugin-dirs", p_dir]
+    except Exception:
+        pass
+
+    # Intento 1: Audio nativo directo multi-cliente con chunks rápidos
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
         "--geo-bypass",
         "--http-chunk-size", "10M",
         "-N", "4",
-        "--extractor-args", "youtube:player_client=android",
-        "-f", "18/ba/b/best",
+        "--extractor-args", "youtube:player_client=visionos,android",
+        "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
         "--no-playlist",
         "--no-check-certificates",
         "--socket-timeout", "35",
         "--retries", "3",
-    ] + cookie_args + [
+    ] + cookie_args + plugin_args + [
         "--output", raw_out_tmpl,
         url_yt
     ]
@@ -442,19 +457,19 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     except Exception as e1:
         log_debug(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Fallback Android + Android VR (formatos 18/ba/b)
+    # Intento 2: Fallback Android + Android VR (formatos ba/18)
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
             "--http-chunk-size", "10M",
             "--extractor-args", "youtube:player_client=android,android_vr",
-            "-f", "18/ba[language^=es]/ba/b/best",
+            "-f", "ba[language^=es]/ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
             "--retries", "2",
-        ] + cookie_args + [
+        ] + cookie_args + plugin_args + [
             "--output", raw_out_tmpl,
             url_yt
         ]
@@ -470,18 +485,18 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception as e2:
             log_debug(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
-    # Intento 3: Fallback VisionOS / Web Embedded con cookies o IP residencial
+    # Intento 3: Fallback iOS / mweb / VisionOS
     if not exito_yt:
         cmd3 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
-            "--extractor-args", "youtube:player_client=visionos,android,web_embedded",
-            "-f", "ba[language^=es]/ba[format_id*=original]/ba[format_id*=-1]/18/ba/b/best",
+            "--extractor-args", "youtube:player_client=ios,mweb,visionos",
+            "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
             "--retries", "2",
-        ] + cookie_args + [
+        ] + cookie_args + plugin_args + [
             "--output", raw_out_tmpl,
             url_yt
         ]
@@ -497,16 +512,16 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception as e3:
             log_debug(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
 
-    # Intento 4: Fallback estándar simple
+    # Intento 4: Fallback universal simple
     if not exito_yt:
         cmd4 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
-            "-f", "18/ba/b/best",
+            "-f", "ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
-        ] + cookie_args + [
+        ] + cookie_args + plugin_args + [
             "--output", raw_out_tmpl,
             url_yt
         ]
