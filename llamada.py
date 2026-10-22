@@ -5473,7 +5473,9 @@ async def main() -> None:
         lineas_pub.append("💡 Comandos disponibles: `/puntos` | `/ranking` | `/reglas` | `/meditacion`")
         lineas_pub.append("¡Gracias a todos por participar! Nos vemos mañana a las 7:56 PM.")
 
-        # Generar imagen gráfica profesional del podio de puntualidad (Top 9) y enviarla al grupo
+        # Generar imagen gráfica profesional del podio de puntualidad (Top 9)
+        # OMITIDO DEL GRUPO: Ahora se envía exclusivamente a Mensajes Guardados del Dueño
+        ruta_img_podio = None
         try:
             ruta_img_podio = generar_imagen_podio(
                 fecha_str=inicio_llamada.strftime("%d/%m/%Y"),
@@ -5482,122 +5484,16 @@ async def main() -> None:
                 hubo_meditacion=meditacion_activa_hoy,
                 top_puntuales=podio_puntuales,
             )
-            if ruta_img_podio and os.path.exists(ruta_img_podio):
-                enviar_foto_con_bot(ruta_img_podio, caption=f"🏆 **PODIO OFICIAL DE PUNTUALIDAD — LLAMADA {inicio_llamada.strftime('%d/%m/%Y')}** 🏆")
         except Exception as e:
-            print("Nota generando o enviando imagen del podio:", e)
+            print("Nota generando imagen del podio:", e)
 
-        # Reporte de asistencia y puntos omitido del grupo público (se conserva el envío privado e interno)
+        # Reporte de asistencia y puntos omitido del grupo público
         reporte_publico = "\n".join(lineas_pub)
 
-        # Enviar notificación privada personalizada a cada asistente de la comunidad (excluye administradores)
-        if BOT_TOKEN:
-            print("Enviando resúmenes individuales privados a asistentes...")
-            for p in asistentes_validos:
-                if p["id"] in admin_ids:
-                    continue
-                try:
-                    meds_p = p.get("nuevas_medallas", [])
-                    txt_nuevas_meds = f"\n🎖️ **¡Nueva medalla desbloqueada!** {', '.join(meds_p)}" if meds_p else ""
-                    reconex = p.get("reconexiones", 0)
-
-                    if reconex == 0:
-                        txt_calidad_senal = "🟢 **Excelente (100% estable, 0 caídas)**"
-                        txt_diagnostico_red = "\n\n📶 **Estabilidad de señal:** ¡Excelente! Tu conexión se mantuvo 100% fluida y sin interrupciones."
-                    elif reconex == 1:
-                        txt_calidad_senal = "🟡 **Buena (1 micro-corte breve)**"
-                        txt_diagnostico_red = "\n\n💡 **Nota de conexión:** Registraste 1 micro-corte breve. Te sugerimos poner Telegram en _'Sin restricciones'_ en Batería para evitar que la pantalla suspenda la llamada."
-                    else:
-                        txt_calidad_senal = f"⚠️ **Inestable ({reconex} micro-desconexiones)**"
-                        if hubo_caida_masiva_sala:
-                            txt_diagnostico_red = (
-                                f"\n\n📡 **Estabilidad de llamada:** Detectamos **{reconex} reconexiones** en tu sesión. "
-                                "Notamos fluctuaciones generales en los servidores de Telegram hoy, por lo que la interrupción pudo deberse a la plataforma."
-                            )
-                        else:
-                            txt_diagnostico_red = (
-                                f"\n\n⚠️ **AUDITORÍA DE TU CONEXIÓN:**\n"
-                                f"Registraste **{reconex} salidas de la sala** (mientras el resto de la comunidad se mantuvo estable).\n\n"
-                                f"💡 **Consejos prácticos para mejorar tu próxima reunión:**\n"
-                                f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (evita que el celular cierre la llamada al apagar la pantalla).\n"
-                                f"2. 📶 **Señal:** Procura no alternar entre Wi-Fi y datos móviles durante la reunión.\n"
-                                f"3. 🔁 **Llamadas Peer-to-peer:** En Telegram ve a _Ajustes > Privacidad y seguridad > Llamadas > Peer-to-peer_ y selecciona **'Nunca'**.\n"
-                                f"4. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_."
-                            )
-
-                    seg_hablo = p.get("segundos_hablando", 0.0)
-                    if p.get("hablo") or seg_hablo > 0:
-                        if seg_hablo >= 60:
-                            txt_uso_mic = f"🎙️ Participaste al micrófono: **{round(seg_hablo / 60.0, 1)} min**"
-                        else:
-                            txt_uso_mic = f"🎙️ Participaste al micrófono: **{max(1, round(seg_hablo))} seg**"
-                    else:
-                        txt_uso_mic = "🎧 Oyente en silencio (escucha activa y respetuosa)"
-
-                    txt_meditacion_ind = "• Meditación diaria: **🧘 Completada con éxito**\n" if p.get("meditacion_completada") else ""
-
-                    txt_privado_usuario = (
-                        f"👋 ¡Hola **{p['nombre']}**!\n\n"
-                        f"🎉 **Resumen de tu llamada de hoy:**\n"
-                        f"• Permanencia: **{p['minutos']} minutos** ({p['porcentaje']}% de la sesión)\n"
-                        f"• Estabilidad de conexión: {txt_calidad_senal}\n"
-                        f"• Participación de voz: {txt_uso_mic}\n"
-                        f"{txt_meditacion_ind}"
-                        f"• Puntos sumados hoy: **+{p['pts_hoy']} pts**\n"
-                        f"  _{p['desglose']}_\n"
-                        f"• Total acumulado: **{p['pts_mes']} pts este mes** (Histórico: {p['pts_totales']})\n"
-                        f"• Rango actual: **{p['rango']}**\n"
-                        f"• Racha diaria: **🔥 {p['racha']} días consecutivos**\n"
-                        f"{txt_nuevas_meds}"
-                        f"{txt_diagnostico_red}\n\n"
-                        f"✨ ¡Gracias por tu compromiso y asistencia! Nos vemos mañana a las 7:56 PM."
-                    )
-                    url_usr = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                    datos_usr = json.dumps({
-                        "chat_id": p["id"],
-                        "text": txt_privado_usuario,
-                        "parse_mode": "Markdown",
-                    }).encode()
-                    req_usr = urllib.request.Request(url_usr, data=datos_usr, headers={"Content-Type": "application/json"})
-                    with urllib.request.urlopen(req_usr, timeout=5) as r:
-                        pass
-                except Exception:
-                    pass
-
-            # Enviar reporte de conexión a usuarios de visitas fugaces (<10 min) que sufrieron caídas
-            for p in visitas_fugaces:
-                if p["id"] in admin_ids:
-                    continue
-                reconex = p.get("reconexiones", 0)
-                if reconex >= 1 or p["minutos"] >= 1:
-                    try:
-                        seg_hablo = p.get("segundos_hablando", 0.0)
-                        txt_mic_fugaz = f"• Micrófono: **{round(seg_hablo)} seg**\n" if seg_hablo > 0 else ""
-                        txt_visita_red = (
-                            f"👋 ¡Hola **{p['nombre']}**!\n\n"
-                            f"📡 **Auditoría de conexión de tu llamada de hoy:**\n"
-                            f"• Tiempo en sala: **{p['minutos']} minutos** ({p['porcentaje']}% de la sesión)\n"
-                            f"• Desconexiones registradas: **{reconex} salidas de la sala**\n"
-                            f"{txt_mic_fugaz}"
-                            f"• Tu conexión fue inestable y no alcanzaste los 10 minutos mínimos para sumar puntos hoy.\n\n"
-                            f"💡 **Consejos prácticos para mejorar tu próxima reunión:**\n"
-                            f"1. 🔋 **Batería (Principal causa):** En tu celular ve a _Ajustes > Aplicaciones > Telegram > Batería_ y selecciona **'Sin restricciones'** (evita que el celular cierre la llamada al apagar la pantalla).\n"
-                            f"2. 📶 **Señal:** Procura no alternar entre Wi-Fi y datos móviles durante la llamada.\n"
-                            f"3. 🔁 **Llamadas Peer-to-peer:** En Telegram ve a _Ajustes > Privacidad y seguridad > Llamadas > Peer-to-peer_ y selecciona **'Nunca'**.\n"
-                            f"4. 🧹 **Caché:** En Telegram ve a _Ajustes > Datos y almacenamiento > Uso de almacenamiento > Borrar caché_.\n\n"
-                            f"✨ ¡Te esperamos mañana a las 7:56 PM para compartir juntos!"
-                        )
-                        url_usr = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                        datos_usr = json.dumps({
-                            "chat_id": p["id"],
-                            "text": txt_visita_red,
-                            "parse_mode": "Markdown",
-                        }).encode()
-                        req_usr = urllib.request.Request(url_usr, data=datos_usr, headers={"Content-Type": "application/json"})
-                        with urllib.request.urlopen(req_usr, timeout=5) as r:
-                            pass
-                    except Exception:
-                        pass
+        # ── ENVÍOS A USUARIOS Y ADMINISTRADORES DESACTIVADOS ──
+        # Por directriz de administración, NO se envían resúmenes individuales,
+        # auditorías de conexión ni audios a usuarios normales ni a administradores.
+        # Todos los reportes, actas, podio y audios se entregan exclusivamente al Dueño.
 
         # Reporte Privado para el Dueño
         med_detalle = 'Sí' if meditacion_activa_hoy else 'No'
@@ -5801,17 +5697,35 @@ async def main() -> None:
         except Exception as e_me_disc:
             print("Nota obteniendo me al finalizar:", e_me_disc)
             me = None
+        destinatarios_dueno = []
         if me:
+            destinatarios_dueno.append(me.id)
+        admin_env = os.environ.get("ADMIN_ID") or os.environ.get("DUENO_ID")
+        if admin_env:
+            try:
+                aid_int = int(admin_env.strip())
+                if aid_int not in destinatarios_dueno:
+                    destinatarios_dueno.append(aid_int)
+            except Exception:
+                pass
+
+        for target_dueno in destinatarios_dueno:
             try:
                 for bloque in dividir_mensaje(reporte_privado):
-                    await client.send_message(me.id, bloque)
-                print("Reporte privado enviado a Mensajes Guardados del dueño.")
+                    await client.send_message(target_dueno, bloque)
+                print(f"Reporte privado enviado al dueño ({target_dueno}).")
             except Exception as e:
-                print("Error enviando reporte privado al dueño:", e)
+                print(f"Error enviando reporte privado al dueño ({target_dueno}):", e)
             try:
+                if ruta_img_podio and os.path.exists(ruta_img_podio):
+                    await client.send_file(
+                        target_dueno,
+                        ruta_img_podio,
+                        caption=f"🏆 **PODIO OFICIAL DE PUNTUALIDAD — LLAMADA {inicio_llamada.strftime('%d/%m/%Y')}** 🏆",
+                    )
                 if os.path.exists(ruta_csv):
                     await client.send_file(
-                        me.id,
+                        target_dueno,
                         ruta_csv,
                         caption=f"📊 Archivo de Asistencia y Puntos - {fecha_hoy}",
                     )
@@ -5820,41 +5734,52 @@ async def main() -> None:
                     if info_catalogo_hoy:
                         caption_acta += f"\n🧘 {info_catalogo_hoy['tipo']} #{info_catalogo_hoy['numero']}: «{info_catalogo_hoy['titulo']}» ({info_catalogo_hoy['maestro']})"
                     await client.send_file(
-                        me.id,
+                        target_dueno,
                         ruta_acta_pdf,
                         caption=caption_acta,
                     )
                 # Enviar transcripción completa en texto generada por IA
                 if os.path.exists(ruta_transcripcion_txt) and os.path.getsize(ruta_transcripcion_txt) > 0:
                     await client.send_file(
-                        me.id,
+                        target_dueno,
                         ruta_transcripcion_txt,
                         caption=f"📝 **Transcripción Oficial de la Reunión (Texto) - {fecha_hoy}**\nRegistro de intervenciones generado con IA.",
                     )
-                    print("Transcripción de texto enviada a Mensajes Guardados del dueño.")
+                    print(f"Transcripción de texto enviada al dueño ({target_dueno}).")
                 # Enviar grabación de audio de la sesión (excluyendo meditación) exclusivamente al dueño
                 if audio_para_ia and os.path.exists(audio_para_ia) and os.path.getsize(audio_para_ia) > 1000 and not grabacion_cancelada:
                     await client.send_file(
-                        me.id,
+                        target_dueno,
                         audio_para_ia,
                         caption=f"🎙️ **Grabación de Audio Oficial (MP3) - {fecha_hoy}**\nSesión comunitaria (sin meditación).",
                     )
-                    print("Grabación de audio MP3 enviada a Mensajes Guardados del dueño.")
+                    print(f"Grabación de audio MP3 enviada al dueño ({target_dueno}).")
                 elif not grabacion_cancelada:
                     msg_diag_audio = (
                         "🎙️ **Grabación de Audio:**\n"
                         "No se pudo generar el archivo MP3 de la sesión porque no se capturaron flujos de voz entrantes en el servidor."
                     )
-                    await client.send_message(me.id, msg_diag_audio)
+                    await client.send_message(target_dueno, msg_diag_audio)
+                # Enviar también el audio de la meditación oficial del día si estuvo disponible
+                if ruta_meditacion and os.path.exists(ruta_meditacion) and os.path.getsize(ruta_meditacion) > 1000:
+                    cap_med = f"🧘 **Audio de la Meditación del Día — {fecha_hoy}**"
+                    if info_catalogo_hoy:
+                        cap_med += f"\n«{info_catalogo_hoy.get('titulo', '')}» ({info_catalogo_hoy.get('maestro', '')})"
+                    await client.send_file(
+                        target_dueno,
+                        ruta_meditacion,
+                        caption=cap_med,
+                    )
+                    print(f"Audio de meditación enviado al dueño ({target_dueno}).")
                 if os.path.exists(RUTA_PUNTOS):
                     await client.send_file(
-                        me.id,
+                        target_dueno,
                         RUTA_PUNTOS,
                         caption=f"💾 Respaldo de puntos - {fecha_hoy}",
                     )
-                print("CSV, Acta PDF, transcripción, audio MP3 y respaldo de puntos enviados al dueño.")
+                print(f"Podio, CSV, Acta PDF, transcripción, grabaciones y respaldo de puntos enviados al dueño ({target_dueno}).")
             except Exception as e:
-                print("Error enviando archivos al dueño:", e)
+                print(f"Error enviando archivos al dueño ({target_dueno}):", e)
 
         # Limpiar temporales de grabación cruda (preservando el audio oficial final en ruta_grabacion_completa)
         for s in segmentos_grabados:
