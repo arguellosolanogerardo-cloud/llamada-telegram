@@ -629,23 +629,54 @@ def convertir_audio_a_pcm(ruta_audio: str) -> str:
     return ruta_audio
 
 
+# Parámetros PCM de la grabación de voces entrantes (mono 48 kHz s16le: suficiente para voz, ~5.7 MB/min en crudo)
+GRAB_SAMPLE_RATE = 48000
+GRAB_CANALES = 1
+
+
+def mezclar_pcm_s16le(chunks: list[bytes]) -> bytes:
+    """Mezcla varios bloques PCM s16le (uno por participante/SSRC) en un solo bloque con saturación."""
+    chunks = [c for c in chunks if c]
+    if not chunks:
+        return b""
+    if len(chunks) == 1:
+        return chunks[0]
+    n = min(len(c) for c in chunks)
+    n -= n % 2
+    try:
+        import audioop  # Disponible hasta Python 3.12 (runner de GitHub Actions)
+        out = chunks[0][:n]
+        for c in chunks[1:]:
+            out = audioop.add(out, c[:n], 2)
+        return out
+    except ImportError:
+        from array import array
+        acumulado = array("h", chunks[0][:n])
+        for c in chunks[1:]:
+            otro = array("h", c[:n])
+            for i in range(len(acumulado)):
+                v = acumulado[i] + otro[i]
+                acumulado[i] = 32767 if v > 32767 else (-32768 if v < -32768 else v)
+        return acumulado.tobytes()
+
+
 def asegurar_mp3_desde_raw(ruta_mp3: str) -> str:
-    """Si existe un archivo .raw generado por AudioFileWriter, lo convierte a .mp3 para almacenamiento y Gemini."""
+    """Si existe un archivo .raw (PCM capturado de los frames entrantes), lo convierte a .mp3 para almacenamiento y Gemini."""
     ruta_raw = ruta_mp3.rsplit(".", 1)[0] + ".raw"
     if os.path.exists(ruta_raw) and os.path.getsize(ruta_raw) > 5000:
         fbin = shutil.which("ffmpeg") or "ffmpeg"
         cmd = [
             fbin, "-y",
             "-f", "s16le",
-            "-ar", "48000",
-            "-ac", "2",
+            "-ar", str(GRAB_SAMPLE_RATE),
+            "-ac", str(GRAB_CANALES),
             "-i", ruta_raw,
             "-codec:a", "libmp3lame",
-            "-b:a", "128k",
+            "-b:a", "64k",
             ruta_mp3
         ]
         try:
-            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=900)
             if res.returncode == 0 and os.path.exists(ruta_mp3) and os.path.getsize(ruta_mp3) > 1000:
                 print(f"Grabación convertida exitosamente de RAW a MP3: {ruta_mp3}")
                 return ruta_mp3
@@ -1912,6 +1943,39 @@ async def main() -> None:
         segmentos_grabados = [ruta_grabacion_pre]
         contador_segmentos = 0
 
+        # ── Grabador por frames entrantes (Direction.INCOMING / Device.MICROPHONE) ──
+        # RecordStream(ruta) delegaba en un ffmpeg vía shell que en el runner terminaba con archivos vacíos.
+        # Ahora PyTgCalls entrega los frames PCM por SSRC y los mezclamos/escribimos nosotros en un .raw.
+        grabador = {"fh": None, "ruta_mp3": None, "frames": 0, "bytes": 0, "ultimo_log": 0.0, "suscrito": False}
+
+        def cerrar_segmento_grabacion():
+            fh = grabador.get("fh")
+            if fh:
+                try:
+                    fh.flush()
+                    fh.close()
+                except Exception as e_close:
+                    print("Nota cerrando segmento de grabación:", e_close)
+            grabador["fh"] = None
+            grabador["ruta_mp3"] = None
+
+        def abrir_segmento_grabacion(ruta_mp3: str):
+            if grabador.get("ruta_mp3") == ruta_mp3 and grabador.get("fh"):
+                return  # Ya se está grabando en este segmento (evita reabrir/sobrescribir)
+            cerrar_segmento_grabacion()
+            os.makedirs(os.path.dirname(os.path.abspath(ruta_mp3)), exist_ok=True)
+            ruta_raw = ruta_mp3.rsplit(".", 1)[0] + ".raw"
+            grabador["fh"] = open(ruta_raw, "ab")
+            grabador["ruta_mp3"] = ruta_mp3
+
+        async def iniciar_segmento_grabacion(ruta_mp3: str):
+            """Abre el .raw del segmento y asegura que PyTgCalls entregue frames entrantes (RecordStream EXTERNAL)."""
+            abrir_segmento_grabacion(ruta_mp3)
+            if tgcalls:
+                from pytgcalls.types import RecordStream
+                from pytgcalls.types.raw import AudioParameters as _AP
+                await tgcalls.record(destino, RecordStream(True, _AP(GRAB_SAMPLE_RATE, GRAB_CANALES)))
+
         async def pausar_grabacion():
             nonlocal grabacion_pausada
             if grabacion_cancelada:
@@ -1919,11 +1983,7 @@ async def main() -> None:
             if grabacion_pausada:
                 return False, "ℹ️ La grabación ya se encuentra pausada."
             grabacion_pausada = True
-            if tgcalls:
-                try:
-                    await tgcalls.pause(destino)
-                except Exception:
-                    pass
+            cerrar_segmento_grabacion()
             print("Grabación pausada manualmente por un administrador.")
             return True, "⏸️ **Grabación de audio pausada por administración.**\nLos temas compartidos durante esta pausa no quedarán registrados en el audio ni en la minuta."
 
@@ -1937,13 +1997,10 @@ async def main() -> None:
             contador_segmentos += 1
             nueva_ruta = os.path.join(CARPETA_ASISTENCIAS, f"grabacion_seg_{contador_segmentos}_{fecha_hoy}.mp3")
             segmentos_grabados.append(nueva_ruta)
-            if tgcalls:
-                try:
-                    from pytgcalls.types import RecordStream
-                    os.makedirs(os.path.dirname(os.path.abspath(nueva_ruta)), exist_ok=True)
-                    await tgcalls.record(destino, RecordStream(nueva_ruta))
-                except Exception as e:
-                    print("Nota reanudando grabación:", e)
+            try:
+                await iniciar_segmento_grabacion(nueva_ruta)
+            except Exception as e:
+                print("Nota reanudando grabación:", e)
             print("Grabación reanudada manualmente por un administrador.")
             return True, "▶️ **Grabación de audio reanudada por administración.**\nSe continúa documentando la sesión con normalidad."
 
@@ -1952,6 +2009,7 @@ async def main() -> None:
             grabacion_cancelada = True
             grabacion_activa = False
             grabacion_pausada = False
+            cerrar_segmento_grabacion()
             for s in segmentos_grabados:
                 try:
                     if os.path.exists(s):
@@ -2001,11 +2059,35 @@ async def main() -> None:
                     print("Nota registrando input_call en PyTgCalls:", e_c)
 
                 # Iniciar grabación de audio pre-meditación
+                try:
+                    from pytgcalls import filters as pt_filters
+                    from pytgcalls.types import Direction, Device
+
+                    @tgcalls.on_update(pt_filters.stream_frame(Direction.INCOMING, Device.MICROPHONE))
+                    async def _on_frames_entrantes(_, update):
+                        fh = grabador.get("fh")
+                        if not fh or grabacion_pausada or grabacion_cancelada:
+                            return
+                        try:
+                            bloque = mezclar_pcm_s16le([fr.frame for fr in update.frames])
+                            if bloque:
+                                fh.write(bloque)
+                                grabador["frames"] += 1
+                                grabador["bytes"] += len(bloque)
+                            ahora_g = time.time()
+                            if ahora_g - grabador["ultimo_log"] > 300:
+                                grabador["ultimo_log"] = ahora_g
+                                print(f"🎙️ Grabación activa: {grabador['frames']} bloques, {grabador['bytes'] // 1024} KB capturados.")
+                        except Exception as e_fr:
+                            print("Nota escribiendo frames de grabación:", e_fr)
+
+                    grabador["suscrito"] = True
+                except Exception as e_sub:
+                    print(f"⚠️ No se pudo suscribir el handler de frames de grabación: {e_sub}")
+
                 if not grabacion_cancelada:
                     try:
-                        from pytgcalls.types import RecordStream
-                        os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_pre)), exist_ok=True)
-                        await tgcalls.record(destino, RecordStream(ruta_grabacion_pre))
+                        await iniciar_segmento_grabacion(ruta_grabacion_pre)
                         grabacion_activa = True
                         print(f"🎙️ Grabación PRE-meditación iniciada correctamente con PyTgCalls -> {ruta_grabacion_pre}")
                     except Exception as e_rec:
@@ -2398,9 +2480,7 @@ async def main() -> None:
                             if ruta_grabacion_post not in segmentos_grabados:
                                 segmentos_grabados.append(ruta_grabacion_post)
                             try:
-                                from pytgcalls.types import RecordStream
-                                os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_post)), exist_ok=True)
-                                await tgcalls.record(destino, RecordStream(ruta_grabacion_post))
+                                await iniciar_segmento_grabacion(ruta_grabacion_post)
                             except Exception as e_rec:
                                 print("Nota reanudando grabación durante espera de 30m:", e_rec)
                         avisar_con_bot(
@@ -2433,9 +2513,7 @@ async def main() -> None:
                         if ruta_grabacion_post not in segmentos_grabados:
                             segmentos_grabados.append(ruta_grabacion_post)
                         try:
-                            from pytgcalls.types import RecordStream
-                            os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_post)), exist_ok=True)
-                            await tgcalls.record(destino, RecordStream(ruta_grabacion_post))
+                            await iniciar_segmento_grabacion(ruta_grabacion_post)
                             print(f"🎙️ Grabación post-meditación iniciada vía watchdog -> {ruta_grabacion_post}")
                         except Exception as e_rec:
                             print("Nota reanudando grabación vía watchdog:", e_rec)
@@ -3411,9 +3489,7 @@ async def main() -> None:
                                     if ruta_grabacion_post not in segmentos_grabados:
                                         segmentos_grabados.append(ruta_grabacion_post)
                                     try:
-                                        from pytgcalls.types import RecordStream
-                                        os.makedirs(os.path.dirname(os.path.abspath(ruta_grabacion_post)), exist_ok=True)
-                                        await tgcalls.record(destino, RecordStream(ruta_grabacion_post))
+                                        await iniciar_segmento_grabacion(ruta_grabacion_post)
                                         print(f"🎙️ Grabación post-meditación (preguntas y testimonios) iniciada exitosamente -> {ruta_grabacion_post}")
                                     except Exception as e:
                                         print("Nota reanudando grabación tras meditación:", e)
@@ -4691,15 +4767,9 @@ async def main() -> None:
                 oracion_activa_hoy = True
 
                 # Pausar grabación para omitir los 3 min de oración
-                if tgcalls and not grabacion_pausada and not grabacion_cancelada:
+                if not grabacion_pausada and not grabacion_cancelada:
                     try:
-                        for m in ("pause_record", "stop_record", "pause"):
-                            if hasattr(tgcalls, m):
-                                fn = getattr(tgcalls, m)
-                                res = fn(destino)
-                                if asyncio.iscoroutine(res):
-                                    await res
-                                break
+                        cerrar_segmento_grabacion()
                         print("Grabación pausada para respetar el momento de oración y silencio sagrado.")
                     except Exception as e:
                         print("Nota pausando grabación en oración:", e)
@@ -5565,9 +5635,13 @@ async def main() -> None:
 
         # Unir grabaciones de voz si existen y no fueron canceladas (excluyendo meditación)
         audio_para_ia = None
+        cerrar_segmento_grabacion()
+        print(f"🎙️ Resumen grabación: {grabador['frames']} bloques entrantes, {grabador['bytes'] // 1024} KB PCM (handler suscrito: {grabador['suscrito']}).")
         if not grabacion_cancelada:
             for s in segmentos_grabados:
                 asegurar_mp3_desde_raw(s)
+                s_raw_diag = s.rsplit(".", 1)[0] + ".raw"
+                print(f"   Segmento {os.path.basename(s)}: raw={os.path.getsize(s_raw_diag) if os.path.exists(s_raw_diag) else 0} B, mp3={os.path.getsize(s) if os.path.exists(s) else 0} B")
             valid_segments = [s for s in segmentos_grabados if os.path.exists(s) and os.path.getsize(s) > 1000]
             if len(valid_segments) == 1:
                 try:
@@ -5757,7 +5831,8 @@ async def main() -> None:
                 elif not grabacion_cancelada:
                     msg_diag_audio = (
                         "🎙️ **Grabación de Audio:**\n"
-                        "No se pudo generar el archivo MP3 de la sesión porque no se capturaron flujos de voz entrantes en el servidor."
+                        "No se pudo generar el archivo MP3 de la sesión porque no se capturaron flujos de voz entrantes en el servidor.\n"
+                        f"🔍 Diagnóstico: {grabador['frames']} bloques recibidos ({grabador['bytes'] // 1024} KB)."
                     )
                     await client.send_message(target_dueno, msg_diag_audio)
                 # Enviar también el audio de la meditación oficial del día si estuvo disponible
