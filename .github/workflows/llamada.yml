@@ -1,76 +1,89 @@
-name: Llamada diaria Telegram
-
-on:
-  workflow_dispatch:
-    inputs:
-      grupo:
-        description: 'ID numérico o @username del grupo (deja vacío para usar grupo oficial)'
-        required: false
-        default: ''
-        type: string
-      titulo:
-        description: 'Título de la sala de voz'
-        required: false
-        default: 'VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.'
-        type: string
-
-concurrency:
-  group: llamada-telegram
-  cancel-in-progress: true
-
-jobs:
-  abrir-llamada:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install telethon py-tgcalls pillow reportlab edge-tts
-      - name: Preparar dependencias de audio y enlaces para PyTgCalls
-        run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-freefont-ttf fontconfig
-          rm -f ./ffmpeg ./ffprobe
-          ln -sf $(which ffmpeg) ./ffmpeg
-          ln -sf $(which ffprobe) ./ffprobe
-          echo "FFmpeg instalado y enlazado: $(which ffmpeg) -> ./ffmpeg"
-      - run: python -u llamada.py
-        env:
-          TG_API_ID: ${{ secrets.TG_API_ID }}
-          TG_API_HASH: ${{ secrets.TG_API_HASH }}
-          TG_SESSION: ${{ secrets.TG_SESSION }}
-          TG_GROUP: ${{ inputs.grupo != '' && inputs.grupo || secrets.TG_GROUP }}
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ inputs.grupo != '' && inputs.grupo || secrets.CHAT_ID }}
-          CALL_TITLE: ${{ inputs.titulo != '' && inputs.titulo || 'VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.' }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          AVISO: |
-            📞 ¡Empieza la llamada diaria!
-            🕗 7:56 pm Colombia | {CA} San José, California
-
-            Antes de entrar:
-            🔋 Celular con buena carga.
-            📶 Buena señal (Wi-Fi o datos) y sin cambiar de red durante la llamada.
-            ⚙️ Android: pon Telegram en "Sin restricciones" en Batería y fíjalo en recientes (candado).
-            🔁 Si se cae seguido: Ajustes > Privacidad y seguridad > Llamadas > Peer-to-peer > "Nunca".
-            🔄 Mantén Telegram actualizado.
-            💻 PC: desactiva el ahorro de energía de la tarjeta de red.
-
-            Cada uno es responsable de su conexión y su dispositivo: las caídas casi siempre vienen del lado local, no de Telegram.
-
-      - name: Guardar registro histórico de puntos y asistencias
-        if: always()
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/
-          if ! git diff --staged --quiet; then
-            git commit -m "chore: actualizar registro de asistencias y puntos [skip ci]"
-            for i in 1 2 3 4 5; do
-              git pull --rebase -X theirs origin main && git push && break
-              echo "Reintentando push ($i)..."
-              sleep 3
-            done
-          fi
+name: Llamada diaria Telegram
+
+on:
+  workflow_dispatch:
+    inputs:
+      grupo:
+        description: 'ID numérico o @username del grupo (deja vacío para usar grupo oficial)'
+        required: false
+        default: ''
+        type: string
+      titulo:
+        description: 'Título de la sala de voz'
+        required: false
+        default: 'VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.'
+        type: string
+
+concurrency:
+  group: llamada-telegram
+  cancel-in-progress: true
+
+jobs:
+  abrir-llamada:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install telethon py-tgcalls pillow reportlab edge-tts
+      - name: Preparar dependencias de audio y enlaces para PyTgCalls
+        run: |
+          if ! which ffmpeg >/dev/null 2>&1 || ! which ffprobe >/dev/null 2>&1; then
+            echo "Descargando FFmpeg estático desde GitHub Releases CDN..."
+            mkdir -p /tmp/ff_pkg
+            curl -sL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz | tar -xJ -C /tmp/ff_pkg || true
+            FF_SRC=$(find /tmp/ff_pkg -name ffmpeg -type f | head -n 1)
+            if [ -n "$FF_SRC" ]; then
+              FF_DIR=$(dirname "$FF_SRC")
+              sudo cp "$FF_DIR/ffmpeg" "$FF_DIR/ffprobe" /usr/local/bin/
+              sudo chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+            else
+              echo "Fallback: apt-get minimal..."
+              sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+            fi
+          fi
+          rm -f ./ffmpeg ./ffprobe
+          ln -sf $(which ffmpeg) ./ffmpeg
+          ln -sf $(which ffprobe) ./ffprobe
+          echo "FFmpeg instalado y enlazado: $(which ffmpeg) -> ./ffmpeg"
+      - run: python -u llamada.py
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          TG_GROUP: ${{ inputs.grupo != '' && inputs.grupo || secrets.TG_GROUP }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ inputs.grupo != '' && inputs.grupo || secrets.CHAT_ID }}
+          CALL_TITLE: ${{ inputs.titulo != '' && inputs.titulo || 'VIDEOLLAMADA GRUPO LA VERDAD OS HARA LIBRES.' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AVISO: |
+            📞 ¡Empieza la llamada diaria!
+            🕗 7:56 pm Colombia | {CA} San José, California
+
+            Antes de entrar:
+            🔋 Celular con buena carga.
+            📶 Buena señal (Wi-Fi o datos) y sin cambiar de red durante la llamada.
+            ⚙️ Android: pon Telegram en "Sin restricciones" en Batería y fíjalo en recientes (candado).
+            🔁 Si se cae seguido: Ajustes > Privacidad y seguridad > Llamadas > Peer-to-peer > "Nunca".
+            🔄 Mantén Telegram actualizado.
+            💻 PC: desactiva el ahorro de energía de la tarjeta de red.
+
+            Cada uno es responsable de su conexión y su dispositivo: las caídas casi siempre vienen del lado local, no de Telegram.
+
+      - name: Guardar registro histórico de puntos y asistencias
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: actualizar registro de asistencias y puntos [skip ci]"
+            for i in 1 2 3 4 5; do
+              git pull --rebase -X theirs origin main && git push && break
+              echo "Reintentando push ($i)..."
+              sleep 3
+            done
+          fi
