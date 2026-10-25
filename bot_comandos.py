@@ -426,27 +426,27 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     except Exception:
         pass
 
-    # Intento 1: Audio nativo directo multi-cliente con chunks rápidos
+    # Intento 1: Audio nativo directo VisionOS (sin cookies para evitar bloqueos SABR/datacenter)
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
         "--geo-bypass",
         "--http-chunk-size", "10M",
         "-N", "4",
-        "--extractor-args", "youtube:player_client=visionos,android",
-        "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
+        "--extractor-args", "youtube:player_client=visionos",
+        "-f", "ba[ext=m4a]/ba[ext=webm]/ba/best",
         "--no-playlist",
         "--no-check-certificates",
         "--socket-timeout", "35",
         "--retries", "3",
-    ] + cookie_args + plugin_args + [
+    ] + plugin_args + [
         "--output", raw_out_tmpl,
         url_yt
     ]
 
     exito_yt = False
     try:
-        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: Android native stream)...")
+        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: VisionOS native stream)...")
         r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=240)
         matches1 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
         if any(os.path.getsize(m) > 1000 for m in matches1):
@@ -457,14 +457,16 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     except Exception as e1:
         log_debug(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Fallback Android + Android VR (formatos ba/18)
+    # Intento 2: Multi-cliente visionos,android con cookies
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
+            "--geo-bypass",
             "--http-chunk-size", "10M",
-            "--extractor-args", "youtube:player_client=android,android_vr",
-            "-f", "ba[language^=es]/ba/18/b/best",
+            "-N", "4",
+            "--extractor-args", "youtube:player_client=visionos,android",
+            "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
             "--socket-timeout", "35",
