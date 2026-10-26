@@ -552,7 +552,7 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
                 "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a0];"
                 "[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];"
                 "[2:a]aformat=sample_rates=48000:channel_layouts=stereo[a2];"
-                "[a0][a1][a2]concat=n=3:v=0:a=1[out]"
+                "[a0][a1][a2]concat=n=3:v=0:a=1,dynaudnorm=f=150:g=15:m=10.0:p=0.95[out]"
             )
             cmd = [
                 fbin, "-y",
@@ -561,7 +561,7 @@ def agregar_gongs_al_audio(ruta_audio: str) -> str:
                 "-i", s_salida,
                 "-filter_complex", filter_str,
                 "-map", "[out]",
-                "-c:a", "libmp3lame", "-b:a", "192k",
+                "-c:a", "libmp3lame", "-b:a", "320k",
                 ruta_con_gong_tmp,
             ]
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
@@ -2565,18 +2565,19 @@ async def main() -> None:
                 except Exception as e_car_seek:
                     print("Nota actualizando carátula en salto:", e_car_seek)
 
-                from pytgcalls.types import MediaStream, VideoQuality, AudioQuality
+                from pytgcalls.types import MediaStream, AudioQuality
+                from pytgcalls.types.raw import VideoParameters
                 if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
                     stream_seek = MediaStream(
                         ruta_caratula_actual,
                         audio_path=ruta_seek,
-                        video_parameters=VideoQuality.HD_720p,
-                        audio_parameters=AudioQuality.HIGH,
+                        video_parameters=VideoParameters(width=1280, height=720, frame_rate=15),
+                        audio_parameters=AudioQuality.STUDIO,
                     )
                 else:
                     stream_seek = MediaStream(
                         ruta_seek,
-                        audio_parameters=AudioQuality.HIGH,
+                        audio_parameters=AudioQuality.STUDIO,
                     )
 
                 eq_estado["cambiando"] = True
@@ -2916,18 +2917,19 @@ async def main() -> None:
 
                 # 7. Iniciar emisión con pantalla de video HD y audio de alta fidelidad (sin -re incompatible)
                 try:
-                    from pytgcalls.types import MediaStream, VideoQuality, AudioQuality
+                    from pytgcalls.types import MediaStream, AudioQuality
+                    from pytgcalls.types.raw import VideoParameters
                     if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
                         stream_play = MediaStream(
                             ruta_caratula_actual,
                             audio_path=ruta_a_reproducir,
-                            video_parameters=VideoQuality.HD_720p,
-                            audio_parameters=AudioQuality.HIGH,
+                            video_parameters=VideoParameters(width=1280, height=720, frame_rate=15),
+                            audio_parameters=AudioQuality.STUDIO,
                         )
                     else:
                         stream_play = MediaStream(
                             ruta_a_reproducir,
-                            audio_parameters=AudioQuality.HIGH,
+                            audio_parameters=AudioQuality.STUDIO,
                         )
                     
                     with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write("Iniciando tgcalls.play con stream_play (video+audio)...\n")
@@ -2939,7 +2941,7 @@ async def main() -> None:
                     print("Nota reproduciendo video en pantalla, usando fallback de audio:", e_ms)
                     try:
                         from pytgcalls.types import MediaStream, AudioQuality
-                        stream_fb = MediaStream(ruta_a_reproducir, audio_parameters=AudioQuality.HIGH)
+                        stream_fb = MediaStream(ruta_a_reproducir, audio_parameters=AudioQuality.STUDIO)
                         await tgcalls.play(destino, stream_fb)
                     except Exception:
                         await tgcalls.play(destino, ruta_a_reproducir)
@@ -3319,7 +3321,7 @@ async def main() -> None:
                     )
                 else:
                     from pytgcalls.types import MediaStream, AudioQuality
-                    stream_play = MediaStream(ruta_tts, audio_parameters=AudioQuality.HIGH)
+                    stream_play = MediaStream(ruta_tts, audio_parameters=AudioQuality.STUDIO)
 
                 # 4. Desmutear robot en Telegram (servidor)
                 try:
@@ -3381,7 +3383,7 @@ async def main() -> None:
                     )
                 else:
                     from pytgcalls.types import MediaStream, AudioQuality
-                    stream_play = MediaStream(ruta_audio, audio_parameters=AudioQuality.HIGH)
+                    stream_play = MediaStream(ruta_audio, audio_parameters=AudioQuality.STUDIO)
 
                 try:
                     await client(EditGroupCallParticipantRequest(call=input_call, participant=InputPeerSelf(), muted=False))
