@@ -229,6 +229,7 @@ GITHUB_TOKEN = (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or 
 
 RUTA_PUNTOS = os.path.join("data", "puntos.json")
 RUTA_AUDIOS_REGISTRADOS = os.path.join("data", "meditaciones", "audios_registrados.json")
+URL_RAW_AUDIOS_REGISTRADOS = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/meditaciones/audios_registrados.json"
 RUTA_MSGS_BOT = os.path.join("data", "mensajes_bot_grupo.json")
 RUTA_USUARIOS_SIN_PRIVADO = os.path.join("data", "usuarios_sin_privado.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
@@ -287,13 +288,29 @@ def log_debug(msg: str) -> None:
 
 
 def cargar_audios_registrados() -> dict:
+    locales = {}
     if os.path.exists(RUTA_AUDIOS_REGISTRADOS):
         try:
             with open(RUTA_AUDIOS_REGISTRADOS, "r", encoding="utf-8") as f:
-                return json.load(f)
+                d = json.load(f)
+                if isinstance(d, dict):
+                    locales = d
         except Exception:
             pass
-    return {}
+    if not locales:
+        try:
+            url_raw = f"{URL_RAW_AUDIOS_REGISTRADOS}?t={int(time.time() // 60)}"
+            req = urllib.request.Request(url_raw, headers={"User-Agent": "BotLlamadasTelegram"})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                d = json.loads(resp.read().decode("utf-8"))
+                if isinstance(d, dict):
+                    locales = d
+                    os.makedirs(os.path.dirname(RUTA_AUDIOS_REGISTRADOS), exist_ok=True)
+                    with open(RUTA_AUDIOS_REGISTRADOS, "w", encoding="utf-8") as fw:
+                        json.dump(locales, fw, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    return locales
 
 
 def _obtener_ffmpeg_bin() -> str | None:
@@ -633,8 +650,53 @@ def guardar_audio_registrado(info_cat: dict, file_id: str = None, msg_id: int | 
                 db[k] = registro
         with open(RUTA_AUDIOS_REGISTRADOS, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
+        threading.Thread(target=sincronizar_github_audios_registrados, args=(db,), daemon=True).start()
     except Exception as e:
         print("Nota guardando audio registrado:", e)
+
+
+def sincronizar_github_audios_registrados(db: dict) -> None:
+    """Sincroniza el catálogo de audios registrados y sus file_id con GitHub si hay token configurado."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token or not db:
+        return
+    repo = "arguellosolanogerardo-cloud/llamada-telegram"
+    url = f"https://api.github.com/repos/{repo}/contents/data/meditaciones/audios_registrados.json"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "BotLlamadasTelegram"
+    }
+    try:
+        sha = None
+        try:
+            req_get = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req_get, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                sha = data.get("sha")
+        except Exception:
+            pass
+
+        import base64
+        contenido_str = json.dumps(db, ensure_ascii=False, indent=2)
+        contenido_b64 = base64.b64encode(contenido_str.encode("utf-8")).decode("utf-8")
+        payload = {
+            "message": "chore(audio): sincronizar catalogo audios_registrados.json [skip ci]",
+            "content": contenido_b64,
+        }
+        if sha:
+            payload["sha"] = sha
+        req_put = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", **headers},
+            method="PUT"
+        )
+        with urllib.request.urlopen(req_put, timeout=10) as resp:
+            if resp.status in (200, 201):
+                log_debug("📡 Catálogo de audios y file_id sincronizado automáticamente con GitHub repo.")
+    except Exception as e:
+        log_debug(f"Nota sincronizando audios_registrados con GitHub: {e}")
 
 
 def cargar_msgs_bot() -> list:
