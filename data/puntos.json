@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "actualizado": "2026-10-25",
+  "actualizado": "2026-10-26",
   "usuarios": {
     "6207989093": {
       "id": 6207989093,
@@ -1227,20 +1227,20 @@
       "id": 5144587486,
       "nombre": "ALÝ Zolárez",
       "username": "",
-      "puntos_mes": 470,
-      "puntos_totales": 470,
+      "puntos_mes": 535,
+      "puntos_totales": 535,
       "racha_actual": 1,
       "mejor_racha": 2,
-      "racha_podio": 1,
-      "racha_voz": 5,
-      "asistencias_mes": 5,
-      "asistencias_totales": 5,
-      "minutos_mes": 322,
-      "minutos_totales": 322,
-      "meditaciones_mes": 4,
-      "meditaciones_totales": 4,
+      "racha_podio": 2,
+      "racha_voz": 6,
+      "asistencias_mes": 6,
+      "asistencias_totales": 6,
+      "minutos_mes": 338,
+      "minutos_totales": 338,
+      "meditaciones_mes": 5,
+      "meditaciones_totales": 5,
       "medallas": [],
-      "ultima_fecha": "2026-10-23"
+      "ultima_fecha": "2026-10-26"
     },
     "8650059233": {
       "id": 8650059233,
@@ -1431,23 +1431,23 @@
       "id": 5296898828,
       "nombre": "Maria Pulido",
       "username": "",
-      "puntos_mes": 1435,
-      "puntos_totales": 1435,
-      "racha_actual": 1,
+      "puntos_mes": 1570,
+      "puntos_totales": 1570,
+      "racha_actual": 2,
       "mejor_racha": 8,
-      "racha_podio": 0,
-      "racha_voz": 13,
-      "asistencias_mes": 13,
-      "asistencias_totales": 13,
-      "minutos_mes": 1136,
-      "minutos_totales": 1136,
-      "meditaciones_mes": 11,
-      "meditaciones_totales": 11,
+      "racha_podio": 1,
+      "racha_voz": 14,
+      "asistencias_mes": 14,
+      "asistencias_totales": 14,
+      "minutos_mes": 1165,
+      "minutos_totales": 1165,
+      "meditaciones_mes": 12,
+      "meditaciones_totales": 12,
       "medallas": [
-        "🎙️ Voz de la Comunidad",
-        "🧘 Mente Serena"
+        "🧘 Mente Serena",
+        "🎙️ Voz de la Comunidad"
       ],
-      "ultima_fecha": "2026-10-25"
+      "ultima_fecha": "2026-10-26"
     },
     "8649198826": {
       "id": 8649198826,
@@ -1629,5 +1629,5 @@
     }
   },
   "mes_actual": "2026-10",
-  "total_llamadas_mes": 42
+  "total_llamadas_mes": 43
 }

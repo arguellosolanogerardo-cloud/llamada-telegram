@@ -1621,5 +1621,31 @@
       "es_adicional": false,
       "es_mario": false
     }
+  },
+  "2026-10-26": {
+    "fecha": "2026-10-26",
+    "duracion_minutos": 29,
+    "asistentes_count": 4,
+    "oradores": [
+      "GERARDO Argüello 3",
+      "Maria Pulido",
+      "Father Gerardo Perez",
+      "ALÝ Zolárez"
+    ],
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-26** con una duración de **29 minutos** y un total de **4 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Maria Pulido:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **ALÝ Zolárez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "ruta_pdf": "data/actas/acta_2026-10-26.pdf",
+    "info_catalogo": {
+      "numero": 30,
+      "tipo": "MEDITACION",
+      "titulo": "El principio del pensamiento, como mente y creación",
+      "fecha": "12/11/04",
+      "maestro": "Alaniso",
+      "detectado_como": "MEDITACION",
+      "fecha_tarea_admin": "26/10/2026",
+      "fecha_iso": "2026-10-26",
+      "es_oficial_3am": true,
+      "es_adicional": false,
+      "es_mario": false
+    }
   }
 }
