@@ -28,6 +28,13 @@ import time
 import argparse
 import subprocess
 
+# Fijar siempre el directorio de trabajo a la raíz del repositorio
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+try:
+    os.chdir(BASE_DIR)
+except Exception as e_cd:
+    print(f"Nota fijando directorio de trabajo: {e_cd}")
+
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
