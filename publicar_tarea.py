@@ -542,87 +542,29 @@ def generar_tarjeta_audio(ruta_hd: str, ruta_thumb: str, info_audio: dict) -> tu
         os.makedirs(os.path.dirname(os.path.abspath(ruta_hd)), exist_ok=True)
         img.save(ruta_hd, "PNG", optimize=True)
 
-        # Generar thumbnail cuadrado 1:1 (320x320)
+        # Generar thumbnail cuadrado 1:1 (320x320) con fondo verde neón y halo violeta
+        # para el reproductor circular de Telegram (detrás de la flecha blanca de play)
         os.makedirs(os.path.dirname(os.path.abspath(ruta_thumb)), exist_ok=True)
-        img_sq = Image.new("RGB", (640, 640), color=(6, 24, 17))
+        img_sq = Image.new("RGB", (320, 320))
         draw_sq = ImageDraw.Draw(img_sq)
-        for y in range(640):
-            ratio = y / 640
-            r = int(5 + (12 - 5) * ratio)
-            g = int(28 + (54 - 28) * (1 - abs(ratio - 0.5) * 1.7))
-            b = int(20 + (36 - 20) * ratio)
-            draw_sq.line([(0, y), (640, y)], fill=(r, g, b))
+        cx, cy = 160, 160
+        # Degradado radial verde neón luminoso
+        for r in range(160, -1, -1):
+            factor = r / 160.0
+            red = int(40 * (1 - factor) + 0 * factor)
+            green = int(255 * (1 - factor) + 180 * factor)
+            blue = int(160 * (1 - factor) + 85 * factor)
+            draw_sq.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(red, green, blue))
 
-        overlay_sq = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
-        draw_ov_sq = ImageDraw.Draw(overlay_sq)
-        for rad in range(240, 0, -10):
-            alpha = int(18 * (1 - rad / 240))
-            draw_ov_sq.ellipse([320 - rad, 320 - rad, 320 + rad, 320 + rad], fill=(0, 255, 160, alpha))
-        img_sq.paste(Image.alpha_composite(img_sq.convert("RGBA"), overlay_sq).convert("RGB"))
-        draw_sq = ImageDraw.Draw(img_sq)
+        # Halo perimetral violeta neón a juego con el marco de la tarjeta visual
+        for bw in range(14, 0, -1):
+            alpha_v = 1.0 - (bw / 14.0)
+            r_c = int(195 * alpha_v)
+            g_c = int(55 * alpha_v)
+            b_c = int(255 * alpha_v)
+            draw_sq.ellipse([bw, bw, 320 - bw, 320 - bw], outline=(r_c, g_c, b_c))
 
-        for bw in range(16, 0, -2):
-            draw_sq.rounded_rectangle([18 - bw, 18 - bw, 640 - 18 + bw, 640 - 18 + bw], radius=26, outline=(150, 25, 235), width=1)
-        draw_sq.rounded_rectangle([17, 17, 640 - 17, 640 - 17], radius=25, outline=(195, 55, 255), width=2)
-        draw_sq.rounded_rectangle([19, 19, 640 - 19, 640 - 19], radius=23, outline=(225, 110, 255), width=3)
-        draw_sq.rounded_rectangle([21, 21, 640 - 21, 640 - 21], radius=21, outline=(255, 235, 255), width=1)
-        draw_sq.rounded_rectangle([28, 28, 640 - 28, 640 - 28], radius=15, outline=(130, 20, 210), width=1)
-
-        f_sq_h = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 32)
-        f_sq_b = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 19)
-        f_sq_t = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 28)
-        f_sq_l = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 21)
-        f_sq_v = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 24)
-        f_sq_f = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 18)
-
-        draw_sq.rounded_rectangle([45, 45, 410, 102], radius=16, fill=(12, 48, 35), outline=(0, 255, 170), width=2)
-        px_s, py_s = 66, 64
-        draw_sq.polygon([(px_s, py_s), (px_s + 14, py_s + 9), (px_s, py_s + 18)], fill=(0, 255, 190))
-        draw_sq.text((94, 58), txt_header, font=f_sq_h, fill=(0, 255, 190))
-
-        draw_sq.rounded_rectangle([640 - 200, 50, 640 - 45, 98], radius=14, fill=(35, 15, 60), outline=(200, 70, 255), width=1)
-        draw_sq.text((640 - 185, 62), "AUDIO OFICIAL", font=f_sq_b, fill=(235, 185, 255))
-        draw_sq.line([(45, 118), (640 - 45, 118)], fill=(180, 50, 255), width=2)
-
-        draw_sq.ellipse([45, 142, 55, 152], fill=(0, 255, 180))
-        draw_sq.text((64, 134), "Título de la práctica:", font=f_sq_l, fill=(160, 255, 210))
-
-        lineas_sq = []
-        cur_sq = []
-        for p in palabras:
-            prueba = " ".join(cur_sq + [p])
-            bbox = draw_sq.textbbox((0, 0), prueba, font=f_sq_t)
-            if (bbox[2] - bbox[0]) <= (640 - 100):
-                cur_sq.append(p)
-            else:
-                lineas_sq.append(" ".join(cur_sq))
-                cur_sq = [p]
-        if cur_sq:
-            lineas_sq.append(" ".join(cur_sq))
-
-        y_ts = 175
-        for lin in lineas_sq:
-            draw_sq.text((62, y_ts + 1), lin, font=f_sq_t, fill=(5, 20, 15))
-            draw_sq.text((60, y_ts), lin, font=f_sq_t, fill=(255, 255, 255))
-            y_ts += 38
-
-        y_ms = max(y_ts + 20, 345)
-        draw_sq.rounded_rectangle([45, y_ms, 640 - 45, y_ms + 72], radius=14, fill=(10, 40, 30), outline=(0, 200, 140), width=1)
-        draw_sq.ellipse([64, y_ms + 16, 74, y_ms + 26], fill=(0, 255, 170))
-        draw_sq.text((84, y_ms + 10), "Maestro:", font=f_sq_l, fill=(170, 255, 220))
-        draw_sq.text((84, y_ms + 36), maestro_txt, font=f_sq_v, fill=(255, 245, 200))
-
-        y_gs = y_ms + 84
-        draw_sq.rounded_rectangle([45, y_gs, 640 - 45, y_gs + 72], radius=12, fill=(10, 40, 30), outline=(0, 200, 140), width=1)
-        draw_sq.ellipse([64, y_gs + 16, 74, y_gs + 26], fill=(255, 220, 120))
-        draw_sq.text((84, y_gs + 10), "Grabación original:", font=font_label, fill=(170, 255, 220))
-        draw_sq.text((84, y_gs + 36), fecha_orig_txt, font=f_sq_v, fill=(255, 220, 120))
-
-        draw_sq.line([(45, 640 - 60), (640 - 45, 640 - 60)], fill=(180, 50, 255), width=1)
-        draw_sq.text((45, 640 - 46), "Práctica oficial para la reunión virtual en Telegram", font=f_sq_f, fill=(0, 255, 190))
-
-        thumb_final = img_sq.resize((320, 320), Image.Resampling.LANCZOS)
-        thumb_final.save(ruta_thumb, "JPEG", quality=90)
+        img_sq.save(ruta_thumb, "JPEG", quality=95)
 
         return ruta_hd, ruta_thumb
     except Exception as e:
