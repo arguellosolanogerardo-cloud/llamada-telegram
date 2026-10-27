@@ -1702,5 +1702,35 @@
       "es_adicional": false,
       "es_mario": false
     }
+  },
+  "2026-10-27": {
+    "fecha": "2026-10-27",
+    "duracion_minutos": 63,
+    "asistentes_count": 8,
+    "oradores": [
+      "GERARDO Argüello 3",
+      "Father Gerardo Perez",
+      "Eduardo Kareka",
+      "Salvador Benitez",
+      "Rafaelescobar.Con",
+      "Clemencia Atenko Peralta",
+      "Elvira💗 Gomez",
+      "Paty"
+    ],
+    "resumen": "📌 **RESUMEN EJECUTIVO:**\nReunión diaria comunitaria realizada el **2026-10-27** con una duración de **63 minutos** y un total de **8 participantes conectados**. La sesión contó con apertura puntual, espacio de bienvenida, la reproducción de la meditación diaria a las 8:32 PM y la ronda posterior de preguntas y compartir entre los miembros.\n\n🗣️ **INTERVENCIONES Y APORTES POR PARTICIPANTE:**\n• **GERARDO Argüello 3:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Father Gerardo Perez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Eduardo Kareka:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Salvador Benitez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Rafaelescobar.Con:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Clemencia Atenko Peralta:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Elvira💗 Gomez:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n• **Paty:** Participó activamente en la llamada compartiendo su voz y reflexiones con el grupo.\n\n🌟 **CONCLUSIÓN GENERAL DEL DÍA:**\nJornada muy enriquecedora con excelente permanencia y armonía. ¡Gracias a todos los que hicieron posible este espacio!",
+    "ruta_pdf": "data/actas/acta_2026-10-27.pdf",
+    "info_catalogo": {
+      "numero": 1090,
+      "tipo": "MEDITACION",
+      "titulo": "No frenen su evolucion con la falta de control de sus emociones",
+      "fecha": "08/21/20",
+      "maestro": "Alaniso y Azoes",
+      "detectado_como": "MEDITACION",
+      "fecha_tarea_admin": "27/10/2026",
+      "fecha_iso": "2026-10-27",
+      "es_oficial_3am": true,
+      "es_adicional": false,
+      "es_mario": false
+    }
   }
 }
