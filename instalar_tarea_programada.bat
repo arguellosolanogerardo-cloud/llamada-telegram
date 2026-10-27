@@ -6,10 +6,10 @@ echo   INSTALANDO TAREA PROGRAMADA DE WINDOWS: CentinelaYouTube
 echo ================================================================
 echo.
 echo Se configurara la ejecucion automatica cada 15 minutos en segundo
-echo plano para precargar los audios apenas salgan en YouTube.
+echo plano con el directorio de trabajo correcto.
 echo.
 
-schtasks /create /tn "CentinelaYouTube" /tr "\"C:\Users\INGENIERO\AppData\Local\Programs\Python\Python313\python.exe\" \"E:\DEVELOPER\AI\FACTORY SOFTWARE\TESTING\bot_llamadas_telegram\centinela_youtube.py\"" /sc minute /mo 15 /f
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$action = New-ScheduledTaskAction -Execute 'C:\Users\INGENIERO\AppData\Local\Programs\Python\Python313\python.exe' -Argument 'centinela_youtube.py' -WorkingDirectory '%~dp0'; $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 15); Register-ScheduledTask -TaskName 'CentinelaYouTube' -Action $action -Trigger $trigger -Force"
 
 if %ERRORLEVEL% EQU 0 (
     echo.
