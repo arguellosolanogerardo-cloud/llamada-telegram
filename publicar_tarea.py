@@ -237,6 +237,13 @@ def enviar_foto(chat_id: int | str, foto: str, caption: str = "", reply_markup: 
 
 def _obtener_fuente(nombres: list[str], tamano: int):
     from PIL import ImageFont
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    ruta_bundle = os.path.join(base_dir, "data", "assets", "fonts", "font_bold.ttf")
+    if os.path.exists(ruta_bundle):
+        try:
+            return ImageFont.truetype(ruta_bundle, tamano)
+        except Exception:
+            pass
     for n in nombres:
         try:
             return ImageFont.truetype(n, tamano)
@@ -282,36 +289,36 @@ def generar_banner_tarea_dia(ruta_salida: str, info_audio: dict, dia_semana: str
         img = Image.open(ruta_plantilla).convert("RGB")
         draw = ImageDraw.Draw(img)
 
-        font_fecha = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf", "trebucbd.ttf"], 21)
-        font_cat = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf", "trebucbd.ttf"], 23)
-        font_label = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 15)
-        font_val = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 17)
+        font_fecha = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 23)
+        font_cat = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 25)
+        font_label = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 16)
+        font_grab = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 25)
 
-        # 1. Fecha del día en la cápsula superior
+        # 1. Fecha del día en la cápsula superior (Grande y centrada)
         txt_fecha = f"{dia_semana.upper()} {fecha_str}".strip()
         bbox_f = draw.textbbox((0, 0), txt_fecha, font=font_fecha)
         fw = bbox_f[2] - bbox_f[0]
         fh = bbox_f[3] - bbox_f[1]
-        x_f = 215 + (505 - 215 - fw) // 2
-        y_f = 171 + (36 - fh) // 2
-        draw.text((x_f, y_f), txt_fecha, font=font_fecha, fill=(240, 248, 255))
+        x_f = 212 + (508 - 212 - fw) // 2
+        y_f = 171 + (41 - fh) // 2
+        draw.text((x_f, y_f), txt_fecha, font=font_fecha, fill=(245, 250, 255))
 
-        # 2. Categoría (MEDITACIÓN o MENSAJE)
+        # 2. Categoría (MEDITACIÓN o MENSAJE) - Grande
         tipo_raw = str(info_audio.get("tipo", "MEDITACION")).upper()
         txt_cat = "MEDITACIÓN" if "MEDITACI" in tipo_raw else "MENSAJE"
         bbox_c = draw.textbbox((0, 0), txt_cat, font=font_cat)
         cw = bbox_c[2] - bbox_c[0]
         ch = bbox_c[3] - bbox_c[1]
-        x_c = 118 + (316 - 118 - cw) // 2
-        y_c = 350 + (45 - ch) // 2
+        x_c = 115 + (318 - 115 - cw) // 2
+        y_c = 348 + (54 - ch) // 2
         for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             draw.text((x_c + dx, y_c + dy), txt_cat, font=font_cat, fill=(0, 150, 190))
-        draw.text((x_c, y_c), txt_cat, font=font_cat, fill=(230, 252, 255))
+        draw.text((x_c, y_c), txt_cat, font=font_cat, fill=(235, 252, 255))
 
-        # 3. Número dentro del anillo de neón
+        # 3. Número dentro del anillo de neón - Grande
         num_raw = str(info_audio.get("numero", "")).strip()
         txt_num = f"#{num_raw}" if num_raw and not num_raw.startswith("#") else num_raw
-        tam_num = 25 if len(txt_num) <= 5 else 21
+        tam_num = 27 if len(txt_num) <= 5 else 23
         font_num = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], tam_num)
         bbox_n = draw.textbbox((0, 0), txt_num, font=font_num)
         nw = bbox_n[2] - bbox_n[0]
@@ -321,9 +328,9 @@ def generar_banner_tarea_dia(ruta_salida: str, info_audio: dict, dia_semana: str
         y_n = cy - nh // 2 - 2
         for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             draw.text((x_n + dx, y_n + dy), txt_num, font=font_num, fill=(0, 180, 220))
-        draw.text((x_n, y_n), txt_num, font=font_num, fill=(220, 255, 250))
+        draw.text((x_n, y_n), txt_num, font=font_num, fill=(225, 255, 250))
 
-        # 4. Título dinámico dentro de la tarjeta morada (x: 46..316, y: 516..633)
+        # 4. Título dinámico dentro de la tarjeta morada (Grande y centrado)
         tit_raw = str(info_audio.get("titulo", "")).strip()
         if tit_raw.startswith("«") and tit_raw.endswith("»"):
             tit_limpio = tit_raw[1:-1].strip()
@@ -331,24 +338,24 @@ def generar_banner_tarea_dia(ruta_salida: str, info_audio: dict, dia_semana: str
             tit_limpio = tit_raw.strip('"\'')
         texto_completo = f"Título: «{tit_limpio}»"
 
-        max_ancho_tit = 250
-        max_alto_tit = 106
-        tam_tit = 17
+        max_ancho_tit = 255
+        max_alto_tit = 126
+        tam_tit = 20
         lineas_tit = []
         font_title = None
 
-        while tam_tit >= 12:
+        while tam_tit >= 13:
             font_title = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], tam_tit)
             lineas_tit = _ajustar_lineas_texto(draw, texto_completo, font_title, max_ancho_tit)
-            line_height = tam_tit + 7
+            line_height = tam_tit + 8
             total_h = len(lineas_tit) * line_height
             if total_h <= max_alto_tit:
                 break
             tam_tit -= 1
 
-        line_height = tam_tit + 7
+        line_height = tam_tit + 8
         total_h = len(lineas_tit) * line_height
-        y_tit_start = 516 + (max_alto_tit - total_h) // 2
+        y_tit_start = 512 + (max_alto_tit - total_h) // 2
 
         for idx_l, lin in enumerate(lineas_tit):
             bbox_l = draw.textbbox((0, 0), lin, font=font_title)
@@ -357,20 +364,18 @@ def generar_banner_tarea_dia(ruta_salida: str, info_audio: dict, dia_semana: str
             y_cur = y_tit_start + idx_l * line_height
             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 draw.text((x_tit + dx, y_cur + dy), lin, font=font_title, fill=(175, 45, 175))
-            draw.text((x_tit, y_cur), lin, font=font_title, fill=(255, 210, 252))
+            draw.text((x_tit, y_cur), lin, font=font_title, fill=(255, 215, 255))
 
-        # 5. Maestro
+        # 5. Maestro (Grande y nítido)
         maestro_raw = str(info_audio.get("maestro", "Alaniso")).strip()
         draw.text((115, 658), "Maestro:", font=font_label, fill=(195, 225, 240))
-        font_m = font_val
-        if len(maestro_raw) > 22:
-            font_m = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 14)
-        draw.text((115, 682), maestro_raw, font=font_m, fill=(255, 255, 255))
+        font_m = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 21 if len(maestro_raw) <= 22 else 17)
+        draw.text((115, 684), maestro_raw, font=font_m, fill=(255, 255, 255))
 
-        # 6. Grabación original
+        # 6. Grabación original (Grande)
         fecha_orig = str(info_audio.get("fecha_original") or info_audio.get("fecha") or "No indicada").strip()
         draw.text((115, 740), "Grabación original:", font=font_label, fill=(195, 225, 240))
-        draw.text((115, 764), fecha_orig, font=font_val, fill=(255, 235, 180))
+        draw.text((115, 766), fecha_orig, font=font_grab, fill=(255, 235, 180))
 
         os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
         img.save(ruta_salida, "PNG", optimize=True)
