@@ -26,7 +26,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, identificar_todos_los_audios, formatear_cola_audios
-from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot
+from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot, generar_banner_tarea_dia
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -43,7 +43,7 @@ RUTA_MSGS_BOT = os.path.join("data", "mensajes_bot_grupo.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
 
 COLA_LOGS = []
-_TAREA_FLOTANTE = {"msg_id": None, "contador": 0, "texto": "", "reply_markup": None, "chat_id": None}
+_TAREA_FLOTANTE = {"msg_id": None, "contador": 0, "texto": "", "reply_markup": None, "chat_id": None, "ruta_foto": None}
 
 def log_debug(msg: str) -> None:
     timestamp = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
@@ -1422,7 +1422,10 @@ def escuchar_comandos() -> None:
                             _TAREA_FLOTANTE["contador"] += 1
                             if _TAREA_FLOTANTE["contador"] >= 8:
                                 eliminar_mensaje(chat_id_msg, _TAREA_FLOTANTE["msg_id"])
-                                nuevo_id = enviar_mensaje(chat_id_msg, _TAREA_FLOTANTE["texto"], reply_markup=_TAREA_FLOTANTE["reply_markup"])
+                                if _TAREA_FLOTANTE.get("ruta_foto") and os.path.exists(_TAREA_FLOTANTE["ruta_foto"]):
+                                    nuevo_id = enviar_foto(chat_id_msg, _TAREA_FLOTANTE["ruta_foto"], caption=_TAREA_FLOTANTE["texto"], reply_markup=_TAREA_FLOTANTE["reply_markup"])
+                                else:
+                                    nuevo_id = enviar_mensaje(chat_id_msg, _TAREA_FLOTANTE["texto"], reply_markup=_TAREA_FLOTANTE["reply_markup"])
                                 if nuevo_id:
                                     _TAREA_FLOTANTE["msg_id"] = nuevo_id
                                     _TAREA_FLOTANTE["contador"] = 0

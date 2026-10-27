@@ -164,6 +164,222 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
 
 
 
+
+
+def enviar_foto(chat_id: int | str, foto: str, caption: str = "", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
+    """Envía una foto a Telegram admitiendo tanto ruta local en disco como file_id existente."""
+    if not BOT_TOKEN or not foto:
+        return False, None, None
+
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+
+    # Caso 1: file_id previamente registrado en Telegram (ultrarrápido, sin re-subir bytes)
+    if not os.path.exists(foto):
+        data = {
+            "chat_id": str(chat_id),
+            "photo": str(foto),
+            "caption": caption,
+            "parse_mode": "Markdown",
+        }
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup)
+        try:
+            r = requests.post(url, data=data, timeout=25)
+            res = r.json()
+            if not res.get("ok") and "parse_mode" in data:
+                del data["parse_mode"]
+                r = requests.post(url, data=data, timeout=25)
+                res = r.json()
+            if res.get("ok"):
+                res_m = res.get("result", {})
+                m_id = res_m.get("message_id")
+                photos = res_m.get("photo", [])
+                f_id = photos[-1].get("file_id") if photos else str(foto)
+                return True, m_id, f_id
+            print(f"Telegram rechazó foto por file_id ({chat_id}): {res}")
+            return False, None, None
+        except Exception as e:
+            print(f"Error enviando foto por file_id a {chat_id}: {e}")
+            return False, None, None
+
+    # Caso 2: Archivo local en disco
+    data = {
+        "chat_id": str(chat_id),
+        "caption": caption,
+        "parse_mode": "Markdown",
+    }
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+
+    try:
+        with open(foto, "rb") as f:
+            files = {"photo": (os.path.basename(foto), f, "image/png")}
+            r = requests.post(url, data=data, files=files, timeout=40)
+            res = r.json()
+            if not res.get("ok") and "parse_mode" in data:
+                del data["parse_mode"]
+                f.seek(0)
+                r = requests.post(url, data=data, files=files, timeout=40)
+                res = r.json()
+            if res.get("ok"):
+                res_m = res.get("result", {})
+                m_id = res_m.get("message_id")
+                photos = res_m.get("photo", [])
+                f_id = photos[-1].get("file_id") if photos else None
+                return True, m_id, f_id
+            print(f"Telegram rechazó foto local ({chat_id}): {res}")
+            return False, None, None
+    except Exception as e:
+        print(f"Error enviando foto local a {chat_id}: {e}")
+        return False, None, None
+
+
+def _obtener_fuente(nombres: list[str], tamano: int):
+    from PIL import ImageFont
+    for n in nombres:
+        try:
+            return ImageFont.truetype(n, tamano)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _ajustar_lineas_texto(draw, texto: str, fuente, max_ancho: int) -> list[str]:
+    palabras = texto.split()
+    if not palabras:
+        return []
+    lineas = []
+    linea_actual = []
+    for p in palabras:
+        prueba = " ".join(linea_actual + [p])
+        bbox = draw.textbbox((0, 0), prueba, font=fuente)
+        ancho = bbox[2] - bbox[0]
+        if ancho <= max_ancho:
+            linea_actual.append(p)
+        else:
+            if linea_actual:
+                lineas.append(" ".join(linea_actual))
+                linea_actual = [p]
+            else:
+                lineas.append(p)
+                linea_actual = []
+    if linea_actual:
+        lineas.append(" ".join(linea_actual))
+    return lineas
+
+
+def generar_banner_tarea_dia(ruta_salida: str, info_audio: dict, dia_semana: str = "HOY", fecha_str: str = "") -> str | None:
+    """Genera la imagen oficial en alta resolución de la Tarea del Día (3 AM) con estética Neón Cyberpunk.
+    Inyecta dinámicamente fecha, tipo (Meditación/Mensaje), número, título, maestro y fecha de grabación original.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        ruta_plantilla = os.path.join("data", "assets", "plantilla_tarea_3am.png")
+        if not os.path.exists(ruta_plantilla):
+            return None
+
+        img = Image.open(ruta_plantilla).convert("RGB")
+        draw = ImageDraw.Draw(img)
+
+        font_fecha = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf", "trebucbd.ttf"], 21)
+        font_cat = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf", "trebucbd.ttf"], 23)
+        font_label = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 15)
+        font_val = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 17)
+
+        # 1. Fecha del día en la cápsula superior
+        txt_fecha = f"{dia_semana.upper()} {fecha_str}".strip()
+        bbox_f = draw.textbbox((0, 0), txt_fecha, font=font_fecha)
+        fw = bbox_f[2] - bbox_f[0]
+        fh = bbox_f[3] - bbox_f[1]
+        x_f = 215 + (505 - 215 - fw) // 2
+        y_f = 171 + (36 - fh) // 2
+        draw.text((x_f, y_f), txt_fecha, font=font_fecha, fill=(240, 248, 255))
+
+        # 2. Categoría (MEDITACIÓN o MENSAJE)
+        tipo_raw = str(info_audio.get("tipo", "MEDITACION")).upper()
+        txt_cat = "MEDITACIÓN" if "MEDITACI" in tipo_raw else "MENSAJE"
+        bbox_c = draw.textbbox((0, 0), txt_cat, font=font_cat)
+        cw = bbox_c[2] - bbox_c[0]
+        ch = bbox_c[3] - bbox_c[1]
+        x_c = 118 + (316 - 118 - cw) // 2
+        y_c = 350 + (45 - ch) // 2
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            draw.text((x_c + dx, y_c + dy), txt_cat, font=font_cat, fill=(0, 150, 190))
+        draw.text((x_c, y_c), txt_cat, font=font_cat, fill=(230, 252, 255))
+
+        # 3. Número dentro del anillo de neón
+        num_raw = str(info_audio.get("numero", "")).strip()
+        txt_num = f"#{num_raw}" if num_raw and not num_raw.startswith("#") else num_raw
+        tam_num = 25 if len(txt_num) <= 5 else 21
+        font_num = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], tam_num)
+        bbox_n = draw.textbbox((0, 0), txt_num, font=font_num)
+        nw = bbox_n[2] - bbox_n[0]
+        nh = bbox_n[3] - bbox_n[1]
+        cx, cy = 182, 476
+        x_n = cx - nw // 2
+        y_n = cy - nh // 2 - 2
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            draw.text((x_n + dx, y_n + dy), txt_num, font=font_num, fill=(0, 180, 220))
+        draw.text((x_n, y_n), txt_num, font=font_num, fill=(220, 255, 250))
+
+        # 4. Título dinámico dentro de la tarjeta morada (x: 46..316, y: 516..633)
+        tit_raw = str(info_audio.get("titulo", "")).strip()
+        if tit_raw.startswith("«") and tit_raw.endswith("»"):
+            tit_limpio = tit_raw[1:-1].strip()
+        else:
+            tit_limpio = tit_raw.strip('"\'')
+        texto_completo = f"Título: «{tit_limpio}»"
+
+        max_ancho_tit = 250
+        max_alto_tit = 106
+        tam_tit = 17
+        lineas_tit = []
+        font_title = None
+
+        while tam_tit >= 12:
+            font_title = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], tam_tit)
+            lineas_tit = _ajustar_lineas_texto(draw, texto_completo, font_title, max_ancho_tit)
+            line_height = tam_tit + 7
+            total_h = len(lineas_tit) * line_height
+            if total_h <= max_alto_tit:
+                break
+            tam_tit -= 1
+
+        line_height = tam_tit + 7
+        total_h = len(lineas_tit) * line_height
+        y_tit_start = 516 + (max_alto_tit - total_h) // 2
+
+        for idx_l, lin in enumerate(lineas_tit):
+            bbox_l = draw.textbbox((0, 0), lin, font=font_title)
+            lw = bbox_l[2] - bbox_l[0]
+            x_tit = 46 + (270 - lw) // 2
+            y_cur = y_tit_start + idx_l * line_height
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                draw.text((x_tit + dx, y_cur + dy), lin, font=font_title, fill=(175, 45, 175))
+            draw.text((x_tit, y_cur), lin, font=font_title, fill=(255, 210, 252))
+
+        # 5. Maestro
+        maestro_raw = str(info_audio.get("maestro", "Alaniso")).strip()
+        draw.text((115, 658), "Maestro:", font=font_label, fill=(195, 225, 240))
+        font_m = font_val
+        if len(maestro_raw) > 22:
+            font_m = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], 14)
+        draw.text((115, 682), maestro_raw, font=font_m, fill=(255, 255, 255))
+
+        # 6. Grabación original
+        fecha_orig = str(info_audio.get("fecha_original") or info_audio.get("fecha") or "No indicada").strip()
+        draw.text((115, 740), "Grabación original:", font=font_label, fill=(195, 225, 240))
+        draw.text((115, 764), fecha_orig, font=font_val, fill=(255, 235, 180))
+
+        os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
+        img.save(ruta_salida, "PNG", optimize=True)
+        return ruta_salida
+    except Exception as e:
+        print("Error generando banner tarea:", e)
+        return None
+
+
 def generar_anuncio_tarea(info: dict | list, fecha_str: str = None) -> str:
     tz_col = ZoneInfo("America/Bogota")
     ahora = datetime.now(tz_col)
@@ -542,13 +758,61 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
     bot_username = obtener_info_bot()
     teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items) if CHAT_ID else None
 
-    # 1. Enviar al Grupo Principal con botón directo al audio
+    # Determinar nombre del día de la semana para el banner
+    dias_semana_map = {
+        0: "LUNES", 1: "MARTES", 2: "MIÉRCOLES", 3: "JUEVES",
+        4: "VIERNES", 5: "SÁBADO", 6: "DOMINGO"
+    }
+    dia_semana_nombre = "HOY"
+    try:
+        dt_p = datetime.strptime(fecha_final, "%d/%m/%Y")
+        dia_semana_nombre = dias_semana_map.get(dt_p.weekday(), "HOY")
+    except Exception:
+        dt_p = datetime.now(ZoneInfo("America/Bogota"))
+        dia_semana_nombre = dias_semana_map.get(dt_p.weekday(), "HOY")
+
+    # Generar la tarjeta gráfica oficial HD (3 AM) con estética Neón Cyberpunk
+    ruta_banner = os.path.join(carp_med_pub, "banner_tarea_hoy.png")
+    banner_generado = generar_banner_tarea_dia(
+        ruta_banner,
+        info,
+        dia_semana=dia_semana_nombre,
+        fecha_str=fecha_final
+    )
+
+    caption_grupo = (
+        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+        f"🗓️ **{dia_semana_nombre.upper()}  {fecha_final}**\n\n"
+        f"👥 **GRUPO: LA VERDAD OS HARÁ LIBRES**\n\n"
+        f"👇 *Toca los botones oficiales para escuchar el audio en el grupo o recibirlo en tu privado.*"
+    )
+    if len(items) > 1:
+        txt_extra = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)
+        caption_grupo = (
+            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+            f"🗓️ **{dia_semana_nombre.upper()}  {fecha_final}**\n\n"
+            f"👥 **GRUPO: LA VERDAD OS HARÁ LIBRES**\n"
+            f"Prácticas en secuencia para hoy:\n{txt_extra}\n\n"
+            f"👇 *Toca los botones oficiales para escuchar los audios en el grupo.*"
+        )
+
+    file_id_banner = None
+    ok_grupo = False
+
+    # 1. Enviar al Grupo Principal (primero intentar como foto HD)
     if CHAT_ID:
-        ok_grupo = enviar_mensaje(CHAT_ID, texto_anuncio, reply_markup=teclado)
-        if ok_grupo:
-            print(f"Anuncio de la tarea ({fecha_final}) publicado en el grupo {CHAT_ID} con enlace directo al mensaje.")
-        else:
-            print(f"No se pudo publicar en el grupo {CHAT_ID}.")
+        if banner_generado and os.path.exists(banner_generado):
+            ok_grupo, m_id_foto, file_id_banner = enviar_foto(CHAT_ID, banner_generado, caption=caption_grupo, reply_markup=teclado)
+            if ok_grupo:
+                print(f"✅ Banner HD de la tarea ({fecha_final}) publicado exitosamente en el grupo {CHAT_ID}.")
+
+        # Fallback a texto si no se pudo enviar la foto
+        if not ok_grupo:
+            ok_grupo = enviar_mensaje(CHAT_ID, texto_anuncio, reply_markup=teclado)
+            if ok_grupo:
+                print(f"Anuncio de texto de la tarea ({fecha_final}) publicado en el grupo {CHAT_ID} (fallback).")
+            else:
+                print(f"No se pudo publicar en el grupo {CHAT_ID}.")
     else:
         print("Variable CHAT_ID o TG_GROUP no configurada.")
 
@@ -567,6 +831,8 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                 except Exception:
                     pass
             enviados_priv = 0
+            foto_priv = file_id_banner or (banner_generado if banner_generado and os.path.exists(banner_generado) else None)
+
             for uid, datos in usuarios.items():
                 if str(uid) == str(CHAT_ID):
                     continue
@@ -577,39 +843,56 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                         continue
                 except ValueError:
                     continue
-                if len(items) > 1:
-                    txt_detalles = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)
-                    texto_priv = (
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
-                        f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
-                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
-                        f"🗓️ **FECHA: {fecha_final}**\n"
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
-                        f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
-                        f"{txt_detalles}\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
-                        f"👇 *Toca los botones abajo para escuchar los audios.*"
-                    )
-                else:
-                    texto_priv = (
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
-                        f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
-                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
-                        f"🗓️ **FECHA: {fecha_final}**\n"
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
-                        f"Hola **{datos.get('nombre', 'Compañero')}**, hoy trabajaremos con:\n\n"
-                        f"🧘 **{info.get('tipo', 'MEDITACION').upper()} #{info['numero']}**\n"
-                        f"📌 **Título:** «{info['titulo']}»\n"
-                        f"👤 **Maestro:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
-                        f"👇 *Toca el botón de abajo para escuchar el audio directamente.*"
-                    )
+
+                nom_usuario = datos.get('nombre', 'Compañero')
                 teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items)
-                if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):
+
+                enviado_ok = False
+                if foto_priv:
+                    caption_priv = (
+                        f"🕊️✨ **TAREA DEL DÍA: {fecha_final}** ✨🕊️\n\n"
+                        f"Hola **{nom_usuario}**, ¡aquí tienes la práctica oficial de hoy!\n"
+                        f"⏰ Te esperamos a las 7:56 PM para la reunión virtual.\n\n"
+                        f"👇 *Toca los botones abajo para escuchar tu audio.*"
+                    )
+                    enviado_ok, _, _ = enviar_foto(uid, foto_priv, caption=caption_priv, reply_markup=teclado_priv)
+
+                if not enviado_ok:
+                    if len(items) > 1:
+                        txt_detalles = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)
+                        texto_priv = (
+                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                            f"📢 ⚠️ **¡ATENCIÓN {nom_usuario.upper()}!** ⚠️ 📢\n"
+                            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                            f"🗓️ **FECHA: {fecha_final}**\n"
+                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+                            f"Hola **{nom_usuario}**, hoy trabajaremos con:\n\n"
+                            f"{txt_detalles}\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
+                            f"👇 *Toca los botones abajo para escuchar los audios.*"
+                        )
+                    else:
+                        texto_priv = (
+                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                            f"📢 ⚠️ **¡ATENCIÓN {nom_usuario.upper()}!** ⚠️ 📢\n"
+                            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                            f"🗓️ **FECHA: {fecha_final}**\n"
+                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+                            f"Hola **{nom_usuario}**, hoy trabajaremos con:\n\n"
+                            f"🧘 **{info.get('tipo', 'MEDITACION').upper()} #{info['numero']}**\n"
+                            f"📌 **Título:** «{info['titulo']}»\n"
+                            f"👤 **Maestro:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
+                            f"👇 *Toca el botón de abajo para escuchar el audio directamente.*"
+                        )
+                    if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):
+                        enviado_ok = True
+
+                if enviado_ok:
                     enviados_priv += 1
-            print(f"Notificación privada enviada a {enviados_priv} miembros con botón al audio.")
+            print(f"Notificación de la tarea enviada a {enviados_priv} miembros con banner HD y botones.")
         except Exception as e:
             print("Nota enviando a privados:", e)
 

@@ -216,7 +216,7 @@ except Exception as _e_diag:
     print(f"[SQLite Startup] Advertencia al verificar FTS5: {_e_diag}")
 
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, identificar_todos_los_audios, formatear_cola_audios
-from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot
+from publicar_tarea import generar_anuncio_tarea, armar_teclado_audio, extraer_fecha_de_texto, obtener_info_bot, generar_banner_tarea_dia
 from drive_manager import obtener_o_descargar_audio, buscar_audio_en_drive
 
 BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
@@ -235,7 +235,7 @@ RUTA_USUARIOS_SIN_PRIVADO = os.path.join("data", "usuarios_sin_privado.json")
 URL_RAW_GITHUB = "https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/puntos.json"
 
 COLA_LOGS = []
-_TAREA_FLOTANTE = {"msg_id": None, "contador": 0, "texto": "", "reply_markup": None, "chat_id": None}
+_TAREA_FLOTANTE = {"msg_id": None, "contador": 0, "texto": "", "reply_markup": None, "chat_id": None, "ruta_foto": None}
 _CACHE_RESPUESTAS_BIBLIO = {}
 
 
@@ -3716,11 +3716,31 @@ def escuchar_comandos() -> None:
                             except Exception:
                                 pass
                             fecha_admin = extraer_fecha_de_texto(param_texto) or (extraer_fecha_de_texto(reply_m.get("text") or reply_m.get("caption") or "") if reply_m else None)
+                            fecha_final_cmd = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
+                            dias_sem_map = {0: "LUNES", 1: "MARTES", 2: "MIÉRCOLES", 3: "JUEVES", 4: "VIERNES", 5: "SÁBADO", 6: "DOMINGO"}
+                            try:
+                                dt_c = datetime.strptime(fecha_final_cmd, "%d/%m/%Y")
+                                dia_nom_cmd = dias_sem_map.get(dt_c.weekday(), "HOY")
+                            except Exception:
+                                dia_nom_cmd = "HOY"
+
+                            r_banner = os.path.join("data", "meditaciones", "banner_tarea_hoy.png")
+                            banner_gen = generar_banner_tarea_dia(r_banner, info_cat, dia_semana=dia_nom_cmd, fecha_str=fecha_final_cmd)
+                            cap_cmd = (
+                                f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                                f"🗓️ **{dia_nom_cmd.upper()}  {fecha_final_cmd}**\n\n"
+                                f"👥 **GRUPO: LA VERDAD OS HARÁ LIBRES**\n\n"
+                                f"👇 *Toca los botones oficiales para escuchar el audio en el grupo o recibirlo en tu privado.*"
+                            )
                             anuncio = generar_anuncio_tarea(info_cat, fecha_admin)
                             teclado = armar_teclado_audio(chat_id, msg_id_audio, numero_tarea=info_cat.get('numero'), tipo_tarea=info_cat.get('tipo'))
-                            m_id = enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
+                            m_id = None
+                            if banner_gen and os.path.exists(banner_gen):
+                                m_id = enviar_foto(chat_id, banner_gen, caption=cap_cmd, reply_markup=teclado)
+                            if not m_id:
+                                m_id = enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
                             if m_id:
-                                _TAREA_FLOTANTE.update({"msg_id": m_id, "contador": 0, "texto": anuncio, "reply_markup": teclado, "chat_id": chat_id})
+                                _TAREA_FLOTANTE.update({"msg_id": m_id, "contador": 0, "texto": cap_cmd if banner_gen else anuncio, "reply_markup": teclado, "chat_id": chat_id, "ruta_foto": banner_gen if banner_gen else None})
                             fecha_priv = fecha_admin or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
                             # ── Deduplicar declaración de tarea ─────────────────────────────
                             # Si Render arranca dos instancias, ambas procesarán el mismo
