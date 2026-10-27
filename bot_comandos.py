@@ -365,16 +365,8 @@ def _asegurar_ytdlp_actualizado() -> None:
             pass
 
 
-def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> tuple[str | None, str]:
-    """Descarga el audio remasterizado y limpiado directamente de YouTube con la máxima calidad:
-    1. Revisa si ya fue descargado previamente desde YouTube en la caché local verificada (yt_clean_<ID>.mp3).
-    2. Descarga directamente de YouTube con yt-dlp multi-cliente (visionos, web_embedded, tv_downgraded, ios, android, web)
-       sin requerir ffprobe, forzando IPv4 y usando chunks de 10M para máxima velocidad en Render.
-    3. Convierte el stream a MP3 de alta fidelidad (192 kbps, 44.1 kHz) con el FFmpeg de imageio_ffmpeg.
-    4. Garantiza que el tamaño no supere los 49.0 MB para cumplir el límite de Telegram Bot API.
-    5. PROHIBIDO TOTALMENTE GOOGLE DRIVE: Si es una solicitud de YouTube, SOLO se extrae de YouTube.
-    Retorna: (ruta_archivo_mp3, "YOUTUBE") o (None, "")
-    """
+def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", progreso_callback = None) -> tuple[str | None, str]:
+    """Descarga el audio remasterizado y limpiado directamente de YouTube con la máxima calidad y reporte de progreso."""
     if not vid_target:
         return (None, "")
 
@@ -383,12 +375,17 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     os.makedirs(carp_med, exist_ok=True)
     cache_clean = os.path.join(carp_med, f"yt_clean_{vid_target}.mp3")
 
-    # 1. Caché existente verificado de YouTube (audio limpio y remasterizado ya procesado)
+    # 1. Caché existente verificado de YouTube
     if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
         log_debug(f"Audio YouTube {vid_target} servido desde caché limpio local ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
+        if progreso_callback:
+            try:
+                progreso_callback(100, "⚡ *¡Audio limpio verificado en caché!*")
+            except Exception:
+                pass
         return (cache_clean, "YOUTUBE")
 
-    # 1b. Fallback GitHub Raw CDN (si el Centinela en la PC ya lo subió al repositorio)
+    # 1b. Fallback GitHub Raw CDN
     try:
         url_raw_git = f"https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/meditaciones/yt_clean_{vid_target}.mp3"
         log_debug(f"Buscando audio limpio de {vid_target} en GitHub CDN...")
@@ -399,11 +396,16 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                     f_out.write(resp.read())
                 if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
                     log_debug(f"✅ Audio {vid_target} descargado instantáneamente desde GitHub CDN ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
+                    if progreso_callback:
+                        try:
+                            progreso_callback(100, "⚡ *¡Audio descargado desde CDN!*")
+                        except Exception:
+                            pass
                     return (cache_clean, "YOUTUBE")
     except Exception as e_gh:
         log_debug(f"Audio {vid_target} no encontrado en GitHub CDN ({e_gh}). Procediendo a extracción...")
 
-    # Purgar cualquier caché antiguo o de Drive para evitar servir audios ruidosos
+    # Purgar cualquier caché antiguo
     for cache_antiguo in (
         os.path.join(carp_med, f"yt_dl_{vid_target}.mp3"),
         os.path.join(carp_med, f"yt_drive_{vid_target}.mp3")
@@ -416,7 +418,6 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
 
     _asegurar_ytdlp_actualizado()
 
-    # Obtener título si no fue provisto
     if not titulo_pista:
         try:
             from radar_youtube import obtener_info_oembed, obtener_titulo_video
@@ -425,14 +426,12 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         except Exception:
             titulo_pista = f"Audio {vid_target}"
 
-    # 2. Descarga directa desde YouTube con la máxima fidelidad de audio
     ff_bin = _obtener_ffmpeg_bin()
     raw_out_tmpl = os.path.join("data", f"yt_raw_{vid_target}.%(ext)s")
     tmp_clean_mp3 = os.path.join("data", f"yt_clean_{vid_target}.mp3")
     url_yt = f"https://www.youtube.com/watch?v={vid_target}"
 
     import glob
-    # Limpiar restos temporales previos de este video
     for previo in glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*")):
         try:
             os.remove(previo)
@@ -458,7 +457,42 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
     except Exception:
         pass
 
-    # Intento 1: Audio nativo directo VisionOS (sin cookies para evitar bloqueos SABR/datacenter)
+    def _ejecutar_cmd_ytdlp(cmd_lista: list, prog_cb=None, timeout_seg=240):
+        if prog_cb:
+            cmd_c = list(cmd_lista)
+            if "--newline" not in cmd_c:
+                cmd_c = cmd_c[:-1] + ["--newline", cmd_c[-1]]
+            try:
+                proc = subprocess.Popen(cmd_c, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
+                for line in proc.stdout:
+                    if "[download]" in line and "%" in line:
+                        m_p = re.search(r'(\d+(?:\.\d+)?)%', line)
+                        if m_p:
+                            try:
+                                val_p = float(m_p.group(1))
+                                prog_cb(int(15 + val_p * 0.55), f"📥 *Descargando stream de audio ({int(val_p)}%)...*")
+                            except Exception:
+                                pass
+                proc.wait(timeout=timeout_seg)
+                return proc.returncode, ""
+            except Exception as e_proc:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                return -1, str(e_proc)
+        else:
+            r = subprocess.run(cmd_lista, capture_output=True, text=True, timeout=timeout_seg)
+            err = (r.stderr or r.stdout or "").strip()[-300:]
+            return r.returncode, err
+
+    if progreso_callback:
+        try:
+            progreso_callback(15, "📥 *Conectando y descargando stream de audio...*")
+        except Exception:
+            pass
+
+    # Intento 1: VisionOS
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
@@ -478,18 +512,15 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
 
     exito_yt = False
     try:
-        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: VisionOS native stream)...")
-        r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=240)
+        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: VisionOS)...")
+        _ejecutar_cmd_ytdlp(cmd1, progreso_callback, timeout_seg=240)
         matches1 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
         if any(os.path.getsize(m) > 1000 for m in matches1):
             exito_yt = True
-        else:
-            err1 = (r1.stderr or r1.stdout or "").strip()[-300:]
-            log_debug(f"Aviso yt-dlp intento 1 ({vid_target}): {err1}")
     except Exception as e1:
         log_debug(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Multi-cliente visionos,android con cookies
+    # Intento 2: Multi-cliente Android VR
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
@@ -509,46 +540,16 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         ]
         try:
             log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 2: Android VR fallback)...")
-            r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=240)
+            _ejecutar_cmd_ytdlp(cmd2, progreso_callback, timeout_seg=240)
             matches2 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
             if any(os.path.getsize(m) > 1000 for m in matches2):
                 exito_yt = True
-            else:
-                err2 = (r2.stderr or r2.stdout or "").strip()[-300:]
-                log_debug(f"Aviso yt-dlp intento 2 ({vid_target}): {err2}")
         except Exception as e2:
             log_debug(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
-    # Intento 3: Fallback iOS / mweb / VisionOS
+    # Intento 3: Universal fallback
     if not exito_yt:
         cmd3 = [
-            sys.executable, "-m", "yt_dlp",
-            "--force-ipv4",
-            "--extractor-args", "youtube:player_client=ios,mweb,visionos",
-            "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
-            "--no-playlist",
-            "--no-check-certificates",
-            "--socket-timeout", "35",
-            "--retries", "2",
-        ] + cookie_args + plugin_args + [
-            "--output", raw_out_tmpl,
-            url_yt
-        ]
-        try:
-            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 3: VisionOS / Multi-client)...")
-            r3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=240)
-            matches3 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
-            if any(os.path.getsize(m) > 1000 for m in matches3):
-                exito_yt = True
-            else:
-                err3 = (r3.stderr or r3.stdout or "").strip()[-300:]
-                log_debug(f"Aviso yt-dlp intento 3 ({vid_target}): {err3}")
-        except Exception as e3:
-            log_debug(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
-
-    # Intento 4: Fallback universal simple
-    if not exito_yt:
-        cmd4 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
             "-f", "ba/18/b/best",
@@ -560,16 +561,12 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
             url_yt
         ]
         try:
-            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 4: Universal fallback)...")
-            r4 = subprocess.run(cmd4, capture_output=True, text=True, timeout=240)
-            matches4 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
-            if not any(os.path.getsize(m) > 1000 for m in matches4):
-                err4 = (r4.stderr or r4.stdout or "").strip()[-300:]
-                log_debug(f"Aviso yt-dlp intento 4 ({vid_target}): {err4}")
-        except Exception as e4:
-            log_debug(f"Error yt-dlp intento 4 ({vid_target}): {e4}")
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 3: Universal)...")
+            _ejecutar_cmd_ytdlp(cmd3, progreso_callback, timeout_seg=240)
+        except Exception as e3:
+            log_debug(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
 
-    # 3. Localizar archivo crudo descargado de YouTube y convertir a MP3 limpio (192k)
+    # 3. Conversión a MP3 limpio
     raw_files = [m for m in glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*")) if os.path.getsize(m) > 1000]
     archivo_final = None
 
@@ -578,6 +575,11 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         if raw_f.lower().endswith(".mp3"):
             archivo_final = raw_f
         elif ff_bin:
+            if progreso_callback:
+                try:
+                    progreso_callback(75, "🎛️ *Codificando audio MP3 de alta fidelidad (192 kbps)...*")
+                except Exception:
+                    pass
             try:
                 r_conv = subprocess.run(
                     [ff_bin, "-y", "-i", raw_f, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", "-ar", "44100", tmp_clean_mp3],
@@ -597,9 +599,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         else:
             archivo_final = raw_f
 
-    # Si se obtuvo con éxito de YouTube:
     if archivo_final and os.path.exists(archivo_final) and os.path.getsize(archivo_final) > 1000:
-        # Control de tamaño para Telegram Bot API (límite 50 MB)
         tam_mb = os.path.getsize(archivo_final) / (1024 * 1024)
         if tam_mb > 49.0 and ff_bin:
             archivo_comp = os.path.join("data", f"yt_clean_{vid_target}_comp.mp3")
@@ -617,7 +617,12 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
             except Exception as e_comp:
                 log_debug(f"Error comprimiendo audio grande: {e_comp}")
 
-        # Guardar en caché verificado de YouTube
+        if progreso_callback:
+            try:
+                progreso_callback(88, "💾 *Audio procesado. Guardando en almacenamiento...*")
+            except Exception:
+                pass
+
         try:
             shutil.copy2(archivo_final, cache_clean)
             for m in glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*")):
@@ -630,15 +635,13 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
                     os.remove(tmp_clean_mp3)
                 except Exception:
                     pass
-            log_debug(f"✅ Audio {vid_target} («{titulo_pista}») extraído exitosamente de YouTube a máxima fidelidad.")
+            log_debug(f"✅ Audio {vid_target} («{titulo_pista}») extraído exitosamente de YouTube.")
             return (cache_clean, "YOUTUBE")
         except Exception:
             return (archivo_final, "YOUTUBE")
 
-    # 4. PROHIBIDO TOTALMENTE GOOGLE DRIVE: Para solicitudes de videos de YouTube nunca recurrir a Drive
-    log_debug(f"❌ Extracción de YouTube falló para {vid_target}. Google Drive queda TERMINANTEMENTE PROHIBIDO para solicitudes de YouTube.")
+    log_debug(f"❌ Extracción de YouTube falló para {vid_target}.")
     return (None, "")
-
 
 
 def guardar_audio_registrado(info_cat: dict, file_id: str = None, msg_id: int | str = None) -> None:
@@ -1450,6 +1453,47 @@ def enviar_mensaje(chat_id: int | str, texto: str, reply_to_message_id: int = No
         print(f"Error enviando mensaje a {chat_id}:", e)
         import sys; sys.stdout.flush()
         return None
+
+
+def editar_mensaje(chat_id: int | str, message_id: int | str, texto: str, parse_mode: str = "Markdown", reply_markup: dict = None) -> bool:
+    """Edita un mensaje existente en Telegram de forma rápida y segura."""
+    if not BOT_TOKEN or not chat_id or not message_id:
+        return False
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+    payload = {
+        "chat_id": str(chat_id),
+        "message_id": int(str(message_id).strip()),
+        "text": texto,
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    datos = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    req = urllib.request.Request(url, data=datos, headers={"Content-Type": "application/json; charset=utf-8"})
+    try:
+        with urllib.request.urlopen(req, timeout=12) as r:
+            res_data = json.loads(r.read().decode())
+            return bool(res_data.get("ok"))
+    except urllib.error.HTTPError as e_http:
+        err_b = ""
+        try:
+            err_b = e_http.read().decode('utf-8', errors='ignore')
+        except Exception:
+            pass
+        if "parse_mode" in payload and any(k in err_b.lower() for k in ["can't parse entities", "parse_mode", "entity"]):
+            del payload["parse_mode"]
+            datos_fb = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+            req_fb = urllib.request.Request(url, data=datos_fb, headers={"Content-Type": "application/json; charset=utf-8"})
+            try:
+                with urllib.request.urlopen(req_fb, timeout=12) as r_fb:
+                    res_fb = json.loads(r_fb.read().decode())
+                    return bool(res_fb.get("ok"))
+            except Exception:
+                pass
+        return False
+    except Exception:
+        return False
 
 
 def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_markup: dict = None) -> int | None:
@@ -2843,20 +2887,56 @@ def escuchar_comandos() -> None:
                         u_from = update["callback_query"]["from"]
                         u_id = u_from.get("id")
                         u_nom = f"{u_from.get('first_name', '')} {u_from.get('last_name', '')}".strip() or "Usuario"
+                        msg_id_cb = msg_cb.get("message_id")
 
                         try:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                             urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
                                 "callback_query_id": cb_id,
-                                "text": "🎧 Obteniendo audio MP3...\n\nEstamos extrayendo el audio en alta calidad.\n\nTe lo entregaremos en mensaje privado con el Asistente Toby. Dale al botón Iniciar.",
-                                "show_alert": True
+                                "text": "🎧 Obteniendo audio MP3 en alta calidad...",
+                                "show_alert": False
                             }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
                         except Exception:
                             pass
 
-                        def procesar_descarga_ytmp3(vid_target, user_id_target, user_nombre_target, chat_origen):
+                        def procesar_descarga_ytmp3(vid_target, user_id_target, user_nombre_target, chat_origen, msg_id_origen):
                             from radar_youtube import obtener_titulo_video
                             tit_v = obtener_titulo_video(vid_target) or f"Audio {vid_target}"
+
+                            m_id_prog = None
+                            if chat_origen:
+                                m_id_prog = enviar_mensaje(
+                                    chat_origen,
+                                    f"🎧 **Obteniendo audio MP3:** «{tit_v}»\n"
+                                    f"👤 *Solicitado por:* {user_nombre_target}\n\n"
+                                    f"⏳ *Conectando y analizando stream...*\n"
+                                    f"`[░░░░░░░░░░]` **5%**",
+                                    reply_to_message_id=msg_id_origen
+                                )
+
+                            last_edit = [0.0]
+                            last_p = [-1]
+
+                            def actualizar_progreso(porcentaje: int, estado: str):
+                                ahora = time.time()
+                                if porcentaje != 100 and (ahora - last_edit[0] < 1.3 or porcentaje == last_p[0]):
+                                    return
+                                last_edit[0] = ahora
+                                last_p[0] = porcentaje
+
+                                p_norm = max(0, min(100, porcentaje))
+                                b_llenos = int(round((p_norm / 100.0) * 10))
+                                b_vacios = 10 - b_llenos
+                                barra = f"`[{'█' * b_llenos}{'░' * b_vacios}]` **{p_norm}%**"
+
+                                txt_prog = (
+                                    f"🎧 **Obteniendo audio MP3:** «{tit_v}»\n"
+                                    f"👤 *Solicitado por:* {user_nombre_target}\n\n"
+                                    f"{estado}\n"
+                                    f"{barra}"
+                                )
+                                if m_id_prog and chat_origen:
+                                    editar_mensaje(chat_origen, m_id_prog, txt_prog)
 
                             texto_fuente = "📺 **Fuente:** YouTube (Audio limpio MP3)"
                             caption_priv = (
@@ -2870,7 +2950,7 @@ def escuchar_comandos() -> None:
                                 f"👤 Para: {user_nombre_target}\n"
                                 f"{texto_fuente}\n"
                                 f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
-                                f"💡 *(Para Recibir los audios por privado en el futuro, abre un chat con el ASISTENTE TOBY y presiona el boton Iniciar).*"
+                                f"💡 *(Para recibir audios en privado, abre chat con EL ASISTENTE TOBY y presiona Iniciar).*"
                             )
 
                             # 1. Revisar si ya contamos con un file_id de Telegram verificado de YouTube (CLEAN)
@@ -2879,6 +2959,7 @@ def escuchar_comandos() -> None:
                             fid_clean = reg_clean.get("file_id") if isinstance(reg_clean, dict) else None
 
                             if fid_clean:
+                                actualizar_progreso(100, "⚡ *¡Audio en caché verificado! Enviando de inmediato...*")
                                 enviado_priv_fid = False
                                 if user_id_target:
                                     ok_pf, _, _ = enviar_audio(
@@ -2890,6 +2971,10 @@ def escuchar_comandos() -> None:
                                     )
                                     enviado_priv_fid = ok_pf
                                 if enviado_priv_fid:
+                                    if m_id_prog and chat_origen:
+                                        editar_mensaje(chat_origen, m_id_prog, f"✅ ¡Audio entregado a **{user_nombre_target}** en su Telegram privado! 🎧")
+                                        time.sleep(5)
+                                        eliminar_mensaje(chat_origen, m_id_prog)
                                     return
                                 if chat_origen:
                                     ok_gf, _, _ = enviar_audio(
@@ -2899,13 +2984,15 @@ def escuchar_comandos() -> None:
                                         title=tit_v,
                                         performer="ALANISO / Maestro Mario Carrillo"
                                     )
-                                    if ok_gf:
-                                        return
+                                    if m_id_prog:
+                                        eliminar_mensaje(chat_origen, m_id_prog)
+                                    return
 
-                            # 2. Extraer o cargar desde caché limpio local de YouTube
-                            archivo_mp3, origen = descargar_audio_youtube_robusto(vid_target, tit_v)
+                            # 2. Extraer o cargar desde YouTube con reporte de progreso en vivo
+                            archivo_mp3, origen = descargar_audio_youtube_robusto(vid_target, tit_v, progreso_callback=actualizar_progreso)
 
                             if archivo_mp3 and os.path.exists(archivo_mp3) and os.path.getsize(archivo_mp3) > 1000:
+                                actualizar_progreso(92, "📤 *Subiendo archivo de audio a Telegram...*")
                                 enviado_priv = False
                                 f_id_subido = None
                                 if user_id_target:
@@ -2934,14 +3021,24 @@ def escuchar_comandos() -> None:
                                         {"video_id": f"CLEAN_{vid_target}", "titulo": tit_v, "fuente": "YOUTUBE"},
                                         file_id=f_id_subido
                                     )
+
+                                if enviado_priv:
+                                    actualizar_progreso(100, f"✅ ¡Audio entregado exitosamente a **{user_nombre_target}** en su Telegram privado! 🎧")
+                                else:
+                                    actualizar_progreso(100, "✅ *¡Audio completado y entregado con éxito aquí en el grupo!* 🎧")
+
+                                if m_id_prog and chat_origen:
+                                    time.sleep(6)
+                                    eliminar_mensaje(chat_origen, m_id_prog)
                             else:
-                                if chat_origen:
-                                    enviar_mensaje(
+                                if m_id_prog and chat_origen:
+                                    editar_mensaje(
                                         chat_origen,
+                                        m_id_prog,
                                         f"⚠️ No se pudo extraer el audio del video de YouTube: https://www.youtube.com/watch?v={vid_target}\nPor favor intenta nuevamente en unos momentos."
                                     )
 
-                        threading.Thread(target=procesar_descarga_ytmp3, args=(vid, u_id, u_nom, chat_id_cb), daemon=True).start()
+                        threading.Thread(target=procesar_descarga_ytmp3, args=(vid, u_id, u_nom, chat_id_cb, msg_id_cb), daemon=True).start()
                         continue
 
                     elif cb_data.startswith("yttarea_"):
