@@ -7,15 +7,16 @@ Centinela automático para monitorear, precargar y rotar audios limpios de YouTu
 Diseñado para ejecutarse en entorno local (con IP residencial libre de bloqueos de YouTube).
 
 Arquitectura Híbrida:
-1. Caché Caliente: Mantiene solo los 10 audios más recientes en disco y Git (~200 MB).
+1. Caché Caliente: Mantiene solo los 10 audios más recientes de YouTube en disco y Git (~200 MB).
 2. Catálogo Permanente: Registra todos los audios y file_id en data/meditaciones/audios_registrados.json.
 3. Rotación Automática: Cuando ingresa un audio nuevo, retira de Git los más antiguos conservándolos en el catálogo.
 
 Uso:
-    python centinela_youtube.py                # Escanea canales, aplica rotación y sincroniza con GitHub
-    python centinela_youtube.py --no-push      # Descarga y rota sin hacer git push
-    python centinela_youtube.py --video <URL>  # Descarga un video específico por ID o URL
-    python centinela_youtube.py --max-cache 10 # Define cuántos audios conservar en caché caliente
+    python centinela_youtube.py                   # Ejecuta 1 ciclo de escaneo y sincronización con GitHub
+    python centinela_youtube.py --daemon          # Ejecuta en bucle continuo cada 15 minutos en segundo plano
+    python centinela_youtube.py --intervalo 15    # Especifica los minutos entre cada escaneo continuo
+    python centinela_youtube.py --video <URL>     # Descarga un video específico por ID o URL
+    python centinela_youtube.py --max-cache 10    # Define cuántos audios conservar en caché caliente
 """
 
 import os
@@ -23,6 +24,7 @@ import sys
 import json
 import re
 import glob
+import time
 import argparse
 import subprocess
 
@@ -96,25 +98,39 @@ def guardar_audios_registrados(db: dict) -> None:
         print(f"⚠️ Error guardando audios_registrados: {e}")
 
 
-def rotar_audios_limpios(limite_max: int = 10) -> list[str]:
-    """Mantiene en disco y Git solo los `limite_max` audios más recientes.
-    Asegura los metadatos en audios_registrados.json antes de retirar los archivos viejos.
+def rotar_audios_limpios(prioridad_ids: list[str] = None, limite_max: int = 10) -> list[str]:
+    """Mantiene en disco y Git solo los `limite_max` audios más recientes en orden cronológico real de YouTube.
+    Asegura los metadatos en audios_registrados.json antes de retirar los archivos viejos de Git.
     """
-    patron = os.path.join(CARP_MED, "yt_clean_*.mp3")
-    archivos = glob.glob(patron)
+    archivos = glob.glob(os.path.join(CARP_MED, "yt_clean_*.mp3"))
     if len(archivos) <= limite_max:
         return []
 
-    # Ordenar por fecha de modificación (los más recientes primero)
-    archivos.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    a_conservar = []
+    if prioridad_ids:
+        for p_id in prioridad_ids:
+            f_path = os.path.join(CARP_MED, f"yt_clean_{p_id}.mp3")
+            if os.path.exists(f_path) and len(a_conservar) < limite_max:
+                a_conservar.append(os.path.normpath(f_path))
 
-    a_conservar = archivos[:limite_max]
-    a_eliminar = archivos[limite_max:]
+    # Si faltan para completar el límite, usar fecha de modificación como fallback
+    if len(a_conservar) < limite_max:
+        restantes = [f for f in archivos if os.path.normpath(f) not in a_conservar]
+        restantes.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+        for r_path in restantes:
+            if len(a_conservar) < limite_max:
+                a_conservar.append(os.path.normpath(r_path))
+
+    norm_conservar = set(a_conservar)
+    a_eliminar = [f for f in archivos if os.path.normpath(f) not in norm_conservar]
+
+    if not a_eliminar:
+        return []
 
     db_reg = cargar_audios_registrados()
     eliminados = []
 
-    print(f"\n♻️ Rotación de caché caliente: Se encontraron {len(archivos)} audios limpios (límite: {limite_max}).")
+    print(f"\n♻️ Rotación de caché caliente: Se conservan {len(a_conservar)} audios recientes. Retirando {len(a_eliminar)} antiguos.")
     for f_viejo in a_eliminar:
         m = re.search(r"yt_clean_([a-zA-Z0-9_-]{11})\.mp3$", f_viejo)
         v_id = m.group(1) if m else os.path.basename(f_viejo)
@@ -131,7 +147,7 @@ def rotar_audios_limpios(limite_max: int = 10) -> list[str]:
             }
 
         try:
-            # Retirar de Git si está rastreado
+            # Retirar de Git si está rastreado, o borrar de disco
             res_rm = subprocess.run(["git", "rm", "-f", f_viejo], capture_output=True, text=True)
             if res_rm.returncode != 0 and os.path.exists(f_viejo):
                 os.remove(f_viejo)
@@ -144,14 +160,7 @@ def rotar_audios_limpios(limite_max: int = 10) -> list[str]:
     return eliminados
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Centinela local de precarga y rotación de audios de YouTube")
-    parser.add_argument("--video", "-v", type=str, help="ID o URL de un video específico a descargar", default="")
-    parser.add_argument("--no-push", action="store_true", help="No ejecutar git push al finalizar")
-    parser.add_argument("--max-cache", "-m", type=int, default=10, help="Máximo de audios limpios en caché caliente (default: 10)")
-    parser.add_argument("--limite", "-l", type=int, default=5, help="Máximo de videos a descargar por canal en cada escaneo")
-    args = parser.parse_args()
-
+def ejecutar_ciclo(args) -> bool:
     os.makedirs(CARP_MED, exist_ok=True)
     vistos = cargar_vistos()
 
@@ -159,40 +168,56 @@ def main():
     from radar_youtube import CANALES_RADAR, extraer_videos_canal
 
     candidatos = []
+    descargados_ok = []
+    prioridad_ids = []
 
     # 1. Modo video específico
     if args.video:
         vid_esp = extraer_video_id(args.video)
         if not vid_esp:
             print(f"❌ No se pudo identificar un ID de YouTube válido en: {args.video}")
-            return
+            return False
         candidatos.append({"id": vid_esp, "titulo": f"Video {vid_esp}", "canal": "Manual"})
+        prioridad_ids.append(vid_esp)
     else:
         # 2. Modo escaneo de canales oficiales vía radar
-        print("🔍 Escaneando canales oficiales de YouTube...")
+        print(f"[{time.strftime('%H:%M:%S')}] 🔍 Escaneando canales oficiales de YouTube...")
         for canal in CANALES_RADAR:
-            items = extraer_videos_canal(canal)
-            print(f"   📡 {canal['nombre']}: {len(items)} videos detectados en canal.")
-            agregados = 0
-            for it in items:
-                v_id = it.get("video_id") or it.get("id")
-                if not v_id:
-                    continue
-                tit = it.get("titulo", f"Video {v_id}")
-                archivo_mp3 = os.path.join(CARP_MED, f"yt_clean_{v_id}.mp3")
-                if not os.path.exists(archivo_mp3) or os.path.getsize(archivo_mp3) < 1000:
-                    candidatos.append({
-                        "id": v_id,
-                        "titulo": tit,
-                        "canal": canal["nombre"]
-                    })
-                    agregados += 1
-                    if agregados >= args.limite:
-                        break
+            try:
+                items = extraer_videos_canal(canal)
+                print(f"   📡 {canal['nombre']}: {len(items)} videos detectados.")
+                for idx, it in enumerate(items[:6]):
+                    v_id = it.get("video_id") or it.get("id")
+                    if not v_id:
+                        continue
+                    if v_id not in prioridad_ids:
+                        prioridad_ids.append(v_id)
 
-    descargados_ok = []
+                    tit = it.get("titulo", f"Video {v_id}")
+                    archivo_mp3 = os.path.join(CARP_MED, f"yt_clean_{v_id}.mp3")
+
+                    # Si es uno de los 2 videos más recientes del canal y no tiene audio en disco:
+                    if idx < 2 and (not os.path.exists(archivo_mp3) or os.path.getsize(archivo_mp3) < 1000):
+                        if not any(c["id"] == v_id for c in candidatos):
+                            candidatos.append({
+                                "id": v_id,
+                                "titulo": tit,
+                                "canal": canal["nombre"]
+                            })
+            except Exception as e_ch:
+                print(f"   ⚠️ Error escaneando {canal['nombre']}: {e_ch}")
+
+    # 3. Detectar si hay audios existentes en disco que aún no se han registrado en vistos
+    for f_clean in glob.glob(os.path.join(CARP_MED, "yt_clean_*.mp3")):
+        m = re.search(r"yt_clean_([a-zA-Z0-9_-]{11})\.mp3$", f_clean)
+        if m:
+            v_id_disco = m.group(1)
+            if v_id_disco not in vistos:
+                vistos.append(v_id_disco)
+                descargados_ok.append(v_id_disco)
+
     if candidatos:
-        print(f"\n⚡ Se encontraron {len(candidatos)} video(s) pendientes de precarga:")
+        print(f"\n⚡ Se encontraron {len(candidatos)} video(s) recientes pendientes de precarga:")
         for c in candidatos:
             print(f"   • [{c['canal']}] {c['id']} - {c['titulo']}")
 
@@ -215,14 +240,17 @@ def main():
 
         if descargados_ok:
             guardar_vistos(vistos)
-            print(f"\n🎉 {len(descargados_ok)} audio(s) descargados con éxito.")
+            print(f"\n🎉 {len(descargados_ok)} audio(s) registrados con éxito.")
     else:
         print("✅ No hay videos nuevos pendientes de descarga.")
 
-    # 3. Aplicar rotación de caché caliente (Capped a `args.max_cache` audios)
-    eliminados = rotar_audios_limpios(limite_max=args.max_cache)
+    if descargados_ok:
+        guardar_vistos(vistos)
 
-    # 4. Sincronización con GitHub si hubo descargas o rotaciones
+    # 4. Aplicar rotación determinista de caché caliente (Capped a `args.max_cache` audios más recientes)
+    eliminados = rotar_audios_limpios(prioridad_ids=prioridad_ids, limite_max=args.max_cache)
+
+    # 5. Sincronización con GitHub si hubo descargas, registros o rotaciones
     hay_cambios = bool(descargados_ok or eliminados)
 
     if hay_cambios and not args.no_push:
@@ -247,9 +275,10 @@ def main():
             res_c = subprocess.run(["git", "commit", "-m", msg], capture_output=True, text=True)
             if res_c.returncode == 0:
                 print("   ✅ Commit creado.")
+                subprocess.run(["git", "pull", "--rebase", "origin", "main"], check=False)
                 res_p = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
                 if res_p.returncode == 0:
-                    print("   ✅ Push exitoso a GitHub. Render comenzará el despliegue optimizado.")
+                    print("   ✅ Push exitoso a GitHub. Render comenzará el despliegue con el audio listo.")
                 else:
                     print(f"   ⚠️ Error en git push: {res_p.stderr.strip()}")
             else:
@@ -258,7 +287,35 @@ def main():
             print(f"   ⚠️ Error sincronizando con Git: {e_git}")
     else:
         if not hay_cambios:
-            print("\n✨ El repositorio ya está en su estado óptimo. No se requirieron cambios.")
+            print("✨ El repositorio ya está en su estado óptimo. No se requirieron cambios.")
+
+    return hay_cambios
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Centinela local de precarga y rotación de audios de YouTube")
+    parser.add_argument("--video", "-v", type=str, help="ID o URL de un video específico a descargar", default="")
+    parser.add_argument("--no-push", action="store_true", help="No ejecutar git push al finalizar")
+    parser.add_argument("--max-cache", "-m", type=int, default=10, help="Máximo de audios limpios en caché caliente (default: 10)")
+    parser.add_argument("--daemon", "-d", action="store_true", help="Ejecutar en bucle continuo cada N minutos")
+    parser.add_argument("--intervalo", "-i", type=int, default=15, help="Minutos entre cada escaneo en modo daemon (default: 15)")
+    args = parser.parse_args()
+
+    if args.daemon:
+        print(f"🛡️ Centinela YouTube iniciado en modo continuo (escaneo cada {args.intervalo} minutos).")
+        print("💡 Para detenerlo, presiona Ctrl+C.\n")
+        while True:
+            try:
+                ejecutar_ciclo(args)
+            except KeyboardInterrupt:
+                print("\n🛑 Centinela detenido por el usuario.")
+                break
+            except Exception as e_loop:
+                print(f"⚠️ Error en ciclo centinela: {e_loop}")
+            print(f"\n⏳ Próximo escaneo en {args.intervalo} minutos ({time.strftime('%H:%M:%S')})...\n")
+            time.sleep(args.intervalo * 60)
+    else:
+        ejecutar_ciclo(args)
 
 
 if __name__ == "__main__":
