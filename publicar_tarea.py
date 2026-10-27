@@ -343,18 +343,32 @@ def generar_banner_tarea_dia(ruta_salida: str, info_audio: dict, dia_semana: str
             draw.text((x_c + dx, y_c + dy), txt_cat, font=font_cat, fill=(0, 150, 190))
         draw.text((x_c, y_c), txt_cat, font=font_cat, fill=(235, 252, 255))
 
-        # 3. Número dentro del anillo de neón - Grande
-        num_raw = str(info_audio.get("numero", "")).strip()
-        txt_num = f"#{num_raw}" if num_raw and not num_raw.startswith("#") else num_raw
-        tam_num = f_scale(27 if len(txt_num) <= 5 else 23)
-        font_num = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], tam_num)
+        # 3. Número dentro del anillo de neón (Sin '#', tamaño grande ajustado al círculo)
+        num_raw = str(info_audio.get("numero", "")).strip().lstrip("#")
+        txt_num = num_raw if num_raw else ""
+
+        # Centro óptico del anillo dorado
+        cx, cy = int(176 * sx), int(486 * sy)
+
+        # Ajuste dinámico de tamaño: lo más grande posible dentro del círculo sin salirse
+        max_nw = int(68 * sx)
+        max_nh = int(39 * sy)
+        tam_base = 42
+        font_num = None
+        while tam_base >= 22:
+            f_test = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], f_scale(tam_base))
+            bb = draw.textbbox((0, 0), txt_num, font=f_test)
+            if (bb[2] - bb[0]) <= max_nw and (bb[3] - bb[1]) <= max_nh:
+                font_num = f_test
+                break
+            tam_base -= 1
+        if font_num is None:
+            font_num = _obtener_fuente(["segoeuib.ttf", "arialbd.ttf"], f_scale(24))
+
         bbox_n = draw.textbbox((0, 0), txt_num, font=font_num)
-        nw = bbox_n[2] - bbox_n[0]
-        nh = bbox_n[3] - bbox_n[1]
-        cx, cy = int(182 * sx), int(476 * sy)
-        x_n = cx - nw // 2
-        y_n = cy - nh // 2 - int(2 * sy)
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        x_n = cx - (bbox_n[2] + bbox_n[0]) // 2
+        y_n = cy - (bbox_n[3] + bbox_n[1]) // 2
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)]:
             draw.text((x_n + dx, y_n + dy), txt_num, font=font_num, fill=(0, 180, 220))
         draw.text((x_n, y_n), txt_num, font=font_num, fill=(225, 255, 250))
 
