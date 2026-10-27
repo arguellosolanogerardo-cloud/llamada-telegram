@@ -69,8 +69,9 @@ class AjusteEQ:
 
 def describir_ajuste(a: AjusteEQ) -> str:
     sep = " · ✂️ Separación voz/música: ON" if a.separar else ""
+    rnn = " · 🧠 Red Neuronal RNNoise: ON" if (obtener_ruta_modelo_rnnoise() and arnndn_disponible()) else ""
     return (f"🎙️ Voz {a.voz}/3 · 🎵 Atenuar música {a.musica}/3 · "
-            f"🔇 Limpieza {a.limpieza}/3{sep}")
+            f"🔇 Limpieza {a.limpieza}/3{rnn}{sep}")
 
 
 class ErrorProcesamientoAudio(RuntimeError):
@@ -150,7 +151,16 @@ def analizar_audio(ruta: str) -> AjusteEQ:
         fuera = banda["rms"] - total["rms"]   # cercano a 0 => casi todo es voz
         ruido = total["ruido"]
 
-        limpieza = 3 if ruido > -38 else 2 if ruido > -45 else 1 if ruido > -55 else 0
+        if ruido <= -60:
+            limpieza = 2
+        elif ruido > -38:
+            limpieza = 3
+        elif ruido > -48:
+            limpieza = 2
+        elif ruido > -58:
+            limpieza = 1
+        else:
+            limpieza = 1
         musica = 3 if fuera < -9 else 2 if fuera < -6 else 1 if fuera < -3.5 else 0
         voz = 0 if musica == 0 else 1 if musica < 3 else 2
         aj = AjusteEQ(voz=voz, musica=musica, limpieza=limpieza,
@@ -196,21 +206,79 @@ def _mezcla_separada(ruta: str, aj: AjusteEQ, cfg: ConfigAudio) -> str | None:
 # --------------------------------------------------------------------------- #
 # Procesado
 # --------------------------------------------------------------------------- #
+
+def obtener_ruta_modelo_rnnoise() -> str | None:
+    """Busca o descarga el modelo neuronal RNNoise (cb.rnnn) para supresión inteligente de ruido."""
+    candidatos = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'assets', 'rnnoise', 'cb.rnnn'),
+        os.path.join(os.getcwd(), 'data', 'assets', 'rnnoise', 'cb.rnnn'),
+        os.path.join('data', 'assets', 'rnnoise', 'cb.rnnn'),
+    ]
+    for c in candidatos:
+        if os.path.exists(c) and os.path.getsize(c) > 50000:
+            return os.path.abspath(c)
+    dest = candidatos[0]
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        url = 'https://raw.githubusercontent.com/richardpl/arnndn-models/master/cb.rnnn'
+        import urllib.request
+        _log('Descargando modelo neuronal RNNoise (cb.rnnn ~300KB)...')
+        urllib.request.urlretrieve(url, dest)
+        if os.path.exists(dest) and os.path.getsize(dest) > 50000:
+            _log('✅ Modelo neuronal RNNoise listo.')
+            return os.path.abspath(dest)
+    except Exception as e:
+        _log(f'Nota: No se pudo descargar modelo RNNoise: {e}. Se usará denoiser espectral.')
+    return None
+
+
+def arnndn_disponible() -> bool:
+    """Verifica si FFmpeg soporta el filtro arnndn."""
+    try:
+        res = _ejecutar([_bin('ffmpeg'), '-hide_banner', '-filters'], 10)
+        return 'arnndn' in res.stdout
+    except Exception:
+        return False
+
+
 def _cadena(aj: AjusteEQ, separado: bool) -> str:
     graves = 14000
-    lp_ruido = (14000, 12000, 10000, 8500)[aj.limpieza]
-    lp_musica = graves if separado else (14000, 12000, 10000, 8500)[aj.musica]
-    hp = ConfigAudio.corte_graves_hz + (0 if separado else 30 * aj.musica)
+    lp_ruido = (12500, 11000, 9500, 8500)[aj.limpieza]
+    lp_musica = graves if separado else (12500, 11000, 9500, 8500)[aj.musica]
+    hp = ConfigAudio.corte_graves_hz + (0 if separado else 25 * aj.musica)
     dip = -4 - (0 if separado else aj.musica * 2)
     f = [
         "aformat=channel_layouts=stereo", "pan=mono|c0=0.5*c0+0.5*c1",
         f"highpass=f={hp}:poles=2",
-        f"afftdn=nr={8 + 4 * aj.limpieza}:nf={ConfigAudio.piso_ruido_db}:tn=1",
-        f"lowpass=f={min(lp_ruido, lp_musica)}",
-        f"equalizer=f=250:t=q:w=1.0:g={dip}",
-        f"equalizer=f=600:t=q:w=1.5:g={dip + 1}",
-        f"equalizer=f=3000:t=q:w=0.8:g={5 + 2.0 * aj.voz}",
     ]
+
+    # 1. Supresión de Ruido con IA RNNoise (o fallback espectral afftdn)
+    modelo_rnn = obtener_ruta_modelo_rnnoise()
+    if modelo_rnn and arnndn_disponible():
+        mix = (0.90, 0.95, 0.98, 1.0)[aj.limpieza]
+        try:
+            rel = os.path.relpath(modelo_rnn).replace(os.sep, '/')
+            m_esc = rel if not rel.startswith('..') else modelo_rnn.replace(os.sep, '/').replace(':', r'\\:')
+        except Exception:
+            m_esc = modelo_rnn.replace(os.sep, '/').replace(':', r'\\:')
+        f.append("aresample=48000")
+        f.append(f"arnndn=m={m_esc}:mix={mix}")
+    else:
+        nr_db = 10 + 4 * aj.limpieza
+        f.append(f"afftdn=nr={nr_db}:nf=-40:tn=1")
+
+    # 2. Compuerta de Ruido Dinámica (agate) para silencios y pausas 100% limpios
+    umbral_gate = "-38dB" if aj.limpieza >= 2 else "-44dB"
+    f.append(f"agate=threshold={umbral_gate}:range=-24dB:attack=20:release=250")
+
+    # 3. Filtro Paso Bajo para recortar soplidos de alta frecuencia
+    f.append(f"lowpass=f={min(lp_ruido, lp_musica)}")
+
+    # 4. Ecualización de Voz
+    f.append(f"equalizer=f=250:t=q:w=1.0:g={dip}")
+    f.append(f"equalizer=f=600:t=q:w=1.5:g={dip + 1}")
+    f.append(f"equalizer=f=3000:t=q:w=0.8:g={5 + 2.0 * aj.voz}")
+
     if aj.voz >= 1:
         f.append(f"speechnorm=e={5 + aj.voz * 2}:r=0.0001:l=1")
     f.append("acompressor=threshold=-20dB:ratio=3:attack=10:release=120:makeup=2")

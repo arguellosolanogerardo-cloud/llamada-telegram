@@ -602,6 +602,14 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
             except Exception as e_comp:
                 log_debug(f"Error comprimiendo audio grande: {e_comp}")
 
+        # Remasterizar y cancelar ruido con IA RNNoise + Compuerta de Ruido
+        try:
+            from mejorar_audio import mejorar_audio
+            log_debug(f"Remasterizando audio YouTube {vid_target} con IA RNNoise y compuerta de ruido...")
+            mejorar_audio(archivo_final, ruta_salida=archivo_final, forzar=True)
+        except Exception as e_mej:
+            log_debug(f"Nota aplicando mejora a YouTube audio {vid_target}: {e_mej}")
+
         # Guardar en caché verificado de YouTube
         try:
             shutil.copy2(archivo_final, cache_clean)
