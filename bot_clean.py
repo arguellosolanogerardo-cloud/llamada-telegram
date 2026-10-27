@@ -744,7 +744,7 @@ def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
 
     # Texto con cuadro de cita / blockquote de Telegram
     caption = (
-        "≡ƒöö **RECORDATORIO: SALA DE VOZ EN 30 MINUTOS** ΓÅ░\n"
+        "≡ƒöö **RECORDATORIO: VIDEOLLAMADA GRUPAL EN 30 MINUTOS** ΓÅ░\n"
         "ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü\n"
         "≡ƒòù **Apertura de sala:** 7:56 PM Colombia\n"
         f"{txt_med_bloque}"
