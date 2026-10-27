@@ -248,6 +248,21 @@ def ejecutar_ciclo(args) -> bool:
         if descargados_ok:
             guardar_vistos(vistos)
             print(f"\n🎉 {len(descargados_ok)} audio(s) registrados con éxito.")
+            try:
+                db_reg = cargar_audios_registrados()
+                for c in candidatos:
+                    if c["id"] in descargados_ok:
+                        clave = f"YT_CLEAN_{c['id']}"
+                        if clave not in db_reg:
+                            db_reg[clave] = {
+                                "video_id": f"CLEAN_{c['id']}",
+                                "titulo": c.get("titulo", f"Video {c['id']}"),
+                                "fuente": "YOUTUBE",
+                                "file_id": None
+                            }
+                guardar_audios_registrados(db_reg)
+            except Exception as e_reg_db:
+                print(f"Nota registrando en db: {e_reg_db}")
     else:
         print("✅ No hay videos nuevos pendientes de descarga.")
 

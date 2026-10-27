@@ -388,6 +388,21 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "") -> 
         log_debug(f"Audio YouTube {vid_target} servido desde caché limpio local ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
         return (cache_clean, "YOUTUBE")
 
+    # 1b. Fallback GitHub Raw CDN (si el Centinela en la PC ya lo subió al repositorio)
+    try:
+        url_raw_git = f"https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/meditaciones/yt_clean_{vid_target}.mp3"
+        log_debug(f"Buscando audio limpio de {vid_target} en GitHub CDN...")
+        req = urllib.request.Request(url_raw_git, headers={"User-Agent": "BotTelegram/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status == 200:
+                with open(cache_clean, "wb") as f_out:
+                    f_out.write(resp.read())
+                if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
+                    log_debug(f"✅ Audio {vid_target} descargado instantáneamente desde GitHub CDN ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
+                    return (cache_clean, "YOUTUBE")
+    except Exception as e_gh:
+        log_debug(f"Audio {vid_target} no encontrado en GitHub CDN ({e_gh}). Procediendo a extracción...")
+
     # Purgar cualquier caché antiguo o de Drive para evitar servir audios ruidosos
     for cache_antiguo in (
         os.path.join(carp_med, f"yt_dl_{vid_target}.mp3"),
