@@ -572,25 +572,75 @@ def enviar_foto(chat_id: int | str, ruta_foto: str, caption: str = "", reply_mar
 
 
 def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> str | None:
-    """Genera una tarjeta gr├ífica de alta resoluci├│n en color v├¡vido para el aviso de preparaci├│n."""
+    """Genera la tarjeta gráfica oficial en alta resolución para el aviso de preparación de las 7:26 PM.
+    Utiliza la plantilla visual HD (data/assets/plantilla_aviso_30min.png) sobreescribiendo la meditación del día.
+    Si la plantilla no estuviera disponible, genera el diseño programático como fallback.
+    """
     try:
         from PIL import Image, ImageDraw, ImageFont
+
+        # 1. Determinar el texto de la meditación del día
+        tipo = info_tarea.get('tipo', 'Meditación').capitalize() if info_tarea else "Meditación"
+        num = info_tarea.get('numero', '') if info_tarea else ""
+        tit = info_tarea.get('titulo', '') if info_tarea else ""
+        maestro = info_tarea.get('maestro', '') if info_tarea else ""
+
+        if num and tit:
+            txt_med = f"🧘 Sesión de Hoy: {tipo} #{num} - «{tit}»"
+            if maestro:
+                txt_med += f" ({maestro})"
+        elif tit:
+            txt_med = f"🧘 Sesión de Hoy: «{tit}»"
+        else:
+            txt_med = "🧘 Sesión de Hoy: Videollamada y Meditación en Directo"
+
+        if len(txt_med) > 85:
+            txt_med = txt_med[:82] + "..."
+
+        ruta_plantilla = os.path.join("data", "assets", "plantilla_aviso_30min.png")
+
+        # 2. Si existe la plantilla visual HD subida por el usuario
+        if os.path.exists(ruta_plantilla):
+            img = Image.open(ruta_plantilla).convert("RGB")
+            draw = ImageDraw.Draw(img)
+
+            font_tarea = None
+            for fn in ["segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"]:
+                try:
+                    font_tarea = ImageFont.truetype(fn, 19)
+                    break
+                except Exception:
+                    continue
+            if not font_tarea:
+                font_tarea = ImageFont.load_default()
+
+            try:
+                bbox = draw.textbbox((0, 0), txt_med, font=font_tarea)
+                th = bbox[3] - bbox[1]
+            except Exception:
+                th = 20
+            y_text = 143 + (56 - th) // 2
+
+            draw.text((68, y_text), txt_med, fill=(254, 243, 199), font=font_tarea)
+
+            os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
+            img.save(ruta_salida, "PNG", optimize=True)
+            return ruta_salida
+
+        # Fallback programático (si no está el archivo de plantilla)
         width, height = 1080, 680
         img = Image.new("RGB", (width, height), color=(15, 23, 42))
         draw = ImageDraw.Draw(img)
 
-        # 1. Fondo degradado de alta gama (Azul c├│smico profundo)
         for y in range(height):
             r = int(14 + (28 - 14) * (y / height))
             g = int(20 + (16 - 20) * (y / height))
             b = int(48 + (72 - 48) * (y / height))
             draw.line([(0, y), (width, y)], fill=(r, g, b))
 
-        # 2. Borde exterior ne├│n brillante con doble marco
         draw.rounded_rectangle([(16, 16), (width - 16, height - 16)], radius=24, outline=(99, 102, 241), width=3)
         draw.rounded_rectangle([(22, 22), (width - 22, height - 22)], radius=20, outline=(56, 189, 248), width=2)
 
-        # 3. Fuentes compatibles
         font_badge = font_title = font_body = font_bold = font_tarea = None
         for fn in ["segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"]:
             try:
@@ -605,35 +655,24 @@ def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> st
         if not font_badge:
             font_badge = font_title = font_bold = font_body = font_tarea = ImageFont.load_default()
 
-        # 4. Header Badge llamativo (Violeta vibrante con resplandor)
         draw.rounded_rectangle([(45, 38), (width - 45, 128)], radius=18, fill=(67, 24, 255), outline=(147, 197, 253), width=2)
-        draw.text((75, 58), "AVISO: SALA DE VOZ EN 30 MINUTOS (7:56 PM)", fill=(255, 255, 255), font=font_badge)
+        draw.text((75, 58), "AVISO: VIDEOLLAMADA EN 30 MINUTOS (7:56 PM)", fill=(255, 255, 255), font=font_badge)
 
-        # 5. Caja de Tarea del D├¡a (Dorado / ├ümbar brillante)
         y_caja_start = 148
         if info_tarea:
             draw.rounded_rectangle([(45, y_caja_start), (width - 45, y_caja_start + 65)], radius=14, fill=(120, 53, 15), outline=(245, 158, 11), width=2)
-            tipo = info_tarea.get('tipo', 'Meditaci├│n').capitalize()
-            num = info_tarea.get('numero', '')
-            tit = info_tarea.get('titulo', '')
-            maestro = info_tarea.get('maestro', '')
-            txt_med = f"Sesi├│n de Hoy: {tipo} #{num} - ┬½{tit}┬╗ ({maestro})"
-            if len(txt_med) > 85:
-                txt_med = txt_med[:82] + "..."
             draw.text((70, y_caja_start + 20), txt_med, fill=(254, 243, 199), font=font_tarea)
             y_caja_start += 80
 
-        # 6. Cuadro interior de preparaci├│n (Fondo oscuro con borde Cian ne├│n)
         caja_h = 345 if info_tarea else 420
         draw.rounded_rectangle([(45, y_caja_start), (width - 45, y_caja_start + caja_h)], radius=18, fill=(30, 41, 59), outline=(56, 189, 248), width=2)
-
         draw.text((75, y_caja_start + 22), "CONSEJOS IMPORTANTES ANTES DE ENTRAR A LA SALA:", fill=(56, 189, 248), font=font_title)
 
         tips = [
-            ("1", "Bater├¡a:", "Carga tu celular al menos al 50% o d├⌐jalo conectado."),
-            ("2", "Conexi├│n:", "Usa Wi-Fi o datos estables y evita cambiar de red."),
-            ("3", "Android:", "Pon Telegram en 'Sin restricciones' de bater├¡a y candado."),
-            ("4", "Audio:", "Ten listos tus aud├¡fonos para disfrutar la meditaci├│n.")
+            ("1", "Batería:", "Carga tu celular al menos al 50% o déjalo conectado."),
+            ("2", "Conexión:", "Usa Wi-Fi o datos estables y evita cambiar de red."),
+            ("3", "Android:", "Pon Telegram en 'Sin restricciones' de batería y candado."),
+            ("4", "Audio:", "Ten listos tus audífonos para disfrutar la meditación.")
         ]
 
         y_pos = y_caja_start + 72
@@ -650,8 +689,7 @@ def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> st
             draw.text((x_desc, y_pos + 8), desc, fill=(241, 245, 249), font=font_body)
             y_pos += sep
 
-        # 7. Footer
-        draw.text((75, height - 52), "Comunidad La Verdad Os Har├í Libres  ΓÇó  Apertura en directo a las 7:56 PM", fill=(148, 163, 184), font=font_body)
+        draw.text((75, height - 52), "Grupo La Verdad Os Hará Libres  •  Apertura en directo a las 7:56 PM", fill=(148, 163, 184), font=font_body)
 
         os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
         img.save(ruta_salida, "PNG")
