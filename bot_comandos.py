@@ -385,25 +385,36 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
                 pass
         return (cache_clean, "YOUTUBE")
 
-    # 1b. Fallback GitHub Raw CDN
-    try:
-        url_raw_git = f"https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/meditaciones/yt_clean_{vid_target}.mp3"
-        log_debug(f"Buscando audio limpio de {vid_target} en GitHub CDN...")
-        req = urllib.request.Request(url_raw_git, headers={"User-Agent": "BotTelegram/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            if resp.status == 200:
-                with open(cache_clean, "wb") as f_out:
-                    f_out.write(resp.read())
-                if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
-                    log_debug(f"✅ Audio {vid_target} descargado instantáneamente desde GitHub CDN ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
-                    if progreso_callback:
-                        try:
-                            progreso_callback(100, "⚡ *¡Audio descargado desde CDN!*")
-                        except Exception:
-                            pass
-                    return (cache_clean, "YOUTUBE")
-    except Exception as e_gh:
-        log_debug(f"Audio {vid_target} no encontrado en GitHub CDN ({e_gh}). Procediendo a extracción...")
+    # 1b. Fallback GitHub Raw CDN (con sondeo inteligente si está recién anunciado)
+    url_raw_git = f"https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/meditaciones/yt_clean_{vid_target}.mp3"
+    max_reintentos_cdn = 6 if progreso_callback else 1
+    for intento_cdn in range(max_reintentos_cdn):
+        try:
+            url_nocache = f"{url_raw_git}?t={int(time.time())}"
+            req_cdn = urllib.request.Request(url_nocache, headers={"User-Agent": "BotTelegram/1.0"})
+            with urllib.request.urlopen(req_cdn, timeout=12) as resp:
+                if resp.status == 200:
+                    with open(cache_clean, "wb") as f_out:
+                        f_out.write(resp.read())
+                    if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
+                        log_debug(f"✅ Audio {vid_target} descargado instantáneamente desde GitHub CDN ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
+                        if progreso_callback:
+                            try:
+                                progreso_callback(100, "⚡ *¡Audio oficial verificado y listo!*")
+                            except Exception:
+                                pass
+                        return (cache_clean, "YOUTUBE")
+        except Exception:
+            pass
+
+        if intento_cdn < max_reintentos_cdn - 1:
+            if progreso_callback:
+                try:
+                    p_espera = min(65, 20 + intento_cdn * 9)
+                    progreso_callback(p_espera, f"⏳ *Sincronizando audio oficial con el servidor ({intento_cdn + 1}/{max_reintentos_cdn})...*")
+                except Exception:
+                    pass
+            time.sleep(5)
 
     # Purgar cualquier caché antiguo
     for cache_antiguo in (
