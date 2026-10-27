@@ -1,5 +1,6 @@
 import os
 import unittest
+from PIL import Image
 from publicar_tarea import generar_tarjeta_audio
 
 class TestTarjetaAudio(unittest.TestCase):
@@ -31,6 +32,12 @@ class TestTarjetaAudio(unittest.TestCase):
         self.assertGreater(os.path.getsize(self.ruta_thumb), 1000)
         # Requisito de Telegram: thumbnail < 200 KB
         self.assertLess(os.path.getsize(self.ruta_thumb), 200 * 1024)
+
+        # Dimensiones exactas
+        with Image.open(self.ruta_hd) as img_hd:
+            self.assertEqual(img_hd.size, (960, 560))
+        with Image.open(self.ruta_thumb) as img_th:
+            self.assertEqual(img_th.size, (320, 320))
 
 if __name__ == "__main__":
     unittest.main()

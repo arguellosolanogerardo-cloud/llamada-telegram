@@ -3692,15 +3692,11 @@ def escuchar_comandos() -> None:
                                         r_tarj_thumb = os.path.join(carp_med_cmd, f"cover_audio_{n_num}.jpg")
                                         res_tarj = generar_tarjeta_audio(r_tarj_hd, r_tarj_thumb, info_cat)
 
-                                        # Enviar la tarjeta gráfica HD con fondo verde neón y marco violeta neón
-                                        if res_tarj and os.path.exists(r_tarj_hd):
-                                            enviar_foto(target_chat_audio, r_tarj_hd, caption=cap_audio, reply_markup=teclado_aud)
-
-                                        # Enviar el archivo MP3 con la carátula integrada en el reproductor de Telegram
+                                        # 1. ENVIAR PRIMERO EL AUDIO MP3 (para que quede ARRIBA y se pueda dar play de inmediato)
                                         ok_a, m_id_a, f_id_a = enviar_audio(
                                             target_chat_audio,
                                             ruta_audio_desc,
-                                            caption=f"🎧 **Audio oficial:** {t_nom} #{n_num}",
+                                            caption=cap_audio,
                                             title=f"{t_nom} #{n_num} - {info_cat.get('titulo', '')}",
                                             performer=info_cat.get('maestro', 'Alaniso'),
                                             reply_markup=teclado_aud,
@@ -3711,6 +3707,10 @@ def escuchar_comandos() -> None:
                                             msg_id_audio = m_id_a
                                             info_cat["file_id"] = f_id_a
                                             info_cat["msg_id_audio"] = m_id_a
+
+                                        # 2. ENVIAR LA TARJETA GRÁFICA HD (debajo del audio)
+                                        if res_tarj and os.path.exists(r_tarj_hd):
+                                            enviar_foto(target_chat_audio, r_tarj_hd, caption=f"✨ **{t_nom} #{n_num}** — «{info_cat.get('titulo', '')}»", reply_markup=teclado_aud)
                                 except Exception as e_aud_cmd:
                                     print("Nota buscando/subiendo audio en comando /tarea:", e_aud_cmd)
 
