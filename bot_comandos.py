@@ -2841,7 +2841,7 @@ def escuchar_comandos() -> None:
                                 f"👤 Para: {user_nombre_target}\n"
                                 f"{texto_fuente}\n"
                                 f"🔗 https://www.youtube.com/watch?v={vid_target}\n\n"
-                                f"💡 *(Para recibir los audios por privado en el futuro, abre un chat con el bot y presiona Iniciar).*"
+                                f"💡 *(Para Recibir los audios por privado en el futuro, abre un chat con el ASISTENTE TOBY y presiona el boton Iniciar).*"
                             )
 
                             # 1. Revisar si ya contamos con un file_id de Telegram verificado de YouTube (CLEAN)
