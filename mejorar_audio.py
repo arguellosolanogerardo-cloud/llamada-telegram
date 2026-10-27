@@ -87,7 +87,7 @@ def _log(msg: str) -> None:
 
 
 def demucs_disponible() -> bool:
-    return (os.environ.get("AUDIO_DEMUCS", "0") == "1"
+    return (os.environ.get("AUDIO_DEMUCS", "1") != "0"
             and importlib.util.find_spec("demucs") is not None)
 
 
@@ -187,12 +187,19 @@ def _mezcla_separada(ruta: str, aj: AjusteEQ, cfg: ConfigAudio) -> str | None:
     resto = os.path.join(carpeta, "no_vocals.wav")
     if not (os.path.exists(voz) and os.path.exists(resto)
             and os.path.getmtime(voz) >= os.path.getmtime(ruta)):
-        _log("Separando voz y música con Demucs (puede tardar varios minutos)...")
-        res = _ejecutar([sys.executable, "-m", "demucs.separate", "--two-stems=vocals",
+        _log("Separando voz y música con Demucs...")
+        dispositivo = []
+        try:
+            import torch
+            if torch.cuda.is_available():
+                dispositivo = ["-d", "cuda"]
+        except Exception:
+            pass
+        res = _ejecutar([sys.executable, "-m", "demucs.separate", *dispositivo, "--two-stems=vocals",
                          "-n", "htdemucs", "-o", raiz, ruta], cfg.timeout_demucs_s)
         if res.returncode != 0 or not os.path.exists(voz):
             raise ErrorProcesamientoAudio(f"Demucs falló: {res.stderr[-300:]}")
-    peso = (0.5, 0.3, 0.18, 0.1)[aj.musica]
+    peso = (0.35, 0.28, 0.21, 0.10)[aj.musica]
     salida = os.path.join(carpeta, f"mezcla_{aj.musica}.wav")
     res = _ejecutar([_bin("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", voz,
                      "-i", resto, "-filter_complex",
