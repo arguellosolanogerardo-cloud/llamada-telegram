@@ -457,34 +457,59 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
     except Exception:
         pass
 
-    def _ejecutar_cmd_ytdlp(cmd_lista: list, prog_cb=None, timeout_seg=240):
-        if prog_cb:
-            cmd_c = list(cmd_lista)
-            if "--newline" not in cmd_c:
-                cmd_c = cmd_c[:-1] + ["--newline", cmd_c[-1]]
+    def _ejecutar_cmd_ytdlp(cmd_lista: list, prog_cb=None, timeout_seg=60):
+        cmd_c = list(cmd_lista)
+        if "--newline" not in cmd_c:
+            cmd_c = cmd_c[:-1] + ["--newline", cmd_c[-1]]
+        lineas_salida = []
+        try:
+            proc = subprocess.Popen(cmd_c, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+
+            def _lector():
+                try:
+                    for line in iter(proc.stdout.readline, ""):
+                        if not line:
+                            break
+                        line_s = line.strip()
+                        if line_s:
+                            lineas_salida.append(line_s)
+                            if len(lineas_salida) > 40:
+                                lineas_salida.pop(0)
+                        if prog_cb and "[download]" in line and "%" in line:
+                            m_p = re.search(r'(\d+(?:\.\d+)?)%', line)
+                            if m_p:
+                                try:
+                                    val_p = float(m_p.group(1))
+                                    prog_cb(int(15 + val_p * 0.55), f"📥 *Descargando stream de audio ({int(val_p)}%)...*")
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+
+            t_lector = threading.Thread(target=_lector, daemon=True)
+            t_lector.start()
+
             try:
-                proc = subprocess.Popen(cmd_c, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
-                for line in proc.stdout:
-                    if "[download]" in line and "%" in line:
-                        m_p = re.search(r'(\d+(?:\.\d+)?)%', line)
-                        if m_p:
-                            try:
-                                val_p = float(m_p.group(1))
-                                prog_cb(int(15 + val_p * 0.55), f"📥 *Descargando stream de audio ({int(val_p)}%)...*")
-                            except Exception:
-                                pass
                 proc.wait(timeout=timeout_seg)
-                return proc.returncode, ""
-            except Exception as e_proc:
+            except subprocess.TimeoutExpired:
+                log_debug(f"yt-dlp superó timeout ({timeout_seg}s). Forzando cierre...")
                 try:
                     proc.kill()
                 except Exception:
                     pass
-                return -1, str(e_proc)
-        else:
-            r = subprocess.run(cmd_lista, capture_output=True, text=True, timeout=timeout_seg)
-            err = (r.stderr or r.stdout or "").strip()[-300:]
-            return r.returncode, err
+                try:
+                    proc.wait(timeout=4)
+                except Exception:
+                    pass
+
+            t_lector.join(timeout=2)
+            err_resumen = "\n".join(lineas_salida[-8:])
+            if proc.returncode != 0:
+                log_debug(f"yt-dlp código {proc.returncode}:\n{err_resumen}")
+            return proc.returncode, err_resumen
+        except Exception as e_proc:
+            log_debug(f"Error ejecutando yt-dlp: {e_proc}")
+            return -1, str(e_proc)
 
     if progreso_callback:
         try:
@@ -492,35 +517,35 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
         except Exception:
             pass
 
-    # Intento 1: VisionOS
+    # Intento 1: Android client (Máxima compatibilidad sin cookies en servidores cloud)
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
         "--geo-bypass",
         "--http-chunk-size", "10M",
         "-N", "4",
-        "--extractor-args", "youtube:player_client=visionos",
-        "-f", "ba[ext=m4a]/ba[ext=webm]/ba/best",
+        "--extractor-args", "youtube:player_client=android",
+        "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
         "--no-playlist",
         "--no-check-certificates",
-        "--socket-timeout", "35",
-        "--retries", "3",
-    ] + plugin_args + [
+        "--socket-timeout", "25",
+        "--retries", "2",
+    ] + cookie_args + plugin_args + [
         "--output", raw_out_tmpl,
         url_yt
     ]
 
     exito_yt = False
     try:
-        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: VisionOS)...")
-        _ejecutar_cmd_ytdlp(cmd1, progreso_callback, timeout_seg=240)
+        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: Android)...")
+        _ejecutar_cmd_ytdlp(cmd1, progreso_callback, timeout_seg=60)
         matches1 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
         if any(os.path.getsize(m) > 1000 for m in matches1):
             exito_yt = True
     except Exception as e1:
         log_debug(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Multi-cliente Android VR
+    # Intento 2: Web Embedded + Android
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
@@ -528,41 +553,45 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
             "--geo-bypass",
             "--http-chunk-size", "10M",
             "-N", "4",
-            "--extractor-args", "youtube:player_client=visionos,android",
+            "--extractor-args", "youtube:player_client=web_embedded,android",
             "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
-            "--socket-timeout", "35",
+            "--socket-timeout", "25",
             "--retries", "2",
         ] + cookie_args + plugin_args + [
             "--output", raw_out_tmpl,
             url_yt
         ]
         try:
-            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 2: Android VR fallback)...")
-            _ejecutar_cmd_ytdlp(cmd2, progreso_callback, timeout_seg=240)
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 2: Web Embedded)...")
+            _ejecutar_cmd_ytdlp(cmd2, progreso_callback, timeout_seg=60)
             matches2 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
             if any(os.path.getsize(m) > 1000 for m in matches2):
                 exito_yt = True
         except Exception as e2:
             log_debug(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
-    # Intento 3: Universal fallback
+    # Intento 3: VisionOS / Android VR fallback
     if not exito_yt:
         cmd3 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
-            "-f", "ba/18/b/best",
+            "--extractor-args", "youtube:player_client=visionos,android_vr",
+            "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
-            "--socket-timeout", "35",
+            "--socket-timeout", "25",
         ] + cookie_args + plugin_args + [
             "--output", raw_out_tmpl,
             url_yt
         ]
         try:
-            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 3: Universal)...")
-            _ejecutar_cmd_ytdlp(cmd3, progreso_callback, timeout_seg=240)
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 3: VisionOS/VR)...")
+            _ejecutar_cmd_ytdlp(cmd3, progreso_callback, timeout_seg=60)
+            matches3 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
+            if any(os.path.getsize(m) > 1000 for m in matches3):
+                exito_yt = True
         except Exception as e3:
             log_debug(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
 
