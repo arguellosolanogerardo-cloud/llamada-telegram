@@ -1836,7 +1836,7 @@ def _enviar_aviso_preparacion_sala_impl(cid) -> int | None:
     return m_id
 
 
-def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad", reply_markup: dict = None) -> tuple[bool, int | None, str | None]:
+def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: str = "Meditación Diaria", performer: str = "Comunidad", reply_markup: dict = None, thumbnail: str = None) -> tuple[bool, int | None, str | None]:
     if not BOT_TOKEN or not ruta_audio:
         return False, None, None
 
@@ -1887,6 +1887,7 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
     if reply_markup:
         data["reply_markup"] = json.dumps(reply_markup)
 
+    f_thumb = None
     try:
         t_inicio = time.time()
         tam_mb = round(os.path.getsize(ruta_audio) / (1024 * 1024), 2)
@@ -1898,14 +1899,21 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
         log_debug(f"Iniciando subida de audio local a {chat_id} ({nombre_subida}, {tam_mb} MB)...")
         with open(ruta_audio, "rb") as f:
             files = {"audio": (nombre_subida, f, "audio/mpeg")}
+            if thumbnail and os.path.exists(thumbnail):
+                try:
+                    f_thumb = open(thumbnail, "rb")
+                    files["thumbnail"] = (os.path.basename(thumbnail), f_thumb, "image/jpeg")
+                except Exception as e_th:
+                    log_debug(f"Nota abriendo thumbnail para audio: {e_th}")
             r = requests.post(url, data=data, files=files, timeout=180)
             res = r.json()
             if not res.get("ok") and "parse_mode" in data:
                 data_fb = dict(data)
                 del data_fb["parse_mode"]
                 f.seek(0)
-                files_fb = {"audio": (nombre_subida, f, "audio/mpeg")}
-                r = requests.post(url, data=data_fb, files=files_fb, timeout=180)
+                if f_thumb:
+                    f_thumb.seek(0)
+                r = requests.post(url, data=data_fb, files=files, timeout=180)
                 res = r.json()
             if res.get("ok"):
                 res_m = res.get("result", {})
@@ -1921,6 +1929,12 @@ def enviar_audio(chat_id: int | str, ruta_audio: str, caption: str = "", title: 
     except Exception as e:
         log_debug(f"Error enviando audio local a {chat_id}: {e}")
         return False, None, None
+    finally:
+        if f_thumb:
+            try:
+                f_thumb.close()
+            except Exception:
+                pass
 
 
 def copiar_mensaje(chat_id: int | str, from_chat_id: int | str, message_id: int | str, caption: str = "") -> bool:
@@ -3748,9 +3762,7 @@ def escuchar_comandos() -> None:
                             teclado = armar_teclado_audio(chat_id, msg_id_audio, numero_tarea=info_cat.get('numero'), tipo_tarea=info_cat.get('tipo'))
                             m_id = None
                             if banner_gen and os.path.exists(banner_gen):
-                                ok_f, m_id_f, _ = enviar_foto(chat_id, banner_gen, caption=cap_cmd, reply_markup=teclado)
-                                if ok_f:
-                                    m_id = m_id_f
+                                m_id = enviar_foto(chat_id, banner_gen, caption=cap_cmd, reply_markup=teclado)
                             if not m_id:
                                 m_id = enviar_mensaje(chat_id, anuncio, reply_markup=teclado)
                             if m_id:
