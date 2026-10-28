@@ -380,30 +380,97 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
 
 
 # ----------------------------------------------------------------------
-#  4. Iniciar el scheduler (se llama una sola vez al iniciar el bot)
+#  4. Catch-up automático y Watchdog para tareas atrasadas
+# ----------------------------------------------------------------------
+_CATCHUP_LOCK = False
+
+def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
+    """Verifica si ya son las 03:00 AM o más (hora Colombia) y si la tarea diaria
+    de hoy ya fue programada y publicada. Si no fue publicada, la ejecuta de inmediato (catch-up).
+    Retorna True si ejecutó catch-up, False si ya estaba publicada o aún no son las 3 AM."""
+    global _CATCHUP_LOCK
+    if _CATCHUP_LOCK:
+        print("ℹ️ [CATCH-UP] Ya hay una ejecución de catch-up en curso. Omitiendo concurrencia.")
+        return False
+
+    try:
+        ahora = _ahora_colombia()
+        # La tarea diaria se programa oficialmente a partir de las 03:00 AM
+        if ahora.hour < 3 and not forzar:
+            return False
+
+        fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
+        fecha_hoy_display = ahora.strftime("%d/%m/%Y")
+        numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
+
+        meta = _cargar_json(META_HOY)
+        ya_programada = False
+        if isinstance(meta, dict):
+            f_meta = meta.get("fecha_iso") or meta.get("fecha_tarea_admin")
+            num_meta = meta.get("numero")
+            if (f_meta == fecha_hoy_iso or f_meta == fecha_hoy_display) and num_meta == numero_esperado:
+                ya_programada = True
+
+        if not ya_programada or forzar:
+            _CATCHUP_LOCK = True
+            try:
+                print(f"🚨 [CATCH-UP ACTIVADO] Son las {ahora.strftime('%H:%M:%S')} y la tarea #{numero_esperado} de hoy ({fecha_hoy_iso}) NO estaba publicada. Publicando inmediatamente...")
+                programar_meditacion_diaria(forzar=forzar)
+                return True
+            finally:
+                _CATCHUP_LOCK = False
+        else:
+            return False
+    except Exception as e_catchup:
+        print(f"⚠️ Error en verificar_y_ejecutar_catchup: {e_catchup}")
+        _CATCHUP_LOCK = False
+        return False
+
+
+# ----------------------------------------------------------------------
+#  5. Iniciar el scheduler (se llama una sola vez al iniciar el bot)
 # ----------------------------------------------------------------------
 def iniciar_scheduler() -> None:
-    """Crea y arranca el scheduler de APScheduler para 03:00 AM (UTC-5)."""
+    """Crea y arranca el scheduler de APScheduler para 03:00 AM (UTC-5)
+    con tolerancia amplia a misfire (12h) y watchdog catch-up cada 10 min."""
+    import threading
+
+    # 1. Al iniciar el bot, verificar de inmediato si la tarea de hoy está pendiente
+    threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
+
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
     except ImportError:
         print("⚠️ APScheduler no disponible, scheduler no iniciado.")
         return
-    
+
     scheduler = BackgroundScheduler(timezone=TZ_OFFSET)
+    # Tarea principal a las 03:00 AM con misfire_grace_time de 12 horas (43200 s)
     scheduler.add_job(
         programar_meditacion_diaria,
         "cron",
         hour=3,
         minute=0,
         id="meditacion_diaria",
-        replace_existing=True
+        replace_existing=True,
+        misfire_grace_time=43200,
+        coalesce=True
+    )
+    # Watchdog periódico cada 10 minutos para detectar omisiones si el servidor despertó tarde
+    scheduler.add_job(
+        verificar_y_ejecutar_catchup,
+        "interval",
+        minutes=10,
+        id="watchdog_tarea_catchup",
+        replace_existing=True,
+        misfire_grace_time=300,
+        coalesce=True
     )
     scheduler.start()
-    print("⏰ Scheduler configurado: Meditaciones diarias a las 03:00 AM (Bogotá/UTC-5)")
+    print("⏰ Scheduler configurado: Meditaciones diarias a las 03:00 AM (Bogotá/UTC-5) + Watchdog Catch-Up cada 10 min")
 
 # ----------------------------------------------------------------------
-#  5. Ejecutar directamente para pruebas
+#  6. Ejecutar directamente para pruebas
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     programar_meditacion_diaria()

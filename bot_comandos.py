@@ -936,6 +936,11 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
         if self.path in ("/radar", "/escanear", "/scan"):
             try:
+                try:
+                    from schedule_meditaciones import verificar_y_ejecutar_catchup
+                    threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
+                except Exception:
+                    pass
                 global _ULTIMO_SCAN_RADAR
                 ahora_ts = time.time()
                 if (ahora_ts - _ULTIMO_SCAN_RADAR) < 45:
@@ -958,11 +963,27 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": str(e_rad)}).encode())
                 return
+        if self.path in ("/tarea_hoy", "/catchup", "/publicar_tarea_hoy", "/trigger_tarea"):
+            try:
+                from schedule_meditaciones import verificar_y_ejecutar_catchup
+                ejecutado = verificar_y_ejecutar_catchup(forzar=False)
+                self.send_response(200)
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "catchup_ejecutado": ejecutado}).encode("utf-8"))
+                return
+            except Exception as e_ch:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e_ch)}).encode())
+                return
+
         if self.path.startswith("/estado_cola"):
             try:
                 tz_col = ZoneInfo("America/Bogota")
                 ahora_c = datetime.now(tz_col)
-                if ahora_c.hour < 4:
+                if ahora_c.hour < 3:
                     ahora_c -= timedelta(days=1)
                 fecha_h = ahora_c.strftime("%d/%m/%Y")
                 info_h = obtener_info_tarea_hoy() or {}
@@ -1075,6 +1096,11 @@ class HealthHandler(BaseHTTPRequestHandler):
                 return
         if self.path in ("/radar", "/escanear", "/scan"):
             try:
+                try:
+                    from schedule_meditaciones import verificar_y_ejecutar_catchup
+                    threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
+                except Exception:
+                    pass
                 global _ULTIMO_SCAN_RADAR
                 ahora_ts = time.time()
                 if (ahora_ts - _ULTIMO_SCAN_RADAR) < 45:
@@ -1771,7 +1797,7 @@ def obtener_info_tarea_hoy() -> dict | None:
     """
     tz_col = ZoneInfo("America/Bogota")
     ahora = datetime.now(tz_col)
-    if ahora.hour < 4:
+    if ahora.hour < 3:
         ahora -= timedelta(days=1)
     hoy_str = ahora.strftime("%d/%m/%Y")
     hoy_iso = ahora.strftime("%Y-%m-%d")

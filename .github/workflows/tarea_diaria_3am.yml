@@ -1,0 +1,70 @@
+name: Tarea Diaria 3 AM (Publicación y Respaldo)
+
+on:
+  schedule:
+    # 08:00 UTC = 03:00 AM Colombia (UTC-5)
+    - cron: "0 8 * * *"
+    # Reintento de respaldo a las 08:15 UTC = 03:15 AM Colombia (UTC-5)
+    - cron: "15 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  publicar_o_despertar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias esenciales
+        run: |
+          pip install telethon requests pillow apscheduler
+
+      - name: Paso 1 - Enviar señal de publicación inmediata a Render
+        id: ping_render
+        run: |
+          echo "Enviando trigger de publicación /tarea_hoy a Render..."
+          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" --max-time 60 "https://bot-meditaciones.onrender.com/tarea_hoy" || true)
+          echo "Respuesta de Render:"
+          echo "$RESPONSE"
+          if echo "$RESPONSE" | grep -q "HTTP_CODE:200"; then
+            echo "RENDER_OK=true" >> $GITHUB_ENV
+            echo "✅ Render respondió correctamente al trigger de publicación."
+          else
+            echo "RENDER_OK=false" >> $GITHUB_ENV
+            echo "⚠️ Render no respondió 200 OK. Se procederá a verificar el estado."
+          fi
+
+      - name: Paso 2 - Verificar si Render publicó la tarea oficial de hoy
+        id: check_render
+        run: |
+          sleep 15
+          FECHA_HOY=$(python -c "from datetime import datetime, timezone, timedelta; print(datetime.now(timezone(timedelta(hours=-5))).strftime('%d/%m/%Y'))")
+          echo "Verificando publicación para fecha Colombia: $FECHA_HOY"
+          STATUS_JSON=$(curl -s --max-time 30 "https://bot-meditaciones.onrender.com/estado_cola" || true)
+          echo "Estado reportado: $STATUS_JSON"
+          if echo "$STATUS_JSON" | grep -q "$FECHA_HOY"; then
+            echo "TAREA_PUBLICADA=true" >> $GITHUB_ENV
+            echo "✅ Confirmado: La tarea de hoy ya se encuentra publicada en el servidor."
+          else
+            echo "TAREA_PUBLICADA=false" >> $GITHUB_ENV
+            echo "⚠️ La tarea no aparece publicada en Render."
+          fi
+
+      - name: Paso 3 - Respaldo en la nube (Ejecutar publicación directa si Render falló)
+        if: env.TAREA_PUBLICADA != 'true'
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TG_GROUP: ${{ secrets.TG_GROUP }}
+        run: |
+          echo "🚨 Activando respaldo autónomo de GitHub Actions..."
+          python -u run_medita_hoy.py
+          echo "✅ Tarea diaria publicada exitosamente vía respaldo de GitHub Actions."
