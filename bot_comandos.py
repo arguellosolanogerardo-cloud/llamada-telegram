@@ -3038,8 +3038,8 @@ def escuchar_comandos() -> None:
                                     enviado_priv_fid = ok_pf
                                 if enviado_priv_fid:
                                     if m_id_prog and chat_origen:
-                                        editar_mensaje(chat_origen, m_id_prog, f"✅ ¡Audio entregado a **{user_nombre_target}** en su Telegram privado! 🎧")
-                                        time.sleep(5)
+                                        actualizar_progreso(100, f"✅ ¡Audio entregado exitosamente a **{user_nombre_target}** en su Telegram privado! 🎧")
+                                        time.sleep(27 * 60)  # Demorar 27 minutos antes de desaparecer
                                         eliminar_mensaje(chat_origen, m_id_prog)
                                     return
                                 if chat_origen:
@@ -3051,6 +3051,8 @@ def escuchar_comandos() -> None:
                                         performer="ALANISO / Maestro Mario Carrillo"
                                     )
                                     if m_id_prog:
+                                        actualizar_progreso(100, "✅ *¡Audio completado y entregado con éxito aquí en el grupo!* 🎧")
+                                        time.sleep(27 * 60)  # Demorar 27 minutos antes de desaparecer
                                         eliminar_mensaje(chat_origen, m_id_prog)
                                     return
 
@@ -3094,7 +3096,7 @@ def escuchar_comandos() -> None:
                                     actualizar_progreso(100, "✅ *¡Audio completado y entregado con éxito aquí en el grupo!* 🎧")
 
                                 if m_id_prog and chat_origen:
-                                    time.sleep(6)
+                                    time.sleep(27 * 60)  # Demorar 27 minutos antes de desaparecer
                                     eliminar_mensaje(chat_origen, m_id_prog)
                             else:
                                 if m_id_prog and chat_origen:
