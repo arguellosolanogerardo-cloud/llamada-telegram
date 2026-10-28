@@ -823,8 +823,53 @@ def buscar_id_audio_en_grupo(chat_id: int | str, numero: int | str = "") -> tupl
         return None, None
 
 
-def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: int | str = None) -> dict | list | None:
-    """Identifica uno o varios audios por número o texto y envía el anuncio oficial al grupo y privados."""
+def guardar_audio_registrado(info_cat: dict, file_id: str = None, msg_id: int | str = None) -> None:
+    """Registra el audio y su file_id en data/meditaciones/audios_registrados.json."""
+    if not info_cat:
+        return
+    try:
+        ruta_reg = os.path.join("data", "meditaciones", "audios_registrados.json")
+        os.makedirs(os.path.dirname(ruta_reg), exist_ok=True)
+        db = {}
+        if os.path.exists(ruta_reg):
+            try:
+                with open(ruta_reg, "r", encoding="utf-8") as f:
+                    db = json.load(f)
+            except Exception:
+                db = {}
+        tipo = str(info_cat.get("tipo", "MEDITACION")).upper()
+        num = str(info_cat.get("numero", "")).strip()
+        vid = str(info_cat.get("video_id", "")).strip()
+        registro = dict(info_cat)
+        if file_id:
+            registro["file_id"] = file_id
+        if msg_id:
+            registro["msg_id_audio"] = msg_id
+        claves = []
+        if num:
+            claves.extend([f"{tipo}_{num}", num])
+        if vid:
+            claves.append(f"YT_{vid}")
+        for k in claves:
+            if k:
+                db[k] = registro
+        with open(ruta_reg, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Nota guardando audio registrado:", e)
+
+
+def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: int | str = None, forzar_audio: bool = True) -> dict | list | None:
+    """Identifica uno o varios audios por número o texto y publica la tarea completa oficial tal cual el comando /tarea:
+    1. Descarga el audio desde Google Drive y genera la tarjeta de audio HD y carátula.
+    2. Sube el Audio MP3 directamente al grupo oficial con su botón oficial de privado.
+    3. Envía la Tarjeta Gráfica HD debajo del audio en el grupo oficial.
+    4. Registra el audio y su file_id en audios_registrados.json.
+    5. Guarda y sincroniza atómicamente meta_hoy.json y cola_hoy.json para la llamada de las 7:56 PM.
+    6. Genera y publica el Banner Oficial Neón de la Tarea del Día con su teclado interactivo.
+    7. Actualiza _TAREA_FLOTANTE en el bot si está corriendo.
+    8. Envía la notificación privada con formato de alerta roja a todos los miembros de la comunidad.
+    """
     items = identificar_todos_los_audios(texto=parametro)
     if not items:
         info_sing = identificar_audio_catalogo(texto=parametro)
@@ -836,7 +881,10 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
 
     info = items[0]
 
-    # Determinar la fecha provista por el administrador
+    carp_med_pub = os.path.join("data", "meditaciones")
+    os.makedirs(carp_med_pub, exist_ok=True)
+
+    # Determinar la fecha provista por el administrador o fecha actual
     fecha_final = None
     if fecha_param and fecha_param.strip():
         fecha_final = extraer_fecha_de_texto(fecha_param.strip()) or fecha_param.strip()
@@ -846,23 +894,18 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
         tz_col = ZoneInfo("America/Bogota")
         fecha_final = datetime.now(tz_col).strftime("%d/%m/%Y")
 
-    # Si no se pasó msg_id_audio, intentar localizarlo automáticamente en el grupo
     username_grupo = None
-    if not msg_id_audio and CHAT_ID:
-        msg_id_audio, username_grupo = buscar_id_audio_en_grupo(CHAT_ID, info["numero"])
-        if msg_id_audio:
-            print(f"Mensaje del audio detectado automáticamente: ID {msg_id_audio}")
 
-    # Si aún no está en el grupo, buscarlo en Drive y subir el archivo al grupo directamente
-    if not msg_id_audio and CHAT_ID and info.get("numero"):
+    # Si forzar_audio es True o no tenemos msg_id_audio, descargar de Google Drive y subir al grupo
+    if CHAT_ID and (forzar_audio or not msg_id_audio) and info.get("numero"):
         try:
             from drive_manager import obtener_o_descargar_audio
             tipo_raw = str(info.get("tipo", "MEDITACION")).upper()
             t_nombre = "Meditación" if "MEDITACI" in tipo_raw else "Mensaje"
             num_int = int(str(info["numero"]).strip())
 
-            print(f"Buscando audio para {t_nombre} #{num_int} en Google Drive...")
-            ruta_audio_desc = obtener_o_descargar_audio(tipo_raw, num_int)
+            print(f"🔍 Buscando audio para {t_nombre} #{num_int} en Google Drive...")
+            ruta_audio_desc = obtener_o_descargar_audio(info.get("tipo", "MEDITACION"), num_int)
             if ruta_audio_desc and os.path.exists(ruta_audio_desc):
                 cap_audio = (
                     f"🧘 **{t_nombre} #{num_int}**\n"
@@ -904,14 +947,14 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                 # 2. ENVIAR LA TARJETA GRÁFICA HD (debajo del audio)
                 if res_tarj and os.path.exists(r_tarjeta_hd):
                     enviar_foto(CHAT_ID, r_tarjeta_hd, caption=f"✨ **{t_nombre} #{num_int}** — «{info.get('titulo', '')}»", reply_markup=teclado_aud)
+                    print("✅ Tarjeta gráfica HD enviada al grupo.")
         except Exception as e_aud_pub:
             print(f"⚠️ Nota descargando/publicando audio en el grupo: {e_aud_pub}")
 
+    # Guardar audio registrado para acceso inmediato en privado
+    guardar_audio_registrado(info, file_id=info.get("file_id"), msg_id=msg_id_audio)
 
     # Guardar metadatos del día y reiniciar cola_hoy.json limpia
-    carp_med_pub = os.path.join("data", "meditaciones")
-    os.makedirs(carp_med_pub, exist_ok=True)
-    ruta_meta = os.path.join(carp_med_pub, "meta_hoy.json")
     try:
         # Limpiar audios adicionales residuales de sesiones anteriores
         for fn in os.listdir(carp_med_pub):
@@ -926,8 +969,10 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
             info_guardar["cola_audios"] = items
         if msg_id_audio:
             info_guardar["msg_id_audio"] = msg_id_audio
+        ruta_meta = os.path.join(carp_med_pub, "meta_hoy.json")
         with open(ruta_meta, "w", encoding="utf-8") as f:
             json.dump(info_guardar, f, ensure_ascii=False, indent=2)
+
         # Dejar cola_hoy.json limpia únicamente con la(s) pista(s) de la tarea oficial
         cola_limpia = []
         for idx_it, it_p in enumerate(items, 1):
@@ -943,29 +988,31 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
     except Exception as e:
         print("Nota guardando meta_hoy y cola_hoy:", e)
 
-    # Sincronizar metadatos con el bot en Render si está activo
+    # Sincronizar metadatos con el bot en Render si está activo y no es el propio proceso
     try:
-        url_render = os.environ.get("RENDER_BOT_URL", "https://bot-meditaciones.onrender.com/tarea")
-        req_sync = urllib.request.Request(
-            url_render,
-            data=json.dumps({"info": info_guardar, "msg_id_audio": msg_id_audio}).encode("utf-8"),
-            headers={"Content-Type": "application/json", "User-Agent": "PublicarTareaClient"}
-        )
-        with urllib.request.urlopen(req_sync, timeout=5) as r_sync:
-            print("Metadatos de la tarea sincronizados con Render.")
-    except Exception as e_sync:
+        url_render = os.environ.get("RENDER_BOT_URL", "").strip()
+        if url_render and not url_render.startswith("http://localhost"):
+            if not url_render.endswith("/tarea"):
+                url_render = url_render.rstrip("/") + "/tarea"
+            req_sync = urllib.request.Request(
+                url_render,
+                data=json.dumps({"info": info_guardar, "msg_id_audio": msg_id_audio}).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "PublicarTareaClient"}
+            )
+            with urllib.request.urlopen(req_sync, timeout=5) as r_sync:
+                print("Metadatos de la tarea sincronizados con Render.")
+    except Exception:
         pass
 
     texto_anuncio = generar_anuncio_tarea(items if len(items) > 1 else info, fecha_final)
     bot_username = obtener_info_bot()
-    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items) if CHAT_ID else None
+    teclado = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_user=bot_username, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items) if CHAT_ID else None
 
     # Determinar nombre del día de la semana para el banner
     dias_semana_map = {
         0: "LUNES", 1: "MARTES", 2: "MIÉRCOLES", 3: "JUEVES",
         4: "VIERNES", 5: "SÁBADO", 6: "DOMINGO"
     }
-    dia_semana_nombre = "HOY"
     try:
         dt_p = datetime.strptime(fecha_final, "%d/%m/%Y")
         dia_semana_nombre = dias_semana_map.get(dt_p.weekday(), "HOY")
@@ -998,13 +1045,13 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
             f"👇 *Toca los botones oficiales para escuchar los audios en el grupo.*"
         )
 
-    file_id_banner = None
+    m_id_banner = None
     ok_grupo = False
 
-    # 1. Enviar al Grupo Principal (primero intentar como foto HD)
+    # 1. Enviar Banner Oficial al Grupo Principal
     if CHAT_ID:
         if banner_generado and os.path.exists(banner_generado):
-            ok_grupo, m_id_foto, file_id_banner = enviar_foto(CHAT_ID, banner_generado, caption=caption_grupo, reply_markup=teclado)
+            ok_grupo, m_id_banner, _ = enviar_foto(CHAT_ID, banner_generado, caption=caption_grupo, reply_markup=teclado)
             if ok_grupo:
                 print(f"✅ Banner HD de la tarea ({fecha_final}) publicado exitosamente en el grupo {CHAT_ID}.")
 
@@ -1018,7 +1065,24 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
     else:
         print("Variable CHAT_ID o TG_GROUP no configurada.")
 
-    # 2. Enviar por separado a cada miembro registrado
+    # 2. Actualizar _TAREA_FLOTANTE en el bot si está corriendo en el mismo proceso
+    try:
+        import sys
+        bot_mod = sys.modules.get("bot_comandos") or sys.modules.get("__main__")
+        if bot_mod and hasattr(bot_mod, "_TAREA_FLOTANTE"):
+            bot_mod._TAREA_FLOTANTE.update({
+                "msg_id": m_id_banner or msg_id_audio,
+                "contador": 0,
+                "texto": caption_grupo if banner_generado else texto_anuncio,
+                "reply_markup": teclado,
+                "chat_id": CHAT_ID,
+                "ruta_foto": banner_generado if (banner_generado and os.path.exists(banner_generado)) else None
+            })
+            print("✅ _TAREA_FLOTANTE actualizada en el bot.")
+    except Exception:
+        pass
+
+    # 3. Enviar Notificaciones Privadas a TODOS los miembros (formato alerta roja idéntico a /tarea)
     if os.path.exists(RUTA_PUNTOS):
         try:
             with open(RUTA_PUNTOS, "r", encoding="utf-8") as f:
@@ -1033,7 +1097,6 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                 except Exception:
                     pass
             enviados_priv = 0
-            foto_priv = file_id_banner or (banner_generado if banner_generado and os.path.exists(banner_generado) else None)
 
             for uid, datos in usuarios.items():
                 if str(uid) == str(CHAT_ID):
@@ -1047,56 +1110,44 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                     continue
 
                 nom_usuario = datos.get('nombre', 'Compañero')
-                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_username, username_grupo, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items)
+                teclado_priv = armar_teclado_audio(CHAT_ID, msg_id_audio, bot_user=bot_username, numero_tarea=info['numero'], tipo_tarea=info.get('tipo'), audios_lista=items)
 
-                enviado_ok = False
-                if foto_priv:
-                    caption_priv = (
-                        f"🕊️✨ **TAREA DEL DÍA: {fecha_final}** ✨🕊️\n\n"
-                        f"Hola **{nom_usuario}**, ¡aquí tienes la práctica oficial de hoy!\n"
-                        f"⏰ Te esperamos a las 7:56 PM para la reunión virtual.\n\n"
-                        f"👇 *Toca los botones abajo para escuchar tu audio.*"
+                if len(items) > 1:
+                    txt_detalles = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)
+                    texto_priv = (
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                        f"📢 ⚠️ **¡ATENCIÓN {nom_usuario.upper()}!** ⚠️ 📢\n"
+                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                        f"🗓️ **FECHA: {fecha_final}**\n"
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+                        f"Hola **{nom_usuario}**, hoy en la reunión de las 7:56 PM trabajaremos con:\n\n"
+                        f"{txt_detalles}\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"⏰ **¡Te esperamos puntual esta noche a las 7:56 PM!**\n"
+                        f"👇 *Toca los botones abajo para escuchar los audios.*"
                     )
-                    enviado_ok, _, _ = enviar_foto(uid, foto_priv, caption=caption_priv, reply_markup=teclado_priv)
+                else:
+                    t_str_tipo = info.get('tipo', 'MEDITACION').upper()
+                    texto_priv = (
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
+                        f"📢 ⚠️ **¡ATENCIÓN {nom_usuario.upper()}!** ⚠️ 📢\n"
+                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
+                        f"🗓️ **FECHA: {fecha_final}**\n"
+                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
+                        f"Hola **{nom_usuario}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
+                        f"🧘 **{t_str_tipo} #{info['numero']}**\n"
+                        f"📌 **Título:** «{info['titulo']}»\n"
+                        f"👤 **Maestro:** {info['maestro']} | 🗓️ **Fecha:** {info['fecha']}\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"⏰ **¡Te esperamos puntual esta noche a las 7:56 PM!**\n"
+                        f"👇 *Toca el botón abajo para escuchar el audio directamente.*"
+                    )
 
-                if not enviado_ok:
-                    if len(items) > 1:
-                        txt_detalles = "\n".join(f"• **{it.get('tipo', 'Audio').title()} #{it.get('numero')}:** «{it.get('titulo')}»" for it in items)
-                        texto_priv = (
-                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
-                            f"📢 ⚠️ **¡ATENCIÓN {nom_usuario.upper()}!** ⚠️ 📢\n"
-                            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
-                            f"🗓️ **FECHA: {fecha_final}**\n"
-                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
-                            f"Hola **{nom_usuario}**, hoy trabajaremos con:\n\n"
-                            f"{txt_detalles}\n\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
-                            f"👇 *Toca los botones abajo para escuchar los audios.*"
-                        )
-                    else:
-                        texto_priv = (
-                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
-                            f"📢 ⚠️ **¡ATENCIÓN {nom_usuario.upper()}!** ⚠️ 📢\n"
-                            f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
-                            f"🗓️ **FECHA: {fecha_final}**\n"
-                            f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
-                            f"Hola **{nom_usuario}**, hoy trabajaremos con:\n\n"
-                            f"🧘 **{info.get('tipo', 'MEDITACION').upper()} #{info['numero']}**\n"
-                            f"📌 **Título:** «{info['titulo']}»\n"
-                            f"👤 **Maestro:** {info['maestro']} | 🗓️ **Grabación:** {info['fecha']}\n\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"⏰ **Te esperamos a las 7:56 PM para la apertura de la sala.**\n"
-                            f"👇 *Toca el botón de abajo para escuchar el audio directamente.*"
-                        )
-                    if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):
-                        enviado_ok = True
-
-                if enviado_ok:
+                if enviar_mensaje(uid, texto_priv, reply_markup=teclado_priv):
                     enviados_priv += 1
-            print(f"Notificación de la tarea enviada a {enviados_priv} miembros con banner HD y botones.")
+            print(f"✅ Notificaciones privadas de tarea enviadas a {enviados_priv} miembros con formato oficial de alerta y botones.")
         except Exception as e:
-            print("Nota enviando a privados:", e)
+            print("Nota enviando notificaciones privadas:", e)
 
     return items if len(items) > 1 else info
 
