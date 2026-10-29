@@ -936,11 +936,6 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
         if self.path in ("/radar", "/escanear", "/scan"):
             try:
-                try:
-                    from schedule_meditaciones import verificar_y_ejecutar_catchup
-                    threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
-                except Exception:
-                    pass
                 global _ULTIMO_SCAN_RADAR
                 ahora_ts = time.time()
                 if (ahora_ts - _ULTIMO_SCAN_RADAR) < 45:
@@ -1096,11 +1091,6 @@ class HealthHandler(BaseHTTPRequestHandler):
                 return
         if self.path in ("/radar", "/escanear", "/scan"):
             try:
-                try:
-                    from schedule_meditaciones import verificar_y_ejecutar_catchup
-                    threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
-                except Exception:
-                    pass
                 global _ULTIMO_SCAN_RADAR
                 ahora_ts = time.time()
                 if (ahora_ts - _ULTIMO_SCAN_RADAR) < 45:

@@ -262,7 +262,7 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     
     numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
     
-    # ── PROTECCIÓN ANTI-DUPLICADO ──
+    # ── PROTECCIÓN ANTI-DUPLICADO ESTRICTA ──
     meta = _cargar_json(META_HOY)
     if not forzar and isinstance(meta, dict):
         f_meta = meta.get("fecha_iso") or meta.get("fecha_tarea_admin")
@@ -270,6 +270,13 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
         if (f_meta == fecha_hoy_iso or f_meta == fecha_hoy_display) and num_meta == numero_esperado:
             print(f"ℹ️ Ya está programada correctamente la meditación #{num_meta} para hoy ({fecha_hoy_iso}). Omitiendo duplicado.")
             return
+
+    log_check = _cargar_json(LOG_FILE)
+    if not forzar and isinstance(log_check, list):
+        for entry in log_check:
+            if str(entry.get("fecha_iso")) == fecha_hoy_iso or str(entry.get("fecha", "")).startswith(fecha_hoy_iso):
+                print(f"ℹ️ Meditación de hoy ({fecha_hoy_iso}) ya se encuentra en el log histórico. Omitiendo duplicado.")
+                return
     
     # ── DETERMINAR SIGUIENTE MEDITACIÓN ──
     estado = _cargar_estado()
@@ -380,47 +387,54 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
 
 
 # ----------------------------------------------------------------------
-#  4. Catch-up automático y Watchdog para tareas atrasadas
+#  4. Catch-up automático estricto a las 03:00 AM
 # ----------------------------------------------------------------------
 _CATCHUP_LOCK = False
 
 def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
-    """Verifica si ya son las 03:00 AM o más (hora Colombia) y si la tarea diaria
-    de hoy ya fue programada y publicada. Si no fue publicada, la ejecuta de inmediato (catch-up).
-    Retorna True si ejecutó catch-up, False si ya estaba publicada o aún no son las 3 AM."""
+    """Verifica y ejecuta la publicación ÚNICAMENTE en la ventana de 03:00 AM a 03:30 AM (hora Colombia).
+    Fuera de esa ventana estricta de la madrugada, NUNCA se publica automáticamente."""
     global _CATCHUP_LOCK
     if _CATCHUP_LOCK:
-        print("ℹ️ [CATCH-UP] Ya hay una ejecución de catch-up en curso. Omitiendo concurrencia.")
         return False
 
     try:
         ahora = _ahora_colombia()
-        # La tarea diaria se programa oficialmente a partir de las 03:00 AM
-        if ahora.hour < 3 and not forzar:
-            return False
+
+        # REGLA DE ORO: La publicación automática SOLO se permite entre las 03:00 AM y las 03:30 AM.
+        # En cualquier otro horario del día (tarde, noche, reinicios a las 9 PM), está TERMINANTEMENTE PROHIBIDO.
+        if not forzar:
+            if not (ahora.hour == 3 and ahora.minute <= 30):
+                return False
 
         fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
         fecha_hoy_display = ahora.strftime("%d/%m/%Y")
         numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
 
+        # 1. Comprobar meta_hoy.json
         meta = _cargar_json(META_HOY)
-        ya_programada = False
         if isinstance(meta, dict):
             f_meta = meta.get("fecha_iso") or meta.get("fecha_tarea_admin")
             num_meta = meta.get("numero")
             if (f_meta == fecha_hoy_iso or f_meta == fecha_hoy_display) and num_meta == numero_esperado:
-                ya_programada = True
+                print(f"ℹ️ [3AM] Tarea #{num_meta} ya se encuentra programada para hoy ({fecha_hoy_display}).")
+                return False
 
-        if not ya_programada or forzar:
-            _CATCHUP_LOCK = True
-            try:
-                print(f"🚨 [CATCH-UP ACTIVADO] Son las {ahora.strftime('%H:%M:%S')} y la tarea #{numero_esperado} de hoy ({fecha_hoy_iso}) NO estaba publicada. Publicando inmediatamente...")
-                programar_meditacion_diaria(forzar=forzar)
-                return True
-            finally:
-                _CATCHUP_LOCK = False
-        else:
-            return False
+        # 2. Comprobar log histórico
+        log_chk = _cargar_json(LOG_FILE)
+        if isinstance(log_chk, list):
+            for entry in log_chk:
+                if str(entry.get("fecha_iso")) == fecha_hoy_iso or str(entry.get("fecha", "")).startswith(fecha_hoy_iso):
+                    print(f"ℹ️ [3AM] Tarea de hoy ({fecha_hoy_iso}) ya existe en historial. Omitiendo duplicado.")
+                    return False
+
+        _CATCHUP_LOCK = True
+        try:
+            print(f"⏰ [3AM] Ejecutando publicación oficial única de las 3:00 AM (#{numero_esperado})...")
+            programar_meditacion_diaria(forzar=forzar)
+            return True
+        finally:
+            _CATCHUP_LOCK = False
     except Exception as e_catchup:
         print(f"⚠️ Error en verificar_y_ejecutar_catchup: {e_catchup}")
         _CATCHUP_LOCK = False
@@ -431,12 +445,12 @@ def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
 #  5. Iniciar el scheduler (se llama una sola vez al iniciar el bot)
 # ----------------------------------------------------------------------
 def iniciar_scheduler() -> None:
-    """Crea y arranca el scheduler de APScheduler para 03:00 AM (UTC-5)
-    con tolerancia amplia a misfire (12h) y watchdog catch-up cada 10 min."""
-    import threading
-
-    # 1. Al iniciar el bot, verificar de inmediato si la tarea de hoy está pendiente
-    threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
+    """Configura la publicación diaria EXACTAMENTE UNA SOLA VEZ a las 03:00 AM (UTC-5)."""
+    ahora = _ahora_colombia()
+    # Si y solo si el bot arranca dentro de la ventana de 03:00 AM a 03:30 AM, ejecutar catch-up
+    if ahora.hour == 3 and ahora.minute <= 30:
+        import threading
+        threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
 
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -445,7 +459,7 @@ def iniciar_scheduler() -> None:
         return
 
     scheduler = BackgroundScheduler(timezone=TZ_OFFSET)
-    # Tarea principal a las 03:00 AM con misfire_grace_time de 12 horas (43200 s)
+    # Tarea programada EXACTAMENTE a las 03:00 AM con 30 minutos de gracia (hasta las 03:30 AM)
     scheduler.add_job(
         programar_meditacion_diaria,
         "cron",
@@ -453,21 +467,11 @@ def iniciar_scheduler() -> None:
         minute=0,
         id="meditacion_diaria",
         replace_existing=True,
-        misfire_grace_time=43200,
-        coalesce=True
-    )
-    # Watchdog periódico cada 10 minutos para detectar omisiones si el servidor despertó tarde
-    scheduler.add_job(
-        verificar_y_ejecutar_catchup,
-        "interval",
-        minutes=10,
-        id="watchdog_tarea_catchup",
-        replace_existing=True,
-        misfire_grace_time=300,
+        misfire_grace_time=1800,  # 30 minutos de tolerancia (03:00 a 03:30 AM)
         coalesce=True
     )
     scheduler.start()
-    print("⏰ Scheduler configurado: Meditaciones diarias a las 03:00 AM (Bogotá/UTC-5) + Watchdog Catch-Up cada 10 min")
+    print("⏰ Scheduler configurado: Publicación diaria ÚNICAMENTE a las 03:00 AM (Bogotá/UTC-5)")
 
 # ----------------------------------------------------------------------
 #  6. Ejecutar directamente para pruebas
