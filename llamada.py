@@ -2635,7 +2635,7 @@ async def main() -> None:
                     sender_id = ev_ipc.get("sender_id")
                     nom_sender = ev_ipc.get("sender_nom", "Admin")
 
-                    nonlocal volumen_actual, reproduciendo_meditacion, indice_pista_actual, token_reproduccion
+                    nonlocal volumen_actual, reproduciendo_meditacion, indice_pista_actual, token_reproduccion, oracion_activa_hoy
 
                     if cq_data == "panel_rewind":
                         async with lock_panel_seek:
@@ -2769,6 +2769,29 @@ async def main() -> None:
                         cola_turnos.clear()
                         await actualizar_mensaje_turnos(forzar_al_fondo=True)
                         avisar_con_bot("🧹 **Lista de turnos vaciada por un administrador.**", es_efimero=True)
+                    elif cq_data in ("panel_desmutear", "panel_abrir", "panel_liberarmicros"):
+                        reproduciendo_meditacion = False
+                        oracion_activa_hoy = False
+                        segundos_inactividad_mic.clear()
+                        avisados_auto_mute.clear()
+                        if tgcalls:
+                            try:
+                                await tgcalls.leave_call(destino)
+                            except Exception:
+                                pass
+                        for aid in list(admin_ids):
+                            if aid != me.id:
+                                try:
+                                    admin_peer = await client.get_input_entity(aid)
+                                    await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
+                                except Exception:
+                                    pass
+                        await desbloquear_todos_los_participantes()
+                        try:
+                            await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                        except Exception:
+                            pass
+                        avisar_con_bot("🔓 **Micrófonos abiertos:** El candado de silencio ha sido retirado para toda la sala por un administrador.", es_efimero=False)
                 except asyncio.CancelledError:
                     break
                 except Exception as e_cb_loop:
@@ -3687,7 +3710,7 @@ async def main() -> None:
 
             partes_cmd = event.raw_text.strip().split()
             cmd = partes_cmd[0].lower().split("@")[0]
-            nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, reproduciendo_meditacion, volumen_actual, tarea_panel_progreso, msg_panel_meditacion_id, ultimo_texto_panel, token_reproduccion
+            nonlocal ruta_meditacion, info_catalogo_hoy, cola_reproduccion, indice_pista_actual, reproduciendo_meditacion, volumen_actual, tarea_panel_progreso, msg_panel_meditacion_id, ultimo_texto_panel, token_reproduccion, oracion_activa_hoy
             if cmd in ("/reproducir", "/play"):
                 if reproduciendo_meditacion and eq_estado.get("t_pausa") is not None and len(partes_cmd) == 1:
                     if tgcalls:
@@ -3917,6 +3940,7 @@ async def main() -> None:
                 await responder_admin(f"🔓 **Administradores liberados** ({desbloqueados_count}). La meditación/reproducción continúa sin interrupción y el candado global de la sala fue retirado.")
             elif cmd in ("/desmuteartodos", "/abrir", "/desbloquear"):
                 reproduciendo_meditacion = False
+                oracion_activa_hoy = False
                 segundos_inactividad_mic.clear()
                 avisados_auto_mute.clear()
                 if tgcalls:
@@ -4684,6 +4708,7 @@ async def main() -> None:
             # Desbloquear micrófonos / Abrir sala
             elif any(p in texto_raw for p in ["abrir microfonos", "abrir micrófonos", "desmutear a todos", "desbloquear microfonos", "desbloquear micrófonos", "abrir la sala", "liberar microfonos", "liberar micrófonos"]):
                 reproduciendo_meditacion = False
+                oracion_activa_hoy = False
                 segundos_inactividad_mic.clear()
                 avisados_auto_mute.clear()
                 if tgcalls:
@@ -4873,12 +4898,18 @@ async def main() -> None:
 
                 lanzar_tarea(emitir_secuencia_oracion())
 
+            # Salvaguarda: Fuera de la ventana 8:28 - 8:31 PM Colombia, la oración NUNCA debe estar activa
+            if (hora_col > 20 or (hora_col == 20 and min_col >= 31) or (hora_col == 20 and min_col < 28) or hora_col < 20):
+                if oracion_activa_hoy:
+                    oracion_activa_hoy = False
+                    print("🔓 Salvaguarda: oracion_activa_hoy desactivada automáticamente fuera de su horario (8:28-8:31 PM).")
+
             # 8:31 PM: Conclusión de los 3 minutos de oración y alerta 1 minuto antes de la meditación
-            if hora_col == 20 and min_col == 31 and not aviso_meditacion_enviado:
+            if hora_col == 20 and min_col >= 31 and not aviso_meditacion_enviado:
                 aviso_meditacion_enviado = True
+                oracion_activa_hoy = False
                 if aviso_oracion_enviado and not aviso_espera_enviado:
                     aviso_espera_enviado = True
-                    oracion_activa_hoy = False
 
                     # Emitir en vivo el pitido final de oración concluyendo los 3 min
                     pitido_fin = obtener_pitido_final_oracion()
@@ -5172,7 +5203,7 @@ async def main() -> None:
 
                 # Si estamos en oración (8:28 - 8:31) o en meditación (audio de tarea):
                 # Silenciar de inmediato a cualquier usuario normal que abra el micrófono (los 7 administradores jamás se tocan)
-                if (oracion_activa_hoy or reproduciendo_meditacion) and not es_adm and uid != me.id:
+                if (oracion_activa_hoy or (reproduciendo_meditacion and eq_estado.get("t_pausa") is None)) and not es_adm and uid != me.id:
                     if not p_muted:
                         try:
                             input_peer = await client.get_input_entity(p.peer)
