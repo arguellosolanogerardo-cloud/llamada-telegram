@@ -1756,6 +1756,33 @@ def generar_banner_aviso_previo(ruta_salida: str, info_tarea: dict = None) -> st
 
 _LOCK_AVISO = threading.Lock()
 _FECHA_ULTIMO_AVISO_AUTO: str | None = None
+RUTA_ULTIMO_AVISO = os.path.join("data", "meditaciones", "ultimo_aviso_previo.json")
+
+
+def _cargar_fecha_ultimo_aviso() -> str | None:
+    """Lee del disco la fecha del último aviso enviado para no repetir tras reinicios."""
+    if os.path.exists(RUTA_ULTIMO_AVISO):
+        try:
+            with open(RUTA_ULTIMO_AVISO, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                return d.get("fecha")
+        except Exception:
+            pass
+    return None
+
+
+def _guardar_fecha_ultimo_aviso(fecha: str, msg_id: int | None = None) -> None:
+    """Persiste en disco la fecha del aviso enviado con timestamp y message_id."""
+    try:
+        os.makedirs(os.path.dirname(RUTA_ULTIMO_AVISO), exist_ok=True)
+        with open(RUTA_ULTIMO_AVISO, "w", encoding="utf-8") as f:
+            json.dump({
+                "fecha": fecha,
+                "timestamp": datetime.now(ZoneInfo("America/Bogota")).isoformat(),
+                "message_id": msg_id
+            }, f, indent=2)
+    except Exception as e:
+        log_debug(f"Error guardando fecha de ultimo aviso en disco: {e}")
 
 
 def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | None:
@@ -1768,12 +1795,15 @@ def enviar_aviso_preparacion_sala(target_chat_id=None, forzar=False) -> int | No
 
     fecha_hoy = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d")
     with _LOCK_AVISO:
-        if not forzar and _FECHA_ULTIMO_AVISO_AUTO == fecha_hoy:
-            log_debug("Aviso previo ya enviado hoy; se omite duplicado")
+        fecha_disco = _cargar_fecha_ultimo_aviso()
+        if not forzar and (_FECHA_ULTIMO_AVISO_AUTO == fecha_hoy or fecha_disco == fecha_hoy):
+            log_debug("Aviso previo ya enviado hoy (memoria o disco); se omite duplicado")
             return None
         m_id = _enviar_aviso_preparacion_sala_impl(cid)
         if m_id:
-            if not forzar: _FECHA_ULTIMO_AVISO_AUTO = fecha_hoy
+            if not forzar:
+                _FECHA_ULTIMO_AVISO_AUTO = fecha_hoy
+                _guardar_fecha_ultimo_aviso(fecha_hoy, m_id)
         return m_id
 
 
@@ -2830,8 +2860,12 @@ def escuchar_comandos() -> None:
             try:
                 ahora = datetime.now(tz_col)
                 minutos = ahora.hour * 60 + ahora.minute
-                en_ventana = (19 * 60 + 26) <= minutos <= (19 * 60 + 45)
-                ya_enviado = _FECHA_ULTIMO_AVISO_AUTO == ahora.strftime("%Y-%m-%d")
+                # Ventana estricta: 7:26 PM - 7:28 PM (máximo 2 min de tolerancia, evita avisos tardíos tras reinicio)
+                en_ventana = (19 * 60 + 26) <= minutos <= (19 * 60 + 28)
+                ya_enviado = (
+                    _FECHA_ULTIMO_AVISO_AUTO == ahora.strftime("%Y-%m-%d")
+                    or _cargar_fecha_ultimo_aviso() == ahora.strftime("%Y-%m-%d")
+                )
                 if en_ventana and not ya_enviado and time.time() - ultimo_intento >= 60:
                     ultimo_intento = time.time()
                     log_debug("⏰ Disparando aviso previo automático de preparación (7:26 PM)...")

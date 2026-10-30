@@ -167,6 +167,28 @@ def rotar_audios_limpios(prioridad_ids: list[str] = None, limite_max: int = 10) 
     return eliminados
 
 
+def en_ventana_protegida_llamada() -> bool:
+    """Verifica si la hora actual en Colombia está en la ventana de preparación/llamada (7:15 PM a 8:15 PM).
+    Durante este intervalo se evitan reinicios en Render postergando el git push."""
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        ahora = datetime.now(ZoneInfo("America/Bogota"))
+        minutos = ahora.hour * 60 + ahora.minute
+        return (19 * 60 + 15) <= minutos <= (20 * 60 + 15)
+    except Exception:
+        return False
+
+
+def hay_commits_pendientes_push() -> bool:
+    """Verifica si hay commits locales pendientes de enviar a origin/main."""
+    try:
+        res = subprocess.run(["git", "log", "origin/main..HEAD", "--oneline"], capture_output=True, text=True)
+        return bool(res.stdout.strip())
+    except Exception:
+        return False
+
+
 def ejecutar_ciclo(args) -> bool:
     os.makedirs(CARP_MED, exist_ok=True)
     vistos = cargar_vistos()
@@ -296,20 +318,31 @@ def ejecutar_ciclo(args) -> bool:
 
             res_c = subprocess.run(["git", "commit", "-m", msg], capture_output=True, text=True)
             if res_c.returncode == 0:
-                print("   ✅ Commit creado.")
+                print("   ✅ Commit creado localmente.")
+            else:
+                print(f"   ℹ️ Sin cambios pendientes para commit: {res_c.stdout.strip()}")
+        except Exception as e_git:
+            print(f"   ⚠️ Error preparando commit en Git: {e_git}")
+
+    # Empujar a GitHub si no estamos en la ventana protegida de la videollamada
+    if not args.no_push and hay_commits_pendientes_push():
+        if en_ventana_protegida_llamada():
+            print("\n⏸️ En ventana protegida de videollamada (7:15 PM - 8:15 PM Colombia).")
+            print("   Se posterga el 'git push' a GitHub para no reiniciar el bot en Render.")
+            print("   Se sincronizará automáticamente en el próximo ciclo después de las 8:15 PM.")
+        else:
+            print("\n🚀 Sincronizando repositorio con GitHub (origin/main)...")
+            try:
                 subprocess.run(["git", "pull", "--rebase", "origin", "main"], check=False)
                 res_p = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
                 if res_p.returncode == 0:
                     print("   ✅ Push exitoso a GitHub. Render comenzará el despliegue con el audio listo.")
                 else:
                     print(f"   ⚠️ Error en git push: {res_p.stderr.strip()}")
-            else:
-                print(f"   ℹ️ Sin cambios pendientes para commit: {res_c.stdout.strip()}")
-        except Exception as e_git:
-            print(f"   ⚠️ Error sincronizando con Git: {e_git}")
-    else:
-        if not hay_cambios:
-            print("✨ El repositorio ya está en su estado óptimo. No se requirieron cambios.")
+            except Exception as e_push:
+                print(f"   ⚠️ Error al hacer push: {e_push}")
+    elif not hay_cambios and not hay_commits_pendientes_push():
+        print("✨ El repositorio ya está en su estado óptimo. No se requirieron cambios.")
 
     return hay_cambios
 
