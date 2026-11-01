@@ -958,14 +958,44 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": str(e_rad)}).encode())
                 return
-        if self.path in ("/tarea_hoy", "/catchup", "/publicar_tarea_hoy", "/trigger_tarea"):
+        if self.path.startswith(("/tarea_hoy", "/catchup", "/publicar_tarea_hoy", "/trigger_tarea")):
             try:
-                from schedule_meditaciones import verificar_y_ejecutar_catchup
-                ejecutado = verificar_y_ejecutar_catchup(forzar=False)
+                import urllib.parse
+                parsed_u = urllib.parse.urlparse(self.path)
+                params_q = urllib.parse.parse_qs(parsed_u.query)
+                es_forzar = params_q.get("forzar", ["false"])[0].lower() in ("true", "1", "si", "yes")
+
+                from schedule_meditaciones import (
+                    verificar_y_ejecutar_catchup,
+                    obtener_conteo_publicaciones_hoy,
+                    MAX_PUBLICACIONES_POR_DIA
+                )
+                conteo_antes = obtener_conteo_publicaciones_hoy()
+
+                if conteo_antes >= MAX_PUBLICACIONES_POR_DIA and not es_forzar:
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "status": "ok",
+                        "mensaje": f"Límite máximo alcanzado ({conteo_antes}/{MAX_PUBLICACIONES_POR_DIA} publicaciones hoy).",
+                        "catchup_ejecutado": False,
+                        "veces_publicado": conteo_antes,
+                        "max_permitido": MAX_PUBLICACIONES_POR_DIA
+                    }, ensure_ascii=False).encode("utf-8"))
+                    return
+
+                ejecutado = verificar_y_ejecutar_catchup(forzar=es_forzar)
+                conteo_despues = obtener_conteo_publicaciones_hoy()
                 self.send_response(200)
                 self.send_header("Content-type", "application/json; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok", "catchup_ejecutado": ejecutado}).encode("utf-8"))
+                self.wfile.write(json.dumps({
+                    "status": "ok",
+                    "catchup_ejecutado": ejecutado,
+                    "veces_publicado": conteo_despues,
+                    "max_permitido": MAX_PUBLICACIONES_POR_DIA
+                }, ensure_ascii=False).encode("utf-8"))
                 return
             except Exception as e_ch:
                 self.send_response(500)
@@ -981,6 +1011,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if ahora_c.hour < 3:
                     ahora_c -= timedelta(days=1)
                 fecha_h = ahora_c.strftime("%d/%m/%Y")
+                fecha_iso_h = ahora_c.strftime("%Y-%m-%d")
                 info_h = obtener_info_tarea_hoy() or {}
                 cola_h = []
                 r_cola = os.path.join("data", "meditaciones", "cola_hoy.json")
@@ -992,12 +1023,18 @@ class HealthHandler(BaseHTTPRequestHandler):
                                 cola_h = dc.get("cola", [])
                     except Exception:
                         pass
+                from schedule_meditaciones import obtener_conteo_publicaciones_hoy, MAX_PUBLICACIONES_POR_DIA
+                conteo_pub = obtener_conteo_publicaciones_hoy(fecha_iso_h)
                 payload_resp = {
                     "status": "ok",
                     "fecha": fecha_h,
+                    "fecha_iso": fecha_iso_h,
                     "info_hoy": info_h,
                     "cola_hoy": cola_h,
-                    "audios_registrados": cargar_audios_registrados()
+                    "audios_registrados": cargar_audios_registrados(),
+                    "publicado_telegram": (conteo_pub > 0),
+                    "veces_publicado": conteo_pub,
+                    "max_publicaciones_dia": MAX_PUBLICACIONES_POR_DIA
                 }
                 self.send_response(200)
                 self.send_header("Content-type", "application/json; charset=utf-8")
@@ -1898,6 +1935,17 @@ def obtener_info_tarea_hoy() -> dict | None:
             info_guardar = dict(info_valida)
             info_guardar["fecha_tarea_admin"] = hoy_str
             info_guardar["fecha_iso"] = hoy_iso
+            # Preservar banderas de publicación previa si existen en disco
+            if os.path.exists(ruta_meta):
+                try:
+                    with open(ruta_meta, "r", encoding="utf-8") as fm_prev:
+                        m_prev = json.load(fm_prev)
+                    if isinstance(m_prev, dict) and m_prev.get("fecha_iso") == hoy_iso:
+                        for k_preservar in ("publicado_telegram", "msg_id_banner", "msg_id_audio", "veces_publicado"):
+                            if k_preservar in m_prev and k_preservar not in info_guardar:
+                                info_guardar[k_preservar] = m_prev[k_preservar]
+                except Exception:
+                    pass
             with open(ruta_meta, "w", encoding="utf-8") as fm:
                 json.dump(info_guardar, fm, ensure_ascii=False, indent=2)
         except Exception:

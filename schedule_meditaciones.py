@@ -24,6 +24,9 @@ MEDIT_DIR = DATA_DIR / "meditaciones"
 META_HOY = MEDIT_DIR / "meta_hoy.json"
 LOG_FILE = DATA_DIR / "reproducciones_log.json"
 STATE_FILE = DATA_DIR / "state_meditaciones.json"
+HISTORIAL_PUB_FILE = DATA_DIR / "registro_publicaciones_3am.json"
+MAX_PUBLICACIONES_POR_DIA = 2
+_SCHEDULER_INSTANCE = None
 # ----------------------------------------------------------------------
 
 # Zona horaria de Colombia (UTC-5)
@@ -45,6 +48,61 @@ def _guardar_json(ruta: Path, data: dict | list) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
     # Reemplazo atómico para evitar corrupción
     tmp.replace(ruta)
+
+def obtener_conteo_publicaciones_hoy(fecha_iso: str = None) -> int:
+    """Devuelve la cantidad de veces que se ha publicado la tarea en Telegram en el día indicado (máximo 2)."""
+    if not fecha_iso:
+        fecha_iso = _ahora_colombia().strftime("%Y-%m-%d")
+    historial = _cargar_json(HISTORIAL_PUB_FILE)
+    if isinstance(historial, dict):
+        entry = historial.get(fecha_iso)
+        if isinstance(entry, dict):
+            return int(entry.get("veces_publicado", 0))
+        elif isinstance(entry, int):
+            return entry
+    return 0
+
+def registrar_publicacion_exitosa(fecha_iso: str = None, msg_id: int | str = None, num: int = None) -> int:
+    """Registra una publicación exitosa en Telegram para hoy e incrementa el contador (tope de 2)."""
+    ahora = _ahora_colombia()
+    if not fecha_iso:
+        fecha_iso = ahora.strftime("%Y-%m-%d")
+    historial = _cargar_json(HISTORIAL_PUB_FILE)
+    if not isinstance(historial, dict):
+        historial = {}
+
+    entry = historial.get(fecha_iso, {})
+    if not isinstance(entry, dict):
+        entry = {"veces_publicado": int(entry) if isinstance(entry, int) else 0}
+
+    conteo = int(entry.get("veces_publicado", 0)) + 1
+    timestamps = entry.get("timestamps", [])
+    if not isinstance(timestamps, list):
+        timestamps = []
+    timestamps.append(ahora.isoformat())
+
+    msg_ids = entry.get("msg_ids", [])
+    if not isinstance(msg_ids, list):
+        msg_ids = []
+    if msg_id:
+        msg_ids.append(msg_id)
+
+    entry["veces_publicado"] = conteo
+    if num is not None:
+        entry["numero"] = num
+    entry["timestamps"] = timestamps
+    entry["msg_ids"] = msg_ids
+    entry["ultima_publicacion"] = ahora.strftime("%Y-%m-%d %H:%M:%S")
+
+    historial[fecha_iso] = entry
+    # Purgar registros antiguos (> 60 días)
+    if len(historial) > 60:
+        for k in sorted(historial.keys())[:-60]:
+            historial.pop(k, None)
+
+    _guardar_json(HISTORIAL_PUB_FILE, historial)
+    print(f"📊 [3AM] Publicación registrada para {fecha_iso}: {conteo}/{MAX_PUBLICACIONES_POR_DIA} realizadas.")
+    return conteo
 
 # ----------------------------------------------------------------------
 #  1. Generar la sucesión completa de números según el patrón pedido:
@@ -262,21 +320,12 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     
     numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
     
-    # ── PROTECCIÓN ANTI-DUPLICADO ESTRICTA ──
-    meta = _cargar_json(META_HOY)
-    if not forzar and isinstance(meta, dict):
-        f_meta = meta.get("fecha_iso") or meta.get("fecha_tarea_admin")
-        num_meta = meta.get("numero")
-        if (f_meta == fecha_hoy_iso or f_meta == fecha_hoy_display) and num_meta == numero_esperado:
-            print(f"ℹ️ Ya está programada correctamente la meditación #{num_meta} para hoy ({fecha_hoy_iso}). Omitiendo duplicado.")
-            return
-
-    log_check = _cargar_json(LOG_FILE)
-    if not forzar and isinstance(log_check, list):
-        for entry in log_check:
-            if str(entry.get("fecha_iso")) == fecha_hoy_iso or str(entry.get("fecha", "")).startswith(fecha_hoy_iso):
-                print(f"ℹ️ Meditación de hoy ({fecha_hoy_iso}) ya se encuentra en el log histórico. Omitiendo duplicado.")
-                return
+    # ── CONTROL ESTRICTO DE PUBLICACIÓN (MÁXIMO 2 VECES AL DÍA) ──
+    conteo_hoy = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
+    if not forzar and conteo_hoy >= MAX_PUBLICACIONES_POR_DIA:
+        print(f"ℹ️ [3AM] La tarea de hoy ({fecha_hoy_iso}) ya ha sido publicada {conteo_hoy} veces "
+              f"(límite máximo permitido: {MAX_PUBLICACIONES_POR_DIA}). Omitiendo duplicado.")
+        return
     
     # ── DETERMINAR SIGUIENTE MEDITACIÓN ──
     estado = _cargar_estado()
@@ -287,7 +336,8 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     siguiente_indice = (indice + 1) % len(SECUENCIA)
 
     print(f"📋 Programando meditación: índice={indice}, "
-          f"número=#{numero}, siguiente=#{SECUENCIA[siguiente_indice]}")
+          f"número=#{numero}, siguiente=#{SECUENCIA[siguiente_indice]} "
+          f"(Publicación {conteo_hoy + 1}/{MAX_PUBLICACIONES_POR_DIA} del día)")
 
     # ── OBTENER DATOS DEL CATÁLOGO ──
     info_cat = None
@@ -377,62 +427,59 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     except Exception as e_sync:
         print(f"Nota sincronizando con Render: {e_sync}")
 
-    # ── PUBLICAR EN TELEGRAM ──
+    # ── PUBLICAR EN TELEGRAM (HASTA 2 VECES MÁXIMO) ──
     try:
         from publicar_tarea import publicar_tarea_dia
         print(f"Publicando tarea diaria #{numero} en Telegram con audio oficial y anuncio...")
-        publicar_tarea_dia(str(numero))
+        res_pub = publicar_tarea_dia(str(numero))
+        if res_pub:
+            nuevo_conteo = registrar_publicacion_exitosa(fecha_hoy_iso, num=numero)
+            print(f"✅ Tarea diaria #{numero} publicada exitosamente (Publicación {nuevo_conteo}/{MAX_PUBLICACIONES_POR_DIA} de hoy).")
     except Exception as e_notif:
         print(f"⚠️ Error al notificar meditación en el grupo: {e_notif}")
 
 
 # ----------------------------------------------------------------------
-#  4. Catch-up automático estricto a las 03:00 AM
+#  4. Catch-up automático con límite estricto de 2 publicaciones
 # ----------------------------------------------------------------------
 _CATCHUP_LOCK = False
 
 def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
-    """Verifica y ejecuta la publicación ÚNICAMENTE en la ventana de 03:00 AM a 03:30 AM (hora Colombia).
-    Fuera de esa ventana estricta de la madrugada, NUNCA se publica automáticamente."""
+    """Verifica y ejecuta la publicación respetando el límite máximo estricto de 2 veces al día.
+    Ventana permitida:
+    - Madrugada (03:00 a 03:59 AM hora Colombia)
+    - O cuando se recibe trigger externo de respaldo y aún hay 0 publicaciones realizadas hoy
+    - O forzar=True
+    """
     global _CATCHUP_LOCK
     if _CATCHUP_LOCK:
         return False
 
     try:
         ahora = _ahora_colombia()
-
-        # REGLA DE ORO: La publicación automática SOLO se permite entre las 03:00 AM y las 03:30 AM.
-        # En cualquier otro horario del día (tarde, noche, reinicios a las 9 PM), está TERMINANTEMENTE PROHIBIDO.
-        if not forzar:
-            if not (ahora.hour == 3 and ahora.minute <= 30):
-                return False
-
         fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
         fecha_hoy_display = ahora.strftime("%d/%m/%Y")
         numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
 
-        # 1. Comprobar meta_hoy.json
-        meta = _cargar_json(META_HOY)
-        if isinstance(meta, dict):
-            f_meta = meta.get("fecha_iso") or meta.get("fecha_tarea_admin")
-            num_meta = meta.get("numero")
-            if (f_meta == fecha_hoy_iso or f_meta == fecha_hoy_display) and num_meta == numero_esperado:
-                print(f"ℹ️ [3AM] Tarea #{num_meta} ya se encuentra programada para hoy ({fecha_hoy_display}).")
-                return False
+        conteo = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
+        if not forzar and conteo >= MAX_PUBLICACIONES_POR_DIA:
+            print(f"ℹ️ [3AM] Tarea de hoy ({fecha_hoy_display}) ya alcanzó el límite de {conteo}/{MAX_PUBLICACIONES_POR_DIA} publicaciones. Omitiendo.")
+            return False
 
-        # 2. Comprobar log histórico
-        log_chk = _cargar_json(LOG_FILE)
-        if isinstance(log_chk, list):
-            for entry in log_chk:
-                if str(entry.get("fecha_iso")) == fecha_hoy_iso or str(entry.get("fecha", "")).startswith(fecha_hoy_iso):
-                    print(f"ℹ️ [3AM] Tarea de hoy ({fecha_hoy_iso}) ya existe en historial. Omitiendo duplicado.")
-                    return False
+        # Si no es forzado explícitamente:
+        # Permitir durante la hora 3 AM (03:00 a 03:59) O en cualquier momento si NO se ha publicado ni una sola vez hoy (conteo == 0)
+        if not forzar:
+            en_ventana_3am = (ahora.hour == 3)
+            if not en_ventana_3am and conteo > 0:
+                print(f"ℹ️ Fuera de ventana de 3 AM y ya cuenta con {conteo} publicación hoy. Omitiendo.")
+                return False
 
         _CATCHUP_LOCK = True
         try:
-            print(f"⏰ [3AM] Ejecutando publicación oficial única de las 3:00 AM (#{numero_esperado})...")
+            print(f"⏰ [3AM] Disparando publicación de hoy #{numero_esperado} (intento {conteo + 1}/{MAX_PUBLICACIONES_POR_DIA})...")
             programar_meditacion_diaria(forzar=forzar)
-            return True
+            nuevo_conteo = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
+            return nuevo_conteo > conteo
         finally:
             _CATCHUP_LOCK = False
     except Exception as e_catchup:
@@ -445,12 +492,14 @@ def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
 #  5. Iniciar el scheduler (se llama una sola vez al iniciar el bot)
 # ----------------------------------------------------------------------
 def iniciar_scheduler() -> None:
-    """Configura la publicación diaria EXACTAMENTE UNA SOLA VEZ a las 03:00 AM (UTC-5)."""
+    """Configura la publicación diaria a las 03:00 AM (UTC-5) y un segundo intento a las 03:15 AM
+    (con tope máximo absoluto de 2 publicaciones al día)."""
+    global _SCHEDULER_INSTANCE
     ahora = _ahora_colombia()
-    # Si y solo si el bot arranca dentro de la ventana de 03:00 AM a 03:30 AM, ejecutar catch-up
-    if ahora.hour == 3 and ahora.minute <= 30:
+    # Si el bot arranca dentro de la hora de 03:00 AM, verificar catch-up
+    if ahora.hour == 3:
         import threading
-        threading.Thread(target=verificar_y_ejecutar_catchup, daemon=True).start()
+        threading.Thread(target=verificar_y_ejecutar_catchup, kwargs={"forzar": False}, daemon=True).start()
 
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -459,19 +508,31 @@ def iniciar_scheduler() -> None:
         return
 
     scheduler = BackgroundScheduler(timezone=TZ_OFFSET)
-    # Tarea programada EXACTAMENTE a las 03:00 AM con 30 minutos de gracia (hasta las 03:30 AM)
+    # 1. Disparo principal a las 03:00 AM
     scheduler.add_job(
         programar_meditacion_diaria,
         "cron",
         hour=3,
         minute=0,
-        id="meditacion_diaria",
+        id="meditacion_diaria_0300",
         replace_existing=True,
         misfire_grace_time=1800,  # 30 minutos de tolerancia (03:00 a 03:30 AM)
         coalesce=True
     )
+    # 2. Segundo intento de respaldo a las 03:15 AM (siempre respetando tope de 2)
+    scheduler.add_job(
+        programar_meditacion_diaria,
+        "cron",
+        hour=3,
+        minute=15,
+        id="meditacion_diaria_0315",
+        replace_existing=True,
+        misfire_grace_time=1800,
+        coalesce=True
+    )
     scheduler.start()
-    print("⏰ Scheduler configurado: Publicación diaria ÚNICAMENTE a las 03:00 AM (Bogotá/UTC-5)")
+    _SCHEDULER_INSTANCE = scheduler
+    print("⏰ Scheduler configurado: Publicación diaria a las 03:00 AM y 03:15 AM (máx 2 veces/día)")
 
 # ----------------------------------------------------------------------
 #  6. Ejecutar directamente para pruebas

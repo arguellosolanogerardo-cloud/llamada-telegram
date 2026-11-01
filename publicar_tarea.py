@@ -1062,6 +1062,25 @@ def publicar_tarea_dia(parametro: str, fecha_param: str = None, msg_id_audio: in
                 print(f"Anuncio de texto de la tarea ({fecha_final}) publicado en el grupo {CHAT_ID} (fallback).")
             else:
                 print(f"No se pudo publicar en el grupo {CHAT_ID}.")
+
+        if ok_grupo:
+            try:
+                ruta_meta = os.path.join(carp_med_pub, "meta_hoy.json")
+                if os.path.exists(ruta_meta):
+                    with open(ruta_meta, "r", encoding="utf-8") as f_m:
+                        meta_act = json.load(f_m)
+                    meta_act["publicado_telegram"] = True
+                    if m_id_banner:
+                        meta_act["msg_id_banner"] = m_id_banner
+                    with open(ruta_meta, "w", encoding="utf-8") as f_m:
+                        json.dump(meta_act, f_m, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            try:
+                from schedule_meditaciones import registrar_publicacion_exitosa
+                registrar_publicacion_exitosa(msg_id=m_id_banner or msg_id_audio, num=info.get("numero"))
+            except Exception as e_reg_pub:
+                print("Nota registrando publicacion exitosa:", e_reg_pub)
     else:
         print("Variable CHAT_ID o TG_GROUP no configurada.")
 

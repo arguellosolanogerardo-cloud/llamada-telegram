@@ -28,7 +28,7 @@ jobs:
         id: ping_render
         run: |
           echo "Enviando trigger de publicación /tarea_hoy a Render..."
-          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" --max-time 60 "https://bot-meditaciones.onrender.com/tarea_hoy" || true)
+          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" --max-time 60 "https://bot-meditaciones.onrender.com/tarea_hoy?forzar=true" || true)
           echo "Respuesta de Render:"
           echo "$RESPONSE"
           if echo "$RESPONSE" | grep -q "HTTP_CODE:200"; then
@@ -42,17 +42,15 @@ jobs:
       - name: Paso 2 - Verificar si Render publicó la tarea oficial de hoy
         id: check_render
         run: |
-          sleep 15
-          FECHA_HOY=$(python -c "from datetime import datetime, timezone, timedelta; print(datetime.now(timezone(timedelta(hours=-5))).strftime('%d/%m/%Y'))")
-          echo "Verificando publicación para fecha Colombia: $FECHA_HOY"
+          sleep 12
           STATUS_JSON=$(curl -s --max-time 30 "https://bot-meditaciones.onrender.com/estado_cola" || true)
           echo "Estado reportado: $STATUS_JSON"
-          if echo "$STATUS_JSON" | grep -q "$FECHA_HOY"; then
+          if echo "$STATUS_JSON" | grep -E -q '"publicado_telegram":\s*true'; then
             echo "TAREA_PUBLICADA=true" >> $GITHUB_ENV
-            echo "✅ Confirmado: La tarea de hoy ya se encuentra publicada en el servidor."
+            echo "✅ Confirmado: La tarea de hoy ya se encuentra publicada en Telegram."
           else
             echo "TAREA_PUBLICADA=false" >> $GITHUB_ENV
-            echo "⚠️ La tarea no aparece publicada en Render."
+            echo "⚠️ La tarea no figura publicada en Telegram aún."
           fi
 
       - name: Paso 3 - Respaldo en la nube (Ejecutar publicación directa si Render falló)
