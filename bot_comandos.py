@@ -972,7 +972,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 )
                 conteo_antes = obtener_conteo_publicaciones_hoy()
 
-                if conteo_antes >= MAX_PUBLICACIONES_POR_DIA and not es_forzar:
+                # TOPE ESTRICTO: En endpoints web NO se permite superar MAX_PUBLICACIONES_POR_DIA bajo ningun motivo
+                if conteo_antes >= MAX_PUBLICACIONES_POR_DIA:
                     self.send_response(200)
                     self.send_header("Content-type", "application/json; charset=utf-8")
                     self.end_headers()

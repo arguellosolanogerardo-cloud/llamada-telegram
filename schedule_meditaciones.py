@@ -53,14 +53,28 @@ def obtener_conteo_publicaciones_hoy(fecha_iso: str = None) -> int:
     """Devuelve la cantidad de veces que se ha publicado la tarea en Telegram en el día indicado (máximo 2)."""
     if not fecha_iso:
         fecha_iso = _ahora_colombia().strftime("%Y-%m-%d")
+    conteo = 0
     historial = _cargar_json(HISTORIAL_PUB_FILE)
     if isinstance(historial, dict):
         entry = historial.get(fecha_iso)
         if isinstance(entry, dict):
-            return int(entry.get("veces_publicado", 0))
+            conteo = int(entry.get("veces_publicado", 0))
         elif isinstance(entry, int):
-            return entry
-    return 0
+            conteo = entry
+
+    # Respaldo contra reinicios en Render: Si el historial marca 0 pero meta_hoy.json ya marca publicado_telegram hoy
+    if conteo == 0 and META_HOY.exists():
+        try:
+            meta = _cargar_json(META_HOY)
+            if isinstance(meta, dict) and meta.get("publicado_telegram") is True:
+                f_meta = meta.get("fecha_iso") or meta.get("fecha_tarea_admin")
+                f_disp = _ahora_colombia().strftime("%d/%m/%Y")
+                if f_meta in (fecha_iso, f_disp):
+                    conteo = 1
+        except Exception:
+            pass
+
+    return conteo
 
 def registrar_publicacion_exitosa(fecha_iso: str = None, msg_id: int | str = None, num: int = None) -> int:
     """Registra una publicación exitosa en Telegram para hoy e incrementa el contador (tope de 2)."""
@@ -75,16 +89,34 @@ def registrar_publicacion_exitosa(fecha_iso: str = None, msg_id: int | str = Non
     if not isinstance(entry, dict):
         entry = {"veces_publicado": int(entry) if isinstance(entry, int) else 0}
 
-    conteo = int(entry.get("veces_publicado", 0)) + 1
-    timestamps = entry.get("timestamps", [])
-    if not isinstance(timestamps, list):
-        timestamps = []
-    timestamps.append(ahora.isoformat())
-
+    conteo = int(entry.get("veces_publicado", 0))
     msg_ids = entry.get("msg_ids", [])
     if not isinstance(msg_ids, list):
         msg_ids = []
-    if msg_id:
+    timestamps = entry.get("timestamps", [])
+    if not isinstance(timestamps, list):
+        timestamps = []
+
+    # DEDUPLICACION 1: Si este msg_id ya fue registrado hoy, ignorar incremento duplicado
+    if msg_id and str(msg_id) in [str(m) for m in msg_ids]:
+        return conteo
+
+    # DEDUPLICACION 2: Si se registro el mismo numero hace menos de 60 segundos, ignorar incremento
+    if timestamps and num is not None and entry.get("numero") == num:
+        try:
+            ultimo_ts = datetime.fromisoformat(timestamps[-1])
+            if (ahora - ultimo_ts).total_seconds() < 60:
+                if msg_id and str(msg_id) not in [str(m) for m in msg_ids]:
+                    msg_ids.append(msg_id)
+                    entry["msg_ids"] = msg_ids
+                    _guardar_json(HISTORIAL_PUB_FILE, historial)
+                return conteo
+        except Exception:
+            pass
+
+    conteo += 1
+    timestamps.append(ahora.isoformat())
+    if msg_id and str(msg_id) not in [str(m) for m in msg_ids]:
         msg_ids.append(msg_id)
 
     entry["veces_publicado"] = conteo
@@ -433,8 +465,8 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
         print(f"Publicando tarea diaria #{numero} en Telegram con audio oficial y anuncio...")
         res_pub = publicar_tarea_dia(str(numero))
         if res_pub:
-            nuevo_conteo = registrar_publicacion_exitosa(fecha_hoy_iso, num=numero)
-            print(f"✅ Tarea diaria #{numero} publicada exitosamente (Publicación {nuevo_conteo}/{MAX_PUBLICACIONES_POR_DIA} de hoy).")
+            nuevo_conteo = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
+            print(f"[OK] Tarea diaria #{numero} publicada exitosamente (Publicación {nuevo_conteo}/{MAX_PUBLICACIONES_POR_DIA} de hoy).")
     except Exception as e_notif:
         print(f"⚠️ Error al notificar meditación en el grupo: {e_notif}")
 
@@ -445,11 +477,12 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
 _CATCHUP_LOCK = False
 
 def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
-    """Verifica y ejecuta la publicación respetando el límite máximo estricto de 2 veces al día.
+    """Verifica y ejecuta la publicacion respetando el limite maximo estricto de 2 veces al dia.
     Ventana permitida:
     - Madrugada (03:00 a 03:59 AM hora Colombia)
-    - O cuando se recibe trigger externo de respaldo y aún hay 0 publicaciones realizadas hoy
-    - O forzar=True
+    - O cuando se recibe trigger externo de respaldo y aun hay 0 publicaciones realizadas hoy (hasta las 05:00 AM)
+    - Si ya se publico hoy (conteo >= 1) y estamos fuera de la hora 3 AM, se omite de forma segura.
+    - Si conteo >= MAX_PUBLICACIONES_POR_DIA, NUNCA se publica automaticamente.
     """
     global _CATCHUP_LOCK
     if _CATCHUP_LOCK:
@@ -462,16 +495,19 @@ def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
         numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
 
         conteo = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
-        if not forzar and conteo >= MAX_PUBLICACIONES_POR_DIA:
-            print(f"ℹ️ [3AM] Tarea de hoy ({fecha_hoy_display}) ya alcanzó el límite de {conteo}/{MAX_PUBLICACIONES_POR_DIA} publicaciones. Omitiendo.")
+        if conteo >= MAX_PUBLICACIONES_POR_DIA:
+            print(f"ℹ️ [3AM] Tarea de hoy ({fecha_hoy_display}) ya alcanzo el limite de {conteo}/{MAX_PUBLICACIONES_POR_DIA} publicaciones. Omitiendo.")
             return False
 
-        # Si no es forzado explícitamente:
-        # Permitir durante la hora 3 AM (03:00 a 03:59) O en cualquier momento si NO se ha publicado ni una sola vez hoy (conteo == 0)
-        if not forzar:
-            en_ventana_3am = (ahora.hour == 3)
-            if not en_ventana_3am and conteo > 0:
-                print(f"ℹ️ Fuera de ventana de 3 AM y ya cuenta con {conteo} publicación hoy. Omitiendo.")
+        en_ventana_3am = (ahora.hour == 3)
+        if not en_ventana_3am:
+            # Si ya se publico al menos 1 vez hoy, fuera de las 3 AM NUNCA se vuelve a publicar automaticamente
+            if conteo > 0:
+                print(f"ℹ️ Fuera de ventana de 3 AM ({ahora.strftime('%H:%M')}) y ya cuenta con {conteo} publicacion(es) hoy. Omitiendo.")
+                return False
+            # Si no se ha publicado (conteo == 0), permitir hasta las 05:00 AM o si forzar=True
+            if not forzar and ahora.hour >= 6:
+                print(f"ℹ️ Fuera de ventana de madrugada ({ahora.strftime('%H:%M')}). No se dispara catchup automatico tardio a deshoras.")
                 return False
 
         _CATCHUP_LOCK = True
