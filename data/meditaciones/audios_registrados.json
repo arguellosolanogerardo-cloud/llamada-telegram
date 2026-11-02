@@ -292,5 +292,27 @@
     "titulo": "MENSAJE 1078 🗓️ 06/26/2020💥 MAESTRO ALANISO",
     "fuente": "YOUTUBE",
     "file_id": null
+  },
+  "MEDITACION_1085": {
+    "numero": 1085,
+    "tipo": "MEDITACION",
+    "titulo": "Preparamos este mensaje para convertirlos en Maestros.que solo sepan Amar",
+    "fecha": "07/25/20",
+    "maestro": "Alaniso",
+    "detectado_como": "MEDITACION"
+  },
+  "1085": {
+    "numero": 1085,
+    "tipo": "MEDITACION",
+    "titulo": "Preparamos este mensaje para convertirlos en Maestros.que solo sepan Amar",
+    "fecha": "07/25/20",
+    "maestro": "Alaniso",
+    "detectado_como": "MEDITACION"
+  },
+  "YT_CLEAN_EdFfvQJBRPI": {
+    "video_id": "CLEAN_EdFfvQJBRPI",
+    "titulo": "🚩💥CANCION NUESTRO ORIGEN COMO VIDA 💖💕",
+    "fuente": "YOUTUBE",
+    "file_id": null
   }
 }
