@@ -37,6 +37,19 @@ jobs:
           HORA_COL=$(python -c "from datetime import datetime, timezone, timedelta; now=datetime.now(timezone(timedelta(hours=-5))); print(now.hour)")
           echo "Fecha Colombia: $FECHA_COL | Hora Colombia: $HORA_COL:00"
 
+          EVENTO="${{ github.event_name }}"
+          FORZAR_INPUT="${{ github.event.inputs.forzar }}"
+
+          # PROTECCIÓN INCONDICIONAL CONTRA RETRASOS DE GITHUB ACTIONS:
+          # Si es cron automático (schedule) y la hora en Colombia es >= 5 AM,
+          # ABORTAR INMEDIATAMENTE. Un cron de las 3 AM NUNCA debe ejecutarse en horario diurno.
+          if [ "$EVENTO" = "schedule" ] && [ "$HORA_COL" -ge 5 ]; then
+            echo "🚨 Retraso crítico en servidores de GitHub Actions: ejecutado a las $HORA_COL:00 Colombia."
+            echo "⛔ Cancelando ejecución desfasada incondicionalmente para evitar duplicados en Telegram."
+            echo "TAREA_PUBLICADA=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
           # 2. Consultar estado en Render
           STATUS_JSON=$(curl -s --max-time 30 "https://bot-meditaciones.onrender.com/estado_cola" || echo "{}")
           echo "Estado reportado por Render: $STATUS_JSON"
@@ -47,24 +60,11 @@ jobs:
             YA_PUBLICADO=true
           fi
 
-          EVENTO="${{ github.event_name }}"
-          FORZAR_INPUT="${{ github.event.inputs.forzar }}"
-
           # Si ya se encuentra publicada y no es forzado manual, omitir de inmediato
           if [ "$YA_PUBLICADO" = "true" ] && [ "$FORZAR_INPUT" != "true" ]; then
             echo "TAREA_PUBLICADA=true" >> $GITHUB_ENV
             echo "✅ Confirmado: La tarea de hoy ($FECHA_COL) ya se encuentra publicada en Telegram. No se requiere ninguna acción."
             exit 0
-          fi
-
-          # Si es cron automático y GitHub se ejecutó con retraso extremo (> 5 AM)
-          if [ "$EVENTO" = "schedule" ] && [ "$HORA_COL" -ge 6 ]; then
-            echo "⚠️ Retraso en GitHub Actions: ejecutado a las $HORA_COL:00 Colombia."
-            if [ "$YA_PUBLICADO" = "true" ]; then
-              echo "TAREA_PUBLICADA=true" >> $GITHUB_ENV
-              echo "✅ Tarea ya estaba publicada. Omitiendo ejecución desfasada."
-              exit 0
-            fi
           fi
 
           echo "TAREA_PUBLICADA=false" >> $GITHUB_ENV
@@ -111,6 +111,12 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TG_GROUP: ${{ secrets.TG_GROUP }}
         run: |
+          HORA_COL=$(python -c "from datetime import datetime, timezone, timedelta; now=datetime.now(timezone(timedelta(hours=-5))); print(now.hour)")
+          EVENTO="${{ github.event_name }}"
+          if [ "$EVENTO" = "schedule" ] && [ "$HORA_COL" -ge 5 ]; then
+            echo "⛔ Cancelando respaldo: hora desfasada ($HORA_COL:00 Colombia)."
+            exit 0
+          fi
           echo "🚨 Activando respaldo autónomo de GitHub Actions..."
           python -u run_medita_hoy.py
           echo "✅ Tarea diaria publicada exitosamente vía respaldo de GitHub Actions."
