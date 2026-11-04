@@ -2600,46 +2600,6 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
         or vid_tarea == "v5zwtMKOj3A"
     )
 
-    tipo_aviso = "Tarea Adicional" if es_mario else "Tarea Oficial"
-    m_prog = enviar_mensaje(
-        chat_destino,
-        f"⏳ **Descargando audio de YouTube y programando como {tipo_aviso}...**\n📺 https://www.youtube.com/watch?v={vid_tarea}\n*Por favor espera un momento mientras procesamos el archivo.*"
-    )
-
-    if not tit_found:
-        for c_r in CANALES_RADAR:
-            try:
-                u_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={c_r['id']}"
-                r_rss = urllib.request.Request(u_rss, headers={'User-Agent': 'Mozilla/5.0'})
-                xml_rss = urllib.request.urlopen(r_rss, timeout=6).read().decode('utf-8', errors='ignore')
-                for ent in extraer_entradas_xml(xml_rss):
-                    if ent["video_id"] == vid_tarea:
-                        tit_found = ent["titulo"]
-                        canal_nom = c_r.get("nombre", canal_nom)
-                        break
-            except Exception:
-                pass
-            if tit_found:
-                break
-
-    if not tit_found:
-        try:
-            res_tit = subprocess.run(
-                [sys.executable, "-m", "yt_dlp", "--extractor-args", "youtube:player_client=android,mweb", "--print", "%(title)s", url_yt],
-                capture_output=True, text=True, timeout=15
-            )
-            if res_tit.returncode == 0 and res_tit.stdout.strip():
-                tit_found = res_tit.stdout.strip()
-        except Exception:
-            pass
-
-    if not tit_found:
-        tit_found = "El significado .de los 666y el signo del poder de la bestia$$$" if vid_tarea == "v5zwtMKOj3A" else f"Enseñanza / Práctica {vid_tarea}"
-
-    # Descargar o reutilizar audio en disco de forma robusta
-    archivo_descargado, origen_descarga = descargar_audio_youtube_robusto(vid_tarea, tit_found)
-
-
     ahora_col = datetime.now(ZoneInfo("America/Bogota"))
     fecha_hoy_str = ahora_col.strftime("%d/%m/%Y")
 
@@ -2655,244 +2615,264 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
         except Exception:
             pass
 
-    # Asegurar que la Pista #1 sea siempre la meditación oficial del día cuando se agrega un audio adicional
-    if es_mario and (not cola_existente or all((c.get("info") or {}).get("es_mario") for c in cola_existente)):
-        info_base = obtener_info_tarea_hoy()
-        if info_base and not info_base.get("es_mario"):
-            info_base_clean = dict(info_base)
-            info_base_clean.pop("cola_audios", None)
-            r_med1 = info_base_clean.get("audio_path") or os.path.join(carp_med, "meditacion_hoy.mp3")
-            pista_base = {
-                "ruta": os.path.abspath(r_med1),
-                "info": info_base_clean,
-                "titulo": f"{info_base_clean.get('tipo', 'Meditación').title()} #{info_base_clean.get('numero', '')} - {info_base_clean.get('titulo', '')}".strip(" -#")
-            }
-            cola_existente = [pista_base] + [c for c in cola_existente if (c.get("info") or {}).get("video_id") != vid_tarea]
+    info_oficial_3am = obtener_info_tarea_hoy()
+    tiene_tarea_oficial = bool(info_oficial_3am and not info_oficial_3am.get("es_mario") and info_oficial_3am.get("numero"))
+    es_adicional = es_mario or tiene_tarea_oficial or bool(cola_existente) or (ahora_col.hour >= 4)
+    tipo_aviso = "Tarea Adicional" if es_adicional else "Tarea Oficial"
 
-    if es_mario:
-        idx_pista = max(2, len(cola_existente) + 1)
-        ruta_mp3_hoy = os.path.join(carp_med, f"meditacion_hoy_{idx_pista}.mp3")
-    else:
-        ruta_mp3_hoy = os.path.join(carp_med, "meditacion_hoy.mp3")
+    m_prog = None
+    try:
+        m_prog = enviar_mensaje(
+            chat_destino,
+            f"⏳ **Descargando audio de YouTube y programando como {tipo_aviso}...**\n📺 https://www.youtube.com/watch?v={vid_tarea}\n*Por favor espera un momento mientras procesamos el archivo.*"
+        )
 
-    if archivo_descargado and os.path.exists(archivo_descargado) and os.path.getsize(archivo_descargado) > 1000:
-        if os.path.abspath(archivo_descargado) != os.path.abspath(ruta_mp3_hoy):
-            shutil.copy2(archivo_descargado, ruta_mp3_hoy)
+        if not tit_found:
+            for c_r in CANALES_RADAR:
+                try:
+                    u_rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={c_r['id']}"
+                    r_rss = urllib.request.Request(u_rss, headers={'User-Agent': 'Mozilla/5.0'})
+                    xml_rss = urllib.request.urlopen(r_rss, timeout=6).read().decode('utf-8', errors='ignore')
+                    for ent in extraer_entradas_xml(xml_rss):
+                        if ent["video_id"] == vid_tarea:
+                            tit_found = ent["titulo"]
+                            canal_nom = c_r.get("nombre", canal_nom)
+                            break
+                except Exception:
+                    pass
+                if tit_found:
+                    break
 
-    if es_mario:
-        tipo_t = "MENSAJE"
-        num_t = ""
-        t_nom = "Mensaje"
-        info_cat = {
-            "numero": "",
-            "tipo": "MENSAJE",
-            "titulo": tit_found,
-            "maestro": "JESUS MARIO CARRILLO DURAN",
-            "fecha": fecha_hoy_str,
-            "fecha_tarea_admin": fecha_hoy_str,
-            "url_youtube": url_yt,
-            "video_id": vid_tarea,
-            "fuente": origen_descarga or "YOUTUBE",
-            "canal": "Maestro Mario Carrillo",
-            "es_mario": True,
-            "es_adicional": True,
-            "espera_post_meditacion_min": 30,
-            "audio_path": os.path.abspath(ruta_mp3_hoy)
-        }
-    else:
-        info_cat = identificar_audio_catalogo(texto=tit_found or vid_tarea)
-        if not info_cat:
-            tit_up = tit_found.upper()
-            tipo_t = "MENSAJE" if "MENSAJE" in tit_up else "MEDITACION"
-            m_num = re.search(r'(?:#|N[°º]|NUMERO\s*|NO\.\s*)?(\b\d{1,4}\b)', tit_found, re.IGNORECASE)
-            num_t = m_num.group(1) if m_num else ""
-            t_nom = "Meditación" if "MEDITACI" in str(tipo_t).upper() else "Mensaje"
-            mae_t = "Alaniso"
-            if "GUARDIANES" in tit_up:
-                mae_t = "Guardianes del Universo"
-            elif "ALANISO" in tit_up or "ALANISO" in str(canal_nom).upper():
-                mae_t = "Alaniso"
+        if not tit_found:
+            try:
+                res_tit = subprocess.run(
+                    [sys.executable, "-m", "yt_dlp", "--extractor-args", "youtube:player_client=android,mweb", "--print", "%(title)s", url_yt],
+                    capture_output=True, text=True, timeout=15
+                )
+                if res_tit.returncode == 0 and res_tit.stdout.strip():
+                    tit_found = res_tit.stdout.strip()
+            except Exception:
+                pass
 
+        if not tit_found:
+            tit_found = "El significado .de los 666y el signo del poder de la bestia$$$" if vid_tarea == "v5zwtMKOj3A" else f"Enseñanza / Práctica {vid_tarea}"
+
+        # Descargar o reutilizar audio en disco de forma robusta
+        archivo_descargado, origen_descarga = descargar_audio_youtube_robusto(vid_tarea, tit_found)
+
+        # Asegurar que la Pista #1 sea siempre la meditación oficial del día si se agrega audio adicional
+        if es_adicional and (not cola_existente or all((c.get("info") or {}).get("es_mario") for c in cola_existente)):
+            if info_oficial_3am and not info_oficial_3am.get("es_mario"):
+                info_base_clean = dict(info_oficial_3am)
+                info_base_clean.pop("cola_audios", None)
+                r_med1 = info_base_clean.get("audio_path") or os.path.join(carp_med, "meditacion_hoy.mp3")
+                pista_base = {
+                    "ruta": os.path.abspath(r_med1),
+                    "info": info_base_clean,
+                    "titulo": f"{info_base_clean.get('tipo', 'Meditación').title()} #{info_base_clean.get('numero', '')} - {info_base_clean.get('titulo', '')}".strip(" -#")
+                }
+                cola_existente = [pista_base] + [c for c in cola_existente if (c.get("info") or {}).get("video_id") != vid_tarea]
+
+        if es_adicional:
+            idx_pista = max(2, len(cola_existente) + 1)
+            ruta_mp3_hoy = os.path.join(carp_med, f"meditacion_hoy_{idx_pista}_{vid_tarea}.mp3")
+        else:
+            ruta_mp3_hoy = os.path.join(carp_med, "meditacion_hoy.mp3")
+
+        if archivo_descargado and os.path.exists(archivo_descargado) and os.path.getsize(archivo_descargado) > 1000:
+            if os.path.abspath(archivo_descargado) != os.path.abspath(ruta_mp3_hoy):
+                shutil.copy2(archivo_descargado, ruta_mp3_hoy)
+
+        if es_mario:
+            tipo_t = "MENSAJE"
+            num_t = ""
+            t_nom = "Mensaje"
             info_cat = {
-                "numero": num_t,
-                "tipo": tipo_t,
+                "numero": "",
+                "tipo": "MENSAJE",
                 "titulo": tit_found,
-                "maestro": mae_t,
+                "maestro": "JESUS MARIO CARRILLO DURAN",
                 "fecha": fecha_hoy_str,
                 "fecha_tarea_admin": fecha_hoy_str,
                 "url_youtube": url_yt,
                 "video_id": vid_tarea,
                 "fuente": origen_descarga or "YOUTUBE",
+                "canal": "Maestro Mario Carrillo",
+                "es_mario": True,
+                "es_adicional": True,
+                "espera_post_meditacion_min": 30,
                 "audio_path": os.path.abspath(ruta_mp3_hoy)
             }
         else:
-            info_cat["url_youtube"] = url_yt
-            info_cat["video_id"] = vid_tarea
-            info_cat["fecha_tarea_admin"] = fecha_hoy_str
-            info_cat["audio_path"] = os.path.abspath(ruta_mp3_hoy)
-            tipo_t = info_cat.get("tipo", "MEDITACION")
-            num_t = info_cat.get("numero", "")
-            t_nom = "Meditación" if "MEDITACI" in str(tipo_t).upper() else "Mensaje"
+            info_cat = identificar_audio_catalogo(texto=tit_found or vid_tarea)
+            if not info_cat:
+                tit_up = tit_found.upper()
+                tipo_t = "MENSAJE" if "MENSAJE" in tit_up else "MEDITACION"
+                m_num = re.search(r'(?:#|N[°º]|NUMERO\s*|NO\.\s*)?(\d{1,4})', tit_found, re.IGNORECASE)
+                num_t = m_num.group(1) if m_num else ""
+                t_nom = "Meditación" if "MEDITACI" in str(tipo_t).upper() else "Mensaje"
+                mae_t = "Alaniso"
+                if "GUARDIANES" in tit_up:
+                    mae_t = "Guardianes del Universo"
+                elif "ALANISO" in tit_up or "ALANISO" in str(canal_nom).upper():
+                    mae_t = "Alaniso"
 
-    info_cat["admin_override"] = True
+                info_cat = {
+                    "numero": num_t,
+                    "tipo": tipo_t,
+                    "titulo": tit_found,
+                    "maestro": mae_t,
+                    "fecha": fecha_hoy_str,
+                    "fecha_tarea_admin": fecha_hoy_str,
+                    "url_youtube": url_yt,
+                    "video_id": vid_tarea,
+                    "fuente": origen_descarga or "YOUTUBE",
+                    "es_adicional": es_adicional,
+                    "audio_path": os.path.abspath(ruta_mp3_hoy)
+                }
+            else:
+                info_cat["url_youtube"] = url_yt
+                info_cat["video_id"] = vid_tarea
+                info_cat["fecha_tarea_admin"] = fecha_hoy_str
+                info_cat["audio_path"] = os.path.abspath(ruta_mp3_hoy)
+                info_cat["es_adicional"] = es_adicional
+                tipo_t = info_cat.get("tipo", "MEDITACION")
+                num_t = info_cat.get("numero", "")
+                t_nom = "Meditación" if "MEDITACI" in str(tipo_t).upper() else "Mensaje"
 
-    if es_mario:
-        cap_audio = (
-            f"🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN**\n"
-            f"📌 **Título:** «{info_cat.get('titulo', '')}»\n"
-            f"👤 **Maestro:** JESUS MARIO CARRILLO DURAN\n"
-            f"🗓️ **Grabación original:** {fecha_hoy_str}\n\n"
-            f"🎧 Audio adicional preparado para sonar en la reunión de hoy a las 7:56 PM (30 minutos después de terminar la meditación)."
-        )
-        perf_aud = "JESUS MARIO CARRILLO DURAN"
-        tit_aud = f"MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN - {info_cat.get('titulo', '')} (Encolado +30 min)"
-    else:
-        cap_audio = (
-            f"🧘 **{t_nom} #{num_t}**\n" if num_t else f"🧘 **{t_nom} Especial**\n"
-        ) + (
-            f"📌 **Título:** «{info_cat.get('titulo', '')}»\n"
-            f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
-            f"🗓️ **Grabación / YouTube:** {fecha_hoy_str}\n\n"
-            f"🎧 Audio oficial preparado para la práctica de hoy a las 7:56 PM."
-        )
-        perf_aud = info_cat.get('maestro', 'Alaniso')
-        tit_aud = f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}" if num_t else info_cat.get('titulo', '')
+        info_cat["admin_override"] = True
 
-    bot_u = obtener_info_bot()
-    param_priv = f"audio_yt_{vid_tarea}" if es_mario else (f"audio_{tipo_t.lower()}_{num_t}" if num_t else "audio")
-    teclado_aud = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start={param_priv}"}]]} if bot_u else None
+        if es_mario:
+            cap_audio = (
+                f"🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN**\n"
+                f"📌 **Título:** «{info_cat.get('titulo', '')}»\n"
+                f"👤 **Maestro:** JESUS MARIO CARRILLO DURAN\n"
+                f"🗓️ **Grabación original:** {fecha_hoy_str}\n\n"
+                f"🎧 Audio adicional preparado para sonar en la reunión de hoy a las 7:56 PM (30 minutos después de terminar la meditación)."
+            )
+            perf_aud = "JESUS MARIO CARRILLO DURAN"
+            tit_aud = f"MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN - {info_cat.get('titulo', '')}"
+        elif es_adicional:
+            cap_audio = (
+                f"🧘 **{t_nom} #{num_t} (Audio Adicional)**\n" if num_t else f"🧘 **{t_nom} Especial (Audio Adicional)**\n"
+            ) + (
+                f"📌 **Título:** «{info_cat.get('titulo', '')}»\n"
+                f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
+                f"🗓️ **Grabación / YouTube:** {fecha_hoy_str}\n\n"
+                f"🎧 Audio adicional preparado para la práctica de hoy a las 7:56 PM."
+            )
+            perf_aud = info_cat.get('maestro', 'Alaniso')
+            tit_aud = f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}" if num_t else info_cat.get('titulo', '')
+        else:
+            cap_audio = (
+                f"🧘 **{t_nom} #{num_t}**\n" if num_t else f"🧘 **{t_nom} Especial**\n"
+            ) + (
+                f"📌 **Título:** «{info_cat.get('titulo', '')}»\n"
+                f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
+                f"🗓️ **Grabación / YouTube:** {fecha_hoy_str}\n\n"
+                f"🎧 Audio oficial preparado para la práctica de hoy a las 7:56 PM."
+            )
+            perf_aud = info_cat.get('maestro', 'Alaniso')
+            tit_aud = f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}" if num_t else info_cat.get('titulo', '')
 
-    msg_id_audio_final = None
-    if os.path.exists(ruta_mp3_hoy) and os.path.getsize(ruta_mp3_hoy) > 1000:
-        ok_a, m_id_a, f_id_a = enviar_audio(
-            chat_destino,
-            ruta_mp3_hoy,
-            caption=cap_audio,
-            title=tit_aud,
-            performer=perf_aud,
-            reply_markup=teclado_aud
-        )
-        if ok_a:
-            msg_id_audio_final = m_id_a
-            info_cat["file_id"] = f_id_a
-            info_cat["msg_id_audio"] = m_id_a
+        bot_u = obtener_info_bot()
+        param_priv = f"audio_yt_{vid_tarea}" if es_mario else (f"audio_{tipo_t.lower()}_{num_t}" if num_t else "audio")
+        teclado_aud = {"inline_keyboard": [[{"text": "📥 RECIBIR AUDIO EN MI TELEGRAM PRIVADO 🎧", "url": f"https://t.me/{bot_u}?start={param_priv}"}]]} if bot_u else None
 
-    # Eliminar aviso de '⏳ Descargando...' inmediatamente tras subir el audio
-    if m_prog:
-        eliminar_mensaje(chat_destino, m_prog)
+        msg_id_audio_final = None
+        if os.path.exists(ruta_mp3_hoy) and os.path.getsize(ruta_mp3_hoy) > 1000:
+            ok_a, m_id_a, f_id_a = enviar_audio(
+                chat_destino,
+                ruta_mp3_hoy,
+                caption=cap_audio,
+                title=tit_aud,
+                performer=perf_aud,
+                reply_markup=teclado_aud
+            )
+            if ok_a:
+                msg_id_audio_final = m_id_a
+                info_cat["file_id"] = f_id_a
+                info_cat["msg_id_audio"] = m_id_a
 
-    # Actualizar cola_hoy.json y meta_hoy.json (conservando cola_audios y file_id)
-    if es_mario:
-        item_mario = {
-            "ruta": os.path.abspath(ruta_mp3_hoy),
-            "info": info_cat,
-            "titulo": f"MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN: «{tit_found}»"
-        }
-        cola_filtrada = [c for c in cola_existente if (c.get("info") or {}).get("video_id") != vid_tarea]
-        cola_final = cola_filtrada + [item_mario]
+        # Actualizar cola_hoy.json y meta_hoy.json
+        if es_adicional:
+            item_adicional = {
+                "ruta": os.path.abspath(ruta_mp3_hoy),
+                "info": info_cat,
+                "titulo": f"{tipo_t.title()} #{num_t} - {tit_found}".strip(" -#")
+            }
+            cola_filtrada = [c for c in cola_existente if (c.get("info") or {}).get("video_id") != vid_tarea]
+            cola_final = cola_filtrada + [item_adicional]
 
-        payload_cola = {"fecha": fecha_hoy_str, "cola": cola_final}
-        with open(os.path.join(carp_med, "cola_hoy.json"), "w", encoding="utf-8") as f_cj:
-            json.dump(payload_cola, f_cj, ensure_ascii=False, indent=2)
+            payload_cola = {"fecha": fecha_hoy_str, "cola": cola_final}
+            with open(os.path.join(carp_med, "cola_hoy.json"), "w", encoding="utf-8") as f_cj:
+                json.dump(payload_cola, f_cj, ensure_ascii=False, indent=2)
 
-        meta_a_guardar = dict(cola_final[0].get("info") or info_cat)
-        meta_a_guardar["fecha_tarea_admin"] = fecha_hoy_str
-        meta_a_guardar["cola_audios"] = [c.get("info") for c in cola_final if c.get("info")]
-        with open(os.path.join(carp_med, "meta_hoy.json"), "w", encoding="utf-8") as fm:
-            json.dump(meta_a_guardar, fm, ensure_ascii=False, indent=2)
-    else:
-        with open(os.path.join(carp_med, "meta_hoy.json"), "w", encoding="utf-8") as fm:
-            json.dump(info_cat, fm, ensure_ascii=False, indent=2)
-        with open(os.path.join(carp_med, "cola_hoy.json"), "w", encoding="utf-8") as f_cj:
-            json.dump({"fecha": fecha_hoy_str, "cola": [{"ruta": os.path.abspath(ruta_mp3_hoy), "info": info_cat, "titulo": f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}"}]}, f_cj, ensure_ascii=False, indent=2)
+            meta_a_guardar = dict(cola_final[0].get("info") or info_cat)
+            meta_a_guardar["fecha_tarea_admin"] = fecha_hoy_str
+            meta_a_guardar["cola_audios"] = [c.get("info") for c in cola_final if c.get("info")]
+            with open(os.path.join(carp_med, "meta_hoy.json"), "w", encoding="utf-8") as fm:
+                json.dump(meta_a_guardar, fm, ensure_ascii=False, indent=2)
+        else:
+            with open(os.path.join(carp_med, "meta_hoy.json"), "w", encoding="utf-8") as fm:
+                json.dump(info_cat, fm, ensure_ascii=False, indent=2)
+            with open(os.path.join(carp_med, "cola_hoy.json"), "w", encoding="utf-8") as f_cj:
+                json.dump({"fecha": fecha_hoy_str, "cola": [{"ruta": os.path.abspath(ruta_mp3_hoy), "info": info_cat, "titulo": f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}"}]}, f_cj, ensure_ascii=False, indent=2)
 
-    guardar_audio_registrado(info_cat, file_id=info_cat.get("file_id"), msg_id=msg_id_audio_final)
+        guardar_audio_registrado(info_cat, file_id=info_cat.get("file_id"), msg_id=msg_id_audio_final)
 
-    anuncio = generar_anuncio_tarea(info_cat, fecha_hoy_str)
-    teclado_t = armar_teclado_audio(chat_destino, msg_id_audio=msg_id_audio_final, numero_tarea=num_t, tipo_tarea=tipo_t)
-    m_id_anuncio = enviar_mensaje(chat_destino, anuncio, reply_markup=teclado_t)
-    if m_id_anuncio:
-        _TAREA_FLOTANTE.update({"msg_id": m_id_anuncio, "contador": 0, "texto": anuncio, "reply_markup": teclado_t, "chat_id": chat_destino})
+        if not es_adicional:
+            anuncio = generar_anuncio_tarea(info_cat, fecha_hoy_str)
+            teclado_t = armar_teclado_audio(chat_destino, msg_id_audio=msg_id_audio_final, numero_tarea=num_t, tipo_tarea=tipo_t)
+            m_id_anuncio = enviar_mensaje(chat_destino, anuncio, reply_markup=teclado_t)
+            if m_id_anuncio:
+                _TAREA_FLOTANTE.update({"msg_id": m_id_anuncio, "contador": 0, "texto": anuncio, "reply_markup": teclado_t, "chat_id": chat_destino})
 
-    if es_mario:
-        enviar_mensaje(
-            chat_destino,
-            f"✅ **¡Tarea ADICIONAL del día programada exitosamente desde YouTube!**\n\n"
-            f"🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN:** «{info_cat.get('titulo', '')}»\n"
-            f"👤 **Maestro:** MAESTRO JESUS MARIO CARRILLO\n"
-            f"🎧 El archivo MP3 ya está descargado y listo para sonar en la reunión de las 7:56 PM. DESPUES DE LA MEDITACION"
-        )
-    else:
-        enviar_mensaje(
-            chat_destino,
-            f"✅ **¡Tarea del día programada exitosamente desde YouTube!**\n\n"
-            f"🧘 **{t_nom} #{num_t}:** «{info_cat.get('titulo', '')}»\n"
-            f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
-            f"🎧 El archivo MP3 ya está descargado y listo para sonar en la reunión de las 7:56 PM."
-        )
+        if es_mario:
+            enviar_mensaje(
+                chat_destino,
+                f"✅ **¡Tarea ADICIONAL del día programada exitosamente desde YouTube!**\n\n"
+                f"🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN:** «{info_cat.get('titulo', '')}»\n"
+                f"👤 **Maestro:** MAESTRO JESUS MARIO CARRILLO\n"
+                f"🎧 El archivo MP3 ya está listo para sonar en la reunión de las 7:56 PM (Pista #{len(cola_final)})."
+            )
+        elif es_adicional:
+            enviar_mensaje(
+                chat_destino,
+                f"✅ **¡Audio adicional encolado exitosamente desde YouTube!**\n\n"
+                f"🧘 **{t_nom} #{num_t}:** «{info_cat.get('titulo', '')}»\n"
+                f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
+                f"🎧 Se ha agregado a la cola como Pista #{len(cola_final)}. La Meditación Oficial de las 3:00 AM se mantiene de #1."
+            )
+        else:
+            enviar_mensaje(
+                chat_destino,
+                f"✅ **¡Tarea del día programada exitosamente desde YouTube!**\n\n"
+                f"🧘 **{t_nom} #{num_t}:** «{info_cat.get('titulo', '')}»\n"
+                f"👤 **Maestro:** {info_cat.get('maestro', 'Alaniso')}\n"
+                f"🎧 El archivo MP3 ya está descargado y listo para sonar en la reunión de las 7:56 PM."
+            )
 
-    # Encolar en la llamada en vivo (si está activa en GitHub Actions)
-    if msg_id_audio_final:
-        def _sincronizar_con_sala_en_vivo():
-            try:
-                m_enc = enviar_mensaje(chat_destino, "/encolar", reply_to_message_id=msg_id_audio_final)
-                time.sleep(8)
-                if m_enc:
-                    eliminar_mensaje(chat_destino, m_enc)
-            except Exception as e_sync:
-                log_debug(f"Nota encolando en sala en vivo: {e_sync}")
-
-        threading.Thread(target=_sincronizar_con_sala_en_vivo, daemon=True).start()
-
-    # Enviar notificaciones privadas en segundo plano sin bloquear el grupo
-    def _enviar_notifs_privadas():
-        try:
-            db_pts = cargar_puntos()
-            usuarios = db_pts.get("usuarios", {})
-            sin_privado = cargar_usuarios_sin_privado()
-            for u_id_loop, datos in usuarios.items():
-                if str(u_id_loop) == str(chat_destino) or str(u_id_loop) in sin_privado:
-                    continue
+        # Encolar en la llamada en vivo (si está activa en GitHub Actions)
+        if msg_id_audio_final and es_adicional:
+            def _sincronizar_con_sala_en_vivo():
                 try:
-                    if int(str(u_id_loop)) <= 0:
-                        continue
-                except ValueError:
-                    continue
-                if es_mario:
-                    txt_priv = (
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
-                        f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
-                        f"🕊️✨ **SE PROGRAMO NUEVO AUDIO A LA T A R E A   D E L   D Í A** ✨🕊️\n"
-                        f"🗓️ **FECHA: {fecha_hoy_str}**\n"
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
-                        f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
-                        f"🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN**\n"
-                        f"📌 **Título:** «{info_cat['titulo']}»\n"
-                        f"👤 **Maestro:** JESUS MARIO CARRILLO DURAN | 🗓️ **Fecha:** {fecha_hoy_str}\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"⏰ **¡Te esperamos puntual esta noche a las 7:56 PM!**\n"
-                        f"👇 *Toca el botón abajo para escuchar el audio directamente.*"
-                    )
-                else:
-                    txt_priv = (
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n"
-                        f"📢 ⚠️ **¡ATENCIÓN {datos.get('nombre', 'Compañero').upper()}!** ⚠️ 📢\n"
-                        f"🕊️✨ **T A R E A   D E L   D Í A** ✨🕊️\n"
-                        f"🗓️ **FECHA: {fecha_hoy_str}**\n"
-                        f"🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴\n\n"
-                        f"Hola **{datos.get('nombre', 'Compañero')}**, hoy en la reunión de las 7:56 PM trabajaremos:\n\n"
-                        f"🧘 **{tipo_t.upper()} #{num_t}**\n"
-                        f"📌 **Título:** «{info_cat['titulo']}»\n"
-                        f"👤 **Maestro:** {info_cat['maestro']} | 🗓️ **Fecha:** {fecha_hoy_str}\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"⏰ **¡Te esperamos puntual esta noche a las 7:56 PM!**\n"
-                        f"👇 *Toca el botón abajo para escuchar el audio directamente.*"
-                    )
-                enviar_mensaje(u_id_loop, txt_priv, reply_markup=teclado_t)
-        except Exception as e_priv_notif:
-            print("Nota enviando notificaciones privadas de tarea:", e_priv_notif)
+                    m_enc = enviar_mensaje(chat_destino, "/encolar", reply_to_message_id=msg_id_audio_final)
+                    time.sleep(5)
+                    if m_enc:
+                        eliminar_mensaje(chat_destino, m_enc)
+                except Exception as e_sync:
+                    log_debug(f"Nota encolando en sala en vivo: {e_sync}")
 
-    threading.Thread(target=_enviar_notifs_privadas, daemon=True).start()
+            threading.Thread(target=_sincronizar_con_sala_en_vivo, daemon=True).start()
+
+    finally:
+        # SIEMPRE eliminar aviso de '⏳ Descargando...' al finalizar o en caso de error
+        if m_prog:
+            try:
+                eliminar_mensaje(chat_destino, m_prog)
+            except Exception:
+                pass
 
 
 def escuchar_comandos() -> None:

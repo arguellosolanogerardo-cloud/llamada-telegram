@@ -50,6 +50,9 @@ try:
         recortar_desde_async,
     )
     MEJORA_AUDIO = True
+    if os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true":
+        MEJORA_AUDIO = False
+        print("⚡ GitHub Actions detectado: mejora pesada de audio en CPU desactivada para arranque instantáneo de la sala.")
 except Exception as _e_eq:
     print("Nota: mejorar_audio.py no disponible, el audio se reproduce sin procesar:", _e_eq)
     MEJORA_AUDIO = False
@@ -841,20 +844,33 @@ def generar_caratula_meditacion(
             print(f"🎬 Carátula de video MP4 ({tag}) ya existente y sincronizada ({dur_existente:.1f}s), reutilizando.")
             return ruta_mp4
 
-    try:
-        from astronomia_luna import generar_video_meditacion_luna
-        vid = generar_video_meditacion_luna(
-            numero=numero,
-            titulo=titulo,
-            maestro=maestro,
-            duracion_seg=dur_s,
-            ruta_salida=ruta_mp4,
-            tipo=tipo_norm,
-        )
-        if vid and os.path.exists(vid) and os.path.getsize(vid) > 5000:
-            return vid
-    except Exception as e_v:
-        print(f"Nota generando video animado ({tag}), usando fallback a carátula estática:", e_v)
+    # Si estamos en GitHub Actions / CI o entorno sin GPU, NO bloquear 20-30 minutos en CPU
+    es_ci_o_sin_gpu = os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true"
+    if not es_ci_o_sin_gpu:
+        try:
+            from astronomia_luna import tiene_soporte_nvenc
+            if not tiene_soporte_nvenc():
+                es_ci_o_sin_gpu = True
+        except Exception:
+            pass
+
+    if not es_ci_o_sin_gpu:
+        try:
+            from astronomia_luna import generar_video_meditacion_luna
+            vid = generar_video_meditacion_luna(
+                numero=numero,
+                titulo=titulo,
+                maestro=maestro,
+                duracion_seg=dur_s,
+                ruta_salida=ruta_mp4,
+                tipo=tipo_norm,
+            )
+            if vid and os.path.exists(vid) and os.path.getsize(vid) > 5000:
+                return vid
+        except Exception as e_v:
+            print(f"Nota generando video animado ({tag}), usando fallback a carátula estática:", e_v)
+    else:
+        print(f"⚡ Entorno en vivo sin GPU: usando carátula estática lunar HD inmediata (0.1s) sin bloquear la sala.")
 
     # 2. Fallback a imagen estática JPG de alta calidad
     try:

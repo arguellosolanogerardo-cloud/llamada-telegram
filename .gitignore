@@ -22,6 +22,7 @@ data/meditaciones/*.wav
 data/meditaciones/*.png
 data/meditaciones/*.jpg
 data/meditaciones/*.mp4
+!data/meditaciones/caratula_*.mp4
 data/meditaciones/*.raw
 *.raw
 data/meditaciones/temp_frames/

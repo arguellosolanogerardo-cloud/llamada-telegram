@@ -163,6 +163,50 @@ def hay_commits_pendientes_push() -> bool:
         return False
 
 
+def pre_renderizar_video_meditacion_hoy() -> str | None:
+    """Pre-renderiza con la GPU NVIDIA (NVENC) el video animado de la meditación de hoy si aún no existe."""
+    try:
+        import astronomia_luna
+        if not astronomia_luna.tiene_soporte_nvenc():
+            return None
+
+        from schedule_meditaciones import META_HOY, _cargar_json
+        meta = _cargar_json(META_HOY)
+        if not meta or not isinstance(meta, dict):
+            return None
+
+        num = str(meta.get("numero") or "").strip()
+        if not num:
+            return None
+
+        tipo = str(meta.get("tipo") or "MEDITACION").strip().upper()
+        tipo_tag = "mensaje" if "MENSAJE" in tipo else "meditacion"
+        nombre_mp4 = f"caratula_{tipo_tag}_{num}.mp4"
+        ruta_mp4 = os.path.join(CARP_MED, nombre_mp4)
+
+        if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
+            return ruta_mp4
+
+        tit = meta.get("titulo") or f"Meditación #{num}"
+        maestro = meta.get("maestro") or "Alaniso"
+        dur = float(meta.get("duracion_seg") or 1800.0)
+
+        print(f"🎬 [Centinela GPU] Pre-renderizando video de {tipo} #{num} con NVENC...")
+        vid = astronomia_luna.generar_video_meditacion_luna(
+            numero=num,
+            titulo=tit,
+            maestro=maestro,
+            duracion_seg=dur,
+            ruta_salida=ruta_mp4,
+            tipo=tipo,
+        )
+        if vid and os.path.exists(vid) and os.path.getsize(vid) > 50000:
+            print(f"   ✅ Video pre-renderizado con éxito: {ruta_mp4} ({round(os.path.getsize(ruta_mp4)/(1024*1024), 2)} MB).")
+            return ruta_mp4
+    except Exception as e:
+        print(f"   Nota en pre-renderizado de video: {e}")
+    return None
+
 def ejecutar_ciclo(args) -> bool:
     os.makedirs(CARP_MED, exist_ok=True)
     db_reg = cargar_audios_registrados()
@@ -269,6 +313,12 @@ def ejecutar_ciclo(args) -> bool:
 
     # 4. Aplicar rotación determinista de caché caliente (Capped a `args.max_cache` audios más recientes)
     eliminados = rotar_audios_limpios(prioridad_ids=prioridad_ids, limite_max=args.max_cache)
+
+    # 4b. Pre-renderizar video de la meditación de hoy con GPU (RTX 3060 Ti) si no existe
+    vid_hoy = pre_renderizar_video_meditacion_hoy()
+    if vid_hoy and os.path.exists(vid_hoy):
+        subprocess.run(["git", "add", vid_hoy], check=False)
+
 
     # 5. Sincronización con GitHub si hubo descargas, registros o rotaciones
     hay_cambios = bool(descargados_ok or eliminados)
