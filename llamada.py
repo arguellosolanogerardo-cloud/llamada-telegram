@@ -453,6 +453,9 @@ def obtener_duracion_segundos(ruta_audio: str) -> float:
 def obtener_sonido_campana_inicio() -> str:
     """Busca el archivo de sonido para el inicio de la meditación o genera uno por defecto."""
     candidatos = [
+        "sonido AL INICIO PAJAROS de meditacion.wav",
+        os.path.join("data", "sonido AL INICIO PAJAROS de meditacion.wav"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido AL INICIO PAJAROS de meditacion.wav"),
         "sonido inicio de meditacion.mp3",
         os.path.join("data", "sonido inicio de meditacion.mp3"),
         os.path.join(CARPETA_MEDITACIONES, "sonido inicio de meditacion.mp3"),
@@ -475,6 +478,9 @@ def obtener_sonido_campana_inicio() -> str:
 def obtener_sonido_campana_salida() -> str:
     """Busca el archivo de sonido para el final de la meditación o genera uno por defecto."""
     candidatos = [
+        "sonido AL FINAL PAJAROS de meditacion.mp3.wav",
+        os.path.join("data", "sonido AL FINAL PAJAROS de meditacion.mp3.wav"),
+        os.path.join(CARPETA_MEDITACIONES, "sonido AL FINAL PAJAROS de meditacion.mp3.wav"),
         "sonido final de meditacion.mp3",
         os.path.join("data", "sonido final de meditacion.mp3"),
         os.path.join(CARPETA_MEDITACIONES, "sonido final de meditacion.mp3"),
