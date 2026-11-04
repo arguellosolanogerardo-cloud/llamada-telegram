@@ -387,15 +387,19 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
 
     # 1b. Fallback GitHub Raw CDN (con sondeo inteligente si está recién anunciado)
     url_raw_git = f"https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/meditaciones/yt_clean_{vid_target}.mp3"
-    max_reintentos_cdn = 6 if progreso_callback else 1
+    max_reintentos_cdn = 6 if progreso_callback else 4
     for intento_cdn in range(max_reintentos_cdn):
         try:
             url_nocache = f"{url_raw_git}?t={int(time.time())}"
             req_cdn = urllib.request.Request(url_nocache, headers={"User-Agent": "BotTelegram/1.0"})
-            with urllib.request.urlopen(req_cdn, timeout=12) as resp:
+            with urllib.request.urlopen(req_cdn, timeout=35) as resp:
                 if resp.status == 200:
                     with open(cache_clean, "wb") as f_out:
-                        f_out.write(resp.read())
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            f_out.write(chunk)
                     if os.path.exists(cache_clean) and os.path.getsize(cache_clean) > 1000:
                         log_debug(f"✅ Audio {vid_target} descargado instantáneamente desde GitHub CDN ({round(os.path.getsize(cache_clean)/(1024*1024), 2)} MB).")
                         if progreso_callback:
@@ -404,8 +408,8 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
                             except Exception:
                                 pass
                         return (cache_clean, "YOUTUBE")
-        except Exception:
-            pass
+        except Exception as e_cdn_err:
+            log_debug(f"Nota intento {intento_cdn + 1} CDN ({vid_target}): {e_cdn_err}")
 
         if intento_cdn < max_reintentos_cdn - 1:
             if progreso_callback:
@@ -414,7 +418,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
                     progreso_callback(p_espera, f"⏳ *Sincronizando audio oficial con el servidor ({intento_cdn + 1}/{max_reintentos_cdn})...*")
                 except Exception:
                     pass
-            time.sleep(5)
+            time.sleep(4)
 
     # Purgar cualquier caché antiguo
     for cache_antiguo in (
@@ -2573,6 +2577,8 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
     if not chat_destino:
         return
     url_yt = f"https://www.youtube.com/watch?v={vid_tarea}"
+    carp_med = os.path.join("data", "meditaciones")
+    os.makedirs(carp_med, exist_ok=True)
     from radar_youtube import CANALES_RADAR, extraer_entradas_xml, obtener_titulo_video, obtener_info_oembed
     import shutil
     import glob
@@ -2624,7 +2630,7 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
     try:
         m_prog = enviar_mensaje(
             chat_destino,
-            f"⏳ **Descargando audio de YouTube y programando como {tipo_aviso}...**\n📺 https://www.youtube.com/watch?v={vid_tarea}\n*Por favor espera un momento mientras procesamos el archivo.*"
+            f"⏳ **Descargando audio de YouTube y programando como {tipo_aviso}...**\n📺 {url_yt}\n*Por favor espera un momento mientras procesamos el archivo.*"
         )
 
         if not tit_found:
@@ -2660,6 +2666,17 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
         # Descargar o reutilizar audio en disco de forma robusta
         archivo_descargado, origen_descarga = descargar_audio_youtube_robusto(vid_tarea, tit_found)
 
+        if not archivo_descargado or not os.path.exists(archivo_descargado) or os.path.getsize(archivo_descargado) < 1000:
+            log_debug(f"❌ Falló descarga de audio para {vid_tarea} («{tit_found}»)")
+            enviar_mensaje(
+                chat_destino,
+                f"⚠️ **No se pudo descargar el audio de YouTube en este momento.**\n\n"
+                f"📌 **Título:** «{tit_found}»\n"
+                f"📺 {url_yt}\n\n"
+                f"💡 *Puedes enviar o compartir el archivo MP3 directamente al grupo para encolarlo.*"
+            )
+            return
+
         # Asegurar que la Pista #1 sea siempre la meditación oficial del día si se agrega audio adicional
         if es_adicional and (not cola_existente or all((c.get("info") or {}).get("es_mario") for c in cola_existente)):
             if info_oficial_3am and not info_oficial_3am.get("es_mario"):
@@ -2679,9 +2696,8 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
         else:
             ruta_mp3_hoy = os.path.join(carp_med, "meditacion_hoy.mp3")
 
-        if archivo_descargado and os.path.exists(archivo_descargado) and os.path.getsize(archivo_descargado) > 1000:
-            if os.path.abspath(archivo_descargado) != os.path.abspath(ruta_mp3_hoy):
-                shutil.copy2(archivo_descargado, ruta_mp3_hoy)
+        if os.path.abspath(archivo_descargado) != os.path.abspath(ruta_mp3_hoy):
+            shutil.copy2(archivo_descargado, ruta_mp3_hoy)
 
         if es_mario:
             tipo_t = "MENSAJE"
@@ -2799,7 +2815,7 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
             item_adicional = {
                 "ruta": os.path.abspath(ruta_mp3_hoy),
                 "info": info_cat,
-                "titulo": f"{tipo_t.title()} #{num_t} - {tit_found}".strip(" -#")
+                "titulo": f"{tipo_t.title()} #{num_t} - {tit_found}".strip(" -#") if num_t else f"{tipo_t.title()} - {tit_found}".strip(" -#")
             }
             cola_filtrada = [c for c in cola_existente if (c.get("info") or {}).get("video_id") != vid_tarea]
             cola_final = cola_filtrada + [item_adicional]
@@ -2817,7 +2833,7 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
             with open(os.path.join(carp_med, "meta_hoy.json"), "w", encoding="utf-8") as fm:
                 json.dump(info_cat, fm, ensure_ascii=False, indent=2)
             with open(os.path.join(carp_med, "cola_hoy.json"), "w", encoding="utf-8") as f_cj:
-                json.dump({"fecha": fecha_hoy_str, "cola": [{"ruta": os.path.abspath(ruta_mp3_hoy), "info": info_cat, "titulo": f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}"}]}, f_cj, ensure_ascii=False, indent=2)
+                json.dump({"fecha": fecha_hoy_str, "cola": [{"ruta": os.path.abspath(ruta_mp3_hoy), "info": info_cat, "titulo": f"{t_nom} #{num_t} - {info_cat.get('titulo', '')}" if num_t else f"{t_nom} - {info_cat.get('titulo', '')}"}]}, f_cj, ensure_ascii=False, indent=2)
 
         guardar_audio_registrado(info_cat, file_id=info_cat.get("file_id"), msg_id=msg_id_audio_final)
 
@@ -2866,8 +2882,15 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
 
             threading.Thread(target=_sincronizar_con_sala_en_vivo, daemon=True).start()
 
+    except Exception as e_proc_gen:
+        log_debug(f"Error general en procesar_programacion_yttarea: {e_proc_gen}")
+        enviar_mensaje(
+            chat_destino,
+            f"⚠️ **Ocurrió un error al procesar el audio:** {e_proc_gen}\nPor favor intenta nuevamente en unos momentos."
+        )
+
     finally:
-        # SIEMPRE eliminar aviso de '⏳ Descargando...' al finalizar o en caso de error
+        # SIEMPRE eliminar aviso de '⏳ Descargando...' al finalizar
         if m_prog:
             try:
                 eliminar_mensaje(chat_destino, m_prog)

@@ -1370,20 +1370,40 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
                 ruta_local_r = None
 
                 if vid_r:
-                    cand_yt = os.path.join(CARPETA_MEDITACIONES, f"yt_dl_{vid_r}.mp3")
-                    if os.path.exists(cand_yt) and os.path.getsize(cand_yt) > 5000:
-                        ruta_local_r = cand_yt
+                    for cand_nom in (f"yt_clean_{vid_r}.mp3", f"yt_dl_{vid_r}.mp3"):
+                        cand_yt = os.path.join(CARPETA_MEDITACIONES, cand_nom)
+                        if os.path.exists(cand_yt) and os.path.getsize(cand_yt) > 5000:
+                            ruta_local_r = cand_yt
+                            break
 
                 if not ruta_local_r and mid_r:
                     try:
                         msg_tg = await client.get_messages(entidad, ids=int(mid_r))
                         if msg_tg and (msg_tg.audio or msg_tg.voice or msg_tg.document):
-                            dest_dl = os.path.join(CARPETA_MEDITACIONES, f"yt_dl_{vid_r or mid_r}.mp3")
+                            dest_dl = os.path.join(CARPETA_MEDITACIONES, f"yt_clean_{vid_r or mid_r}.mp3")
                             await client.download_media(msg_tg, file=dest_dl)
                             if os.path.exists(dest_dl) and os.path.getsize(dest_dl) > 5000:
                                 ruta_local_r = dest_dl
                     except Exception as e_dl_r:
                         print(f"Nota descargando msg_id_audio={mid_r} desde grupo:", e_dl_r)
+
+                if not ruta_local_r and vid_r:
+                    try:
+                        url_raw_git = f"https://raw.githubusercontent.com/arguellosolanogerardo-cloud/llamada-telegram/main/data/meditaciones/yt_clean_{vid_r}.mp3"
+                        dest_cdn = os.path.join(CARPETA_MEDITACIONES, f"yt_clean_{vid_r}.mp3")
+                        req_c = urllib.request.Request(url_raw_git, headers={"User-Agent": "LlamadaSync"})
+                        with urllib.request.urlopen(req_c, timeout=30) as r_c:
+                            if r_c.status == 200:
+                                with open(dest_cdn, "wb") as f_cdn:
+                                    while True:
+                                        chunk = r_c.read(65536)
+                                        if not chunk:
+                                            break
+                                        f_cdn.write(chunk)
+                        if os.path.exists(dest_cdn) and os.path.getsize(dest_cdn) > 5000:
+                            ruta_local_r = dest_cdn
+                    except Exception as e_cdn:
+                        print(f"Nota descargando vid={vid_r} desde GitHub CDN en llamada:", e_cdn)
 
                 if not ruta_local_r and inf_r.get("numero") and inf_r.get("tipo") and not inf_r.get("es_mario"):
                     try:
