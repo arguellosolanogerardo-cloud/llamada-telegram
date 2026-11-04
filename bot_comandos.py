@@ -2734,6 +2734,8 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
             num_t = info_cat.get("numero", "")
             t_nom = "Meditación" if "MEDITACI" in str(tipo_t).upper() else "Mensaje"
 
+    info_cat["admin_override"] = True
+
     if es_mario:
         cap_audio = (
             f"🧘 **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN**\n"
@@ -2830,7 +2832,7 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
         )
 
     # Encolar en la llamada en vivo (si está activa en GitHub Actions)
-    if es_mario and msg_id_audio_final:
+    if msg_id_audio_final:
         def _sincronizar_con_sala_en_vivo():
             try:
                 m_enc = enviar_mensaje(chat_destino, "/encolar", reply_to_message_id=msg_id_audio_final)
@@ -3917,6 +3919,7 @@ def escuchar_comandos() -> None:
                                 info_cat["file_id"] = f_id
                             if msg_id_audio:
                                 info_cat["msg_id_audio"] = msg_id_audio
+                            info_cat["admin_override"] = True
 
                             # Si no se pasó audio adjunto ni existía file_id, buscar y subir automáticamente desde Google Drive
                             if not f_id and not msg_id_audio and info_cat.get("numero"):
