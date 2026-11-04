@@ -1,0 +1,37 @@
+{
+  "numero": 1082,
+  "tipo": "MEDITACION",
+  "titulo": "Ahora desean que pase algo",
+  "fecha": "07/10/20",
+  "maestro": "Axel",
+  "detectado_como": "MEDITACION",
+  "fecha_tarea_admin": "04/11/2026",
+  "fecha_iso": "2026-11-04",
+  "es_oficial_3am": true,
+  "es_adicional": false,
+  "es_mario": false,
+  "cola_audios": [
+    {
+      "numero": 1082,
+      "tipo": "MEDITACION",
+      "titulo": "Ahora desean que pase algo",
+      "fecha": "07/10/20",
+      "maestro": "Axel",
+      "detectado_como": "MEDITACION",
+      "fecha_tarea_admin": "04/11/2026",
+      "fecha_iso": "2026-11-04",
+      "es_oficial_3am": true,
+      "es_adicional": false,
+      "es_mario": false
+    },
+    {
+      "numero": "",
+      "tipo": "MENSAJE",
+      "titulo": "La guerra está próxima contra el mal",
+      "maestro": "JESUS MARIO CARRILLO DURAN",
+      "es_mario": true,
+      "es_adicional": true,
+      "espera_post_meditacion_min": 30
+    }
+  ]
+}
