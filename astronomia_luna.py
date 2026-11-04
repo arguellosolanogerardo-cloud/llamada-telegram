@@ -671,9 +671,9 @@ def generar_video_meditacion_luna(
                     break
 
             text_x = 180 + tri_w + 16
-            text_y = center_y - (64 // 2) - 4
+            text_y = center_y - (64 // 2) + 4
             pct_x = x_dur + w_dur + 14
-            pct_y = center_y - (50 // 2) - 4
+            pct_y = center_y - (50 // 2) + 8
 
             filter_expr = (
                 "[0:v][1:v]overlay=0:0[s1]; "
@@ -681,7 +681,7 @@ def generar_video_meditacion_luna(
                 "[s1][bar]overlay=180:550[s2]; "
                 f"[s2][3:v]overlay=x='180 + min(920, 920*t/{dur_int}) - 14':y=543[s3]; "
                 f"[s3]drawtext=text='{time_expr}':x={text_x}:y={text_y}{font_opt}:fontcolor=white:fontsize=64[s4]; "
-                f"[s4]drawtext=text='{pct_expr}':x={pct_x}:y={pct_y}{font_opt}:fontcolor=0xFBBF24:fontsize=50[out]"
+                f"[s4]drawtext=text='{pct_expr}':x={pct_x}:y={pct_y}{font_opt}:fontcolor=0x00FF66:fontsize=50[out]"
             )
             ruta_salida_tmp = ruta_salida + ".tmp.mp4"
             if tiene_soporte_nvenc():
@@ -925,8 +925,14 @@ def generar_caratula_meditacion_luna(
         tri_bot = center_y + (tri_h // 2)
         draw.polygon([(bar_x1, tri_top), (bar_x1 + tri_w, center_y), (bar_x1, tri_bot)], fill=(255, 255, 255))
         draw.text((bar_x1 + tri_w + 16, center_y), f"{min_prog:02d}:{seg_prog:02d}", fill=(255, 255, 255), font=font_time_prog, anchor="lm")
-        txt_tiempo_der = f"{min_dur:02d}:{seg_dur:02d}   ({pct_val}%)"
-        draw.text((bar_x2, center_y), txt_tiempo_der, fill=(251, 191, 36), font=font_time_tot, anchor="rm")
+        txt_pct = f"({pct_val}%)"
+        txt_dur = f"{min_dur:02d}:{seg_dur:02d}"
+        bbox_pct = font_time_tot.getbbox(txt_pct)
+        w_pct = bbox_pct[2] - bbox_pct[0]
+        # Porcentaje en verde neón vibrante a la derecha
+        draw.text((bar_x2, center_y), txt_pct, fill=(0, 255, 102), font=font_time_tot, anchor="rm")
+        # Tiempo de duración total en amarillo dorado inmediatamente a la izquierda del porcentaje
+        draw.text((bar_x2 - w_pct - 14, center_y), txt_dur, fill=(251, 191, 36), font=font_time_tot, anchor="rm")
 
         img.save(ruta_salida, format="JPEG", quality=95)
         return ruta_salida
