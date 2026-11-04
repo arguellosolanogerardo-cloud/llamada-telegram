@@ -1287,10 +1287,17 @@ _ADMIN_IDS_TIMESTAMP = {}
 
 def obtener_admin_ids(target_chat=None) -> set:
     target = target_chat or CHAT_ID
+    # Si target es un chat privado (ID > 0), los administradores a consultar son los del grupo principal
+    try:
+        if target and int(target) > 0 and CHAT_ID:
+            target = CHAT_ID
+    except (ValueError, TypeError):
+        pass
+
     ahora = time.time()
     t_str = str(target) if target else "default"
     if t_str in _ADMIN_IDS_CACHE and (ahora - _ADMIN_IDS_TIMESTAMP.get(t_str, 0) < 300):
-        return _ADMIN_IDS_CACHE[t_str]
+        return set(_ADMIN_IDS_CACHE[t_str])
 
     admins = set()
     # Administradores oficiales permanentes conocidos
@@ -1299,11 +1306,6 @@ def obtener_admin_ids(target_chat=None) -> set:
         admins.add(hard_admin)
     # Identificadores de administradores anónimos en Telegram
     admins.add(1087968824)  # @GroupAnonymousBot
-    if target:
-        try:
-            admins.add(int(target))
-        except (ValueError, TypeError):
-            pass
 
     env_admins = os.environ.get("ADMIN_IDS", "") or os.environ.get("ADMIN_ID", "")
     for aid_str in env_admins.replace(",", " ").split():
@@ -1311,22 +1313,55 @@ def obtener_admin_ids(target_chat=None) -> set:
             admins.add(int(aid_str.strip()))
 
     if BOT_TOKEN and target:
+        # Solo consultar getChatAdministrators si target es un grupo o supergrupo (ID negativo)
+        es_grupo = False
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={target}"
-            req = urllib.request.Request(url, headers={"User-Agent": "BotComandos"})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read().decode())
-                if data.get("ok"):
-                    for item in data.get("result", []):
-                        u = item.get("user", {})
-                        if u.get("id"):
-                            admins.add(int(u["id"]))
-        except Exception as e:
-            print("Nota obteniendo getChatAdministrators:", e)
+            es_grupo = int(target) < 0
+        except (ValueError, TypeError):
+            es_grupo = str(target).startswith("@")
 
-    _ADMIN_IDS_CACHE[t_str] = admins
+        if es_grupo:
+            try:
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={target}"
+                req = urllib.request.Request(url, headers={"User-Agent": "BotComandos"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    data = json.loads(r.read().decode())
+                    if data.get("ok"):
+                        for item in data.get("result", []):
+                            u = item.get("user", {})
+                            if u.get("id"):
+                                admins.add(int(u["id"]))
+            except Exception as e:
+                print("Nota obteniendo getChatAdministrators:", e)
+
+    _ADMIN_IDS_CACHE[t_str] = set(admins)
     _ADMIN_IDS_TIMESTAMP[t_str] = ahora
-    return admins
+    return set(admins)
+
+
+def es_usuario_admin(user_id: int | str, chat_id: int | str = None) -> bool:
+    """Verifica de forma estricta si un ID de usuario pertenece a un administrador."""
+    if not user_id:
+        return False
+    try:
+        uid = int(user_id)
+    except (ValueError, TypeError):
+        return False
+
+    ADMINS_OFICIALES_FIJOS = {8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022}
+    if uid in ADMINS_OFICIALES_FIJOS:
+        return True
+    if uid == 1087968824:  # @GroupAnonymousBot
+        return True
+
+    env_admins = os.environ.get("ADMIN_IDS", "") or os.environ.get("ADMIN_ID", "")
+    for aid_str in env_admins.replace(",", " ").split():
+        if aid_str.strip().isdigit() and int(aid_str.strip()) == uid:
+            return True
+
+    target = chat_id or CHAT_ID
+    admins_set = obtener_admin_ids(target)
+    return uid in admins_set
 
 
 def es_mensaje_de_admin(msg: dict, chat_id: int | str) -> bool:
@@ -1351,11 +1386,9 @@ def es_mensaje_de_admin(msg: dict, chat_id: int | str) -> bool:
     if user_id == 1087968824 or from_user.get("username") == "GroupAnonymousBot":
         return True
 
-    # 3. Verificar si el usuario está en la lista de administradores del grupo
+    # 3. Verificar si el usuario es administrador
     if user_id:
-        admins_set = obtener_admin_ids(chat_id)
-        if user_id in admins_set:
-            return True
+        return es_usuario_admin(user_id, chat_id)
 
     return False
 
@@ -2576,6 +2609,11 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
     chat_destino = chat_destino or CHAT_ID
     if not chat_destino:
         return
+
+    # Verificación de seguridad: solo administradores pueden programar tareas o audios
+    if u_admin_id and not es_usuario_admin(u_admin_id, chat_destino):
+        log_debug(f"Acceso denegado en procesar_programacion_yttarea: usuario {u_admin_id} no es administrador")
+        return
     url_yt = f"https://www.youtube.com/watch?v={vid_tarea}"
     carp_med = os.path.join("data", "meditaciones")
     os.makedirs(carp_med, exist_ok=True)
@@ -3189,42 +3227,37 @@ def escuchar_comandos() -> None:
 
                     elif cb_data.startswith("yttarea_"):
                         vid = cb_data.split("_", 1)[1]
-                        user_id_cb = update["callback_query"]["from"].get("id")
-                        admins_set = obtener_admin_ids(chat_id_cb)
-                        for hard_a in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022):
-                            admins_set.add(hard_a)
+                        u_from = update["callback_query"]["from"]
+                        user_id_cb = u_from.get("id")
 
-                        if user_id_cb not in admins_set:
+                        # Verificación estricta: Solo administradores pueden programar tareas o audios en la sala
+                        if not es_usuario_admin(user_id_cb, chat_id_cb):
                             try:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                                 urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
                                     "callback_query_id": cb_id,
-                                    "text": "⛔ Solo los administradores pueden fijar o reprogramar la tarea del día.",
+                                    "text": "⛔ Solo los administradores pueden programar tareas o audios en la sala.",
                                     "show_alert": True
                                 }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
                             except Exception:
                                 pass
                             continue
-                        else:
-                            try:
-                                url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-                                urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
-                                    "callback_query_id": cb_id,
-                                    "text": "✅ Programando audio de YouTube para la sala..."
-                                }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
-                            except Exception:
-                                pass
 
-                            threading.Thread(target=procesar_programacion_yttarea, args=(vid, user_id_cb, chat_id_cb), daemon=True).start()
+                        try:
+                            url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                            urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
+                                "callback_query_id": cb_id,
+                                "text": "✅ Programando audio de YouTube para la sala..."
+                            }).encode(), headers={"Content-Type": "application/json"}), timeout=10)
+                        except Exception:
+                            pass
+
+                        threading.Thread(target=procesar_programacion_yttarea, args=(vid, user_id_cb, chat_id_cb), daemon=True).start()
                         continue
 
                     elif cb_data.startswith("panel_"):
                         user_id_cb = update["callback_query"]["from"].get("id")
-                        admins_set = obtener_admin_ids(chat_id_cb)
-                        for hard_a in (8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022):
-                            admins_set.add(hard_a)
-
-                        if user_id_cb not in admins_set:
+                        if not es_usuario_admin(user_id_cb, chat_id_cb):
                             try:
                                 url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                                 urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({"callback_query_id": cb_id, "text": "⛔ Solo los administradores pueden utilizar el panel de control de la sala.", "show_alert": True}).encode(), headers={"Content-Type": "application/json"}), timeout=10)
