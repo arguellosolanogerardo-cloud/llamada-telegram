@@ -622,6 +622,15 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                         nuevos_vistos.append(vid)
                         continue
 
+                    # En arranque del bot (deploy/reinicio en Render con rolling deployment):
+                    # El contenedor saliente ya estuvo vigilando y anunciando videos en tiempo real.
+                    # Sincronizar en silencio los videos existentes en el feed para blindar contra anuncios duplicados.
+                    if es_arranque:
+                        with _MEMORIA_LOCK:
+                            _VIDEOS_VISTOS_MEMORIA.add(vid)
+                        nuevos_vistos.append(vid)
+                        continue
+
                     # Si ya se anunció un video de este canal en este ciclo, registrar el resto en silencio
                     # para evitar ráfagas o spam por subidas por lotes o archivos históricos
                     if anunciados_canal >= 1:
