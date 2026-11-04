@@ -2603,6 +2603,8 @@ def _limpiar_avisos_descarga_colgados(chat_destino) -> None:
 
 
 _TIMER_TAREA_ADICIONAL = {"vid": None}
+_YTTARAEA_LOCK = threading.Lock()
+_YTTARAEA_EN_PROCESO = {}
 
 
 def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, chat_destino: int | str = None) -> None:
@@ -2658,6 +2660,17 @@ def procesar_programacion_yttarea(vid_tarea: str, u_admin_id: int | str = None, 
                     cola_existente = d_c.get("cola", [])
         except Exception:
             pass
+
+    # Blindaje contra duplicados: si este video ya está encolado para hoy, no duplicar
+    for c_ex in cola_existente:
+        inf_ex = c_ex.get("info") or {}
+        if str(inf_ex.get("video_id") or "").strip() == vid_tarea:
+            log_debug(f"Video {vid_tarea} ya presente en cola_existente, omitiendo duplicación.")
+            enviar_mensaje(
+                chat_destino,
+                f"ℹ️ El audio «{tit_found or vid_tarea}» ya se encuentra programado en la lista de hoy."
+            )
+            return
 
     info_oficial_3am = obtener_info_tarea_hoy()
     tiene_tarea_oficial = bool(info_oficial_3am and not info_oficial_3am.get("es_mario") and info_oficial_3am.get("numero"))
@@ -3242,6 +3255,23 @@ def escuchar_comandos() -> None:
                             except Exception:
                                 pass
                             continue
+
+                        # Anti-doble clic: descartar pulsaciones repetidas simultáneas
+                        ahora_ts = time.time()
+                        with _YTTARAEA_LOCK:
+                            ultimo_ts = _YTTARAEA_EN_PROCESO.get(vid, 0)
+                            if ahora_ts - ultimo_ts < 20:
+                                try:
+                                    url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                                    urllib.request.urlopen(urllib.request.Request(url_ans, data=json.dumps({
+                                        "callback_query_id": cb_id,
+                                        "text": "⏳ Este audio ya se está programando, por favor espera...",
+                                        "show_alert": False
+                                    }).encode(), headers={"Content-Type": "application/json"}), timeout=5)
+                                except Exception:
+                                    pass
+                                continue
+                            _YTTARAEA_EN_PROCESO[vid] = ahora_ts
 
                         try:
                             url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"

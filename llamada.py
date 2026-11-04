@@ -1309,23 +1309,35 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
             num_p = str(inf_p.get("numero") or "").strip()
             return bool(num_p and num_p == str(num_oficial_3am))
 
+        import unicodedata
+        def _norm_tit_cmp(texto: str) -> str:
+            if not texto:
+                return ""
+            t = unicodedata.normalize('NFKD', str(texto).lower()).encode('ASCII', 'ignore').decode('utf-8')
+            for w in ["mensaje", "meditacion", "del", "maestro", "carrillo", "duran", "jesus", "alaniso", "de", "la", "el", "los", "las", "en"]:
+                t = re.sub(rf"\b{w}\b", " ", t)
+            return re.sub(r"[^a-z0-9]", "", t)
+
         def _ya_en_cola(inf_cand: dict, tit_cand: str = "", msg_id_cand: int | None = None) -> bool:
             vid_c = str((inf_cand or {}).get("video_id") or "").strip()
-            mid_c = msg_id_cand or (inf_cand or {}).get("msg_id_audio")
+            mid_c = str(msg_id_cand or (inf_cand or {}).get("msg_id_audio") or "").strip()
             num_c = str((inf_cand or {}).get("numero") or "").strip()
             tipo_c = str((inf_cand or {}).get("tipo") or "").strip().upper()
-            tit_c_norm = (tit_cand or (inf_cand or {}).get("titulo") or "").strip().lower()
+            tit_c_norm = _norm_tit_cmp(tit_cand or (inf_cand or {}).get("titulo") or "")
             for it_ex in cola_actual:
                 inf_ex = it_ex.get("info") or {}
                 if vid_c and str(inf_ex.get("video_id") or "").strip() == vid_c:
                     return True
-                if mid_c and inf_ex.get("msg_id_audio") and str(inf_ex.get("msg_id_audio")) == str(mid_c):
+                if mid_c and str(inf_ex.get("msg_id_audio") or "").strip() == mid_c:
                     return True
                 if num_c and str(inf_ex.get("numero") or "").strip() == num_c and str(inf_ex.get("tipo") or "").strip().upper() == tipo_c:
                     return True
-                tit_ex_norm = (it_ex.get("titulo") or inf_ex.get("titulo") or "").strip().lower()
-                if tit_c_norm and len(tit_c_norm) > 6 and (tit_c_norm == tit_ex_norm or tit_c_norm in tit_ex_norm or (tit_ex_norm and len(tit_ex_norm) > 6 and tit_ex_norm in tit_c_norm)):
-                    return True
+                tit_ex_norm = _norm_tit_cmp(it_ex.get("titulo") or inf_ex.get("titulo") or "")
+                if tit_c_norm and tit_ex_norm and len(tit_c_norm) > 5:
+                    if tit_c_norm == tit_ex_norm or tit_c_norm in tit_ex_norm or tit_ex_norm in tit_c_norm:
+                        return True
+                    if len(tit_c_norm) >= 12 and len(tit_ex_norm) >= 12 and tit_c_norm[:12] == tit_ex_norm[:12]:
+                        return True
             return False
 
         hubo_cambios = False
@@ -1351,13 +1363,21 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
         datos_render = await asyncio.to_thread(_fetch_estado_render)
         if isinstance(datos_render, dict) and datos_render.get("status") == "ok" and datos_render.get("fecha") == hoy_str:
             items_remotos = []
+            vistos_r_keys = set()
             for c_rem in (datos_render.get("cola_hoy") or []):
                 if isinstance(c_rem, dict) and c_rem.get("info"):
-                    items_remotos.append(c_rem["info"])
+                    inf_c = c_rem["info"]
+                    k_c = str(inf_c.get("video_id") or inf_c.get("numero") or _norm_tit_cmp(inf_c.get("titulo") or "") or "").strip().lower()
+                    if k_c and k_c not in vistos_r_keys:
+                        vistos_r_keys.add(k_c)
+                        items_remotos.append(inf_c)
             info_h_rem = datos_render.get("info_hoy") or {}
             for c_aud in (info_h_rem.get("cola_audios") or []):
                 if isinstance(c_aud, dict):
-                    items_remotos.append(c_aud)
+                    k_c = str(c_aud.get("video_id") or c_aud.get("numero") or _norm_tit_cmp(c_aud.get("titulo") or "") or "").strip().lower()
+                    if k_c and k_c not in vistos_r_keys:
+                        vistos_r_keys.add(k_c)
+                        items_remotos.append(c_aud)
 
             for inf_r in items_remotos:
                 if _ya_en_cola(inf_r):
@@ -1484,18 +1504,63 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
                 hubo_cambios = True
                 print(f"🔄 Audio adicional detectado en el grupo y encolado para hoy: «{tit_ext}» (msg_id={m_ext.id})")
 
-        # 3. Asegurar SIEMPRE que la Pista #1 sea la Meditación Oficial de las 3:00 AM y todo lo demás vaya detrás (Pista #2+)
-        if len(cola_actual) > 1:
-            pistas_3am = [c for c in cola_actual if _es_pista_oficial_3am(c)]
-            adicionales = [c for c in cola_actual if not _es_pista_oficial_3am(c)]
+        # 3. Deduplicación global exhaustiva y garantía inquebrantable de Pista #1
+        cola_limpia = []
+        vistos_vid = set()
+        vistos_mid = set()
+        vistos_num_tipo = set()
+        vistos_tit_norm = set()
+
+        for it_c in cola_actual:
+            if not isinstance(it_c, dict):
+                continue
+            inf_c = it_c.get("info") or {}
+            vid_c = str(inf_c.get("video_id") or "").strip()
+            mid_c = str(inf_c.get("msg_id_audio") or "").strip()
+            num_c = str(inf_c.get("numero") or "").strip()
+            tipo_c = str(inf_c.get("tipo") or "").strip().upper()
+            t_norm = _norm_tit_cmp(it_c.get("titulo") or inf_c.get("titulo") or "")
+
+            if _es_pista_oficial_3am(it_c):
+                cola_limpia.append(it_c)
+                if vid_c: vistos_vid.add(vid_c)
+                if num_c: vistos_num_tipo.add(f"{tipo_c}_{num_c}")
+                if t_norm: vistos_tit_norm.add(t_norm)
+                continue
+
+            es_dup = False
+            if vid_c and vid_c in vistos_vid:
+                es_dup = True
+            elif mid_c and mid_c in vistos_mid:
+                es_dup = True
+            elif num_c and f"{tipo_c}_{num_c}" in vistos_num_tipo:
+                es_dup = True
+            elif t_norm and len(t_norm) > 5 and any(t_norm == vn or t_norm in vn or vn in t_norm or (len(t_norm) >= 12 and len(vn) >= 12 and t_norm[:12] == vn[:12]) for vn in vistos_tit_norm):
+                es_dup = True
+
+            if es_dup:
+                hubo_cambios = True
+                print(f"🗑️ Descartando audio duplicado en cola_actual: {it_c.get('titulo')}")
+                continue
+
+            if vid_c: vistos_vid.add(vid_c)
+            if mid_c: vistos_mid.add(mid_c)
+            if num_c: vistos_num_tipo.add(f"{tipo_c}_{num_c}")
+            if t_norm: vistos_tit_norm.add(t_norm)
+            cola_limpia.append(it_c)
+
+        if len(cola_limpia) > 1:
+            pistas_3am = [c for c in cola_limpia if _es_pista_oficial_3am(c)]
+            adicionales = [c for c in cola_limpia if not _es_pista_oficial_3am(c)]
             if pistas_3am:
                 for ad in adicionales:
                     if isinstance(ad.get("info"), dict):
                         ad["info"]["es_adicional"] = True
-                nueva_orden = [pistas_3am[0]] + adicionales
-                if nueva_orden != cola_actual:
-                    cola_actual[:] = nueva_orden
-                    hubo_cambios = True
+                cola_limpia = [pistas_3am[0]] + adicionales
+
+        if cola_actual != cola_limpia:
+            cola_actual[:] = cola_limpia
+            hubo_cambios = True
 
         if hubo_cambios and cola_actual:
             guardar_cola_hoy(cola_actual, fecha_destino=hoy_str)
