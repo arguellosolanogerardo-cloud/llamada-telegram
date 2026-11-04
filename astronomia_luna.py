@@ -533,7 +533,16 @@ def generar_video_meditacion_luna(
 
             # Cabecera dinámica
             if es_mensaje:
-                num_txt = f"MENSAJE #{numero}" if numero else "MENSAJE DE ALANISO"
+                if numero:
+                    num_txt = f"MENSAJE #{numero}"
+                elif maestro and ("MARIO" in maestro.upper() or "CARRILLO" in maestro.upper()):
+                    num_txt = "MENSAJE DE JESUS MARIO CARRILLO"
+                elif maestro and "GUARDIANES" in maestro.upper():
+                    num_txt = "MENSAJE DE GUARDIANES DEL UNIVERSO"
+                elif maestro:
+                    num_txt = f"MENSAJE DE {maestro.upper()}"
+                else:
+                    num_txt = "MENSAJE DEL DÍA"
             else:
                 num_txt = f"MEDITACIÓN #{numero}" if numero else "MEDITACIÓN DIARIA"
             draw.text((640, 56), num_txt, fill=(251, 191, 36), font=font_med, anchor="mm")

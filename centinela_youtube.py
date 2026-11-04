@@ -163,52 +163,88 @@ def hay_commits_pendientes_push() -> bool:
         return False
 
 
-def pre_renderizar_video_meditacion_hoy() -> str | None:
-    """Pre-renderiza con la GPU NVIDIA (NVENC) el video animado de la meditación de hoy si aún no existe."""
+def pre_renderizar_video_meditacion_hoy() -> list[str]:
+    """Pre-renderiza con la GPU NVIDIA (NVENC) los videos animados de la cola (oficial y adicionales) si aún no existen."""
+    videos_listos = []
     try:
         import astronomia_luna
+        import glob
         if not astronomia_luna.tiene_soporte_nvenc():
-            return None
+            return videos_listos
 
         from schedule_meditaciones import META_HOY, _cargar_json
-        meta = _cargar_json(META_HOY)
-        if not meta or not isinstance(meta, dict):
-            return None
+        meta = _cargar_json(META_HOY) or {}
+        items_a_revisar = []
 
-        num = str(meta.get("numero") or "").strip()
-        if not num:
-            return None
+        if meta.get("numero") or meta.get("titulo"):
+            items_a_revisar.append(meta)
 
-        tipo = str(meta.get("tipo") or "MEDITACION").strip().upper()
-        tipo_tag = "mensaje" if "MENSAJE" in tipo else "meditacion"
-        nombre_mp4 = f"caratula_{tipo_tag}_{num}.mp4"
-        ruta_mp4 = os.path.join(CARP_MED, nombre_mp4)
+        for it in (meta.get("cola_audios") or []):
+            if isinstance(it, dict):
+                items_a_revisar.append(it)
 
-        if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
-            res_st = subprocess.run(["git", "status", "--porcelain", ruta_mp4], capture_output=True, text=True)
-            if res_st.stdout.strip():
-                return ruta_mp4
-            return None
+        r_cola = os.path.join(CARP_MED, "cola_hoy.json")
+        if os.path.exists(r_cola):
+            try:
+                with open(r_cola, "r", encoding="utf-8") as fc:
+                    dc = json.load(fc)
+                    for item_c in (dc.get("cola") or []):
+                        inf = item_c.get("info")
+                        if isinstance(inf, dict):
+                            items_a_revisar.append(inf)
+            except Exception:
+                pass
 
-        tit = meta.get("titulo") or f"Meditación #{num}"
-        maestro = meta.get("maestro") or "Alaniso"
-        dur = float(meta.get("duracion_seg") or 1800.0)
+        # También verificar archivos yt_clean_*.mp3 en disco
+        for f_mp3 in glob.glob(os.path.join(CARP_MED, "yt_clean_*.mp3")):
+            vid_id = os.path.basename(f_mp3).replace("yt_clean_", "").replace(".mp3", "")
+            items_a_revisar.append({"video_id": vid_id, "tipo": "MENSAJE", "audio_path": f_mp3})
 
-        print(f"🎬 [Centinela GPU] Pre-renderizando video de {tipo} #{num} con NVENC...")
-        vid = astronomia_luna.generar_video_meditacion_luna(
-            numero=num,
-            titulo=tit,
-            maestro=maestro,
-            duracion_seg=dur,
-            ruta_salida=ruta_mp4,
-            tipo=tipo,
-        )
-        if vid and os.path.exists(vid) and os.path.getsize(vid) > 50000:
-            print(f"   ✅ Video pre-renderizado con éxito: {ruta_mp4} ({round(os.path.getsize(ruta_mp4)/(1024*1024), 2)} MB).")
-            return ruta_mp4
+        vistos = set()
+        for it in items_a_revisar:
+            num = str(it.get("numero") or "").strip()
+            vid = str(it.get("video_id") or "").strip()
+            tipo = str(it.get("tipo") or "MEDITACION").strip().upper()
+            tipo_tag = "mensaje" if "MENSAJE" in tipo else "meditacion"
+            tag = f"{tipo_tag}_{num}" if num else (f"{tipo_tag}_{vid}" if vid else "")
+            if not tag or tag in vistos:
+                continue
+            vistos.add(tag)
+
+            nombre_mp4 = f"caratula_{tag}.mp4"
+            ruta_mp4 = os.path.join(CARP_MED, nombre_mp4)
+
+            if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
+                res_st = subprocess.run(["git", "status", "--porcelain", ruta_mp4], capture_output=True, text=True)
+                if res_st.stdout.strip():
+                    videos_listos.append(ruta_mp4)
+                continue
+
+            tit = it.get("titulo") or (f"Mensaje {vid}" if vid else f"Meditación #{num}")
+            maestro = it.get("maestro") or ("JESUS MARIO CARRILLO DURAN" if it.get("es_mario") else "Alaniso")
+            dur = float(it.get("duracion_seg") or 0.0)
+            if dur <= 0:
+                audio_ref = it.get("audio_path") or (os.path.join(CARP_MED, f"yt_clean_{vid}.mp3") if vid else os.path.join(CARP_MED, f"meditacion_{num}.mp3"))
+                if os.path.exists(audio_ref):
+                    dur = astronomia_luna.obtener_duracion_segundos(audio_ref)
+            if dur <= 0:
+                dur = 1800.0
+
+            print(f"🎬 [Centinela GPU] Pre-renderizando video ({tag}) con NVENC ({dur:.1f}s)...")
+            vid_out = astronomia_luna.generar_video_meditacion_luna(
+                numero=num,
+                titulo=tit,
+                maestro=maestro,
+                duracion_seg=dur,
+                ruta_salida=ruta_mp4,
+                tipo=tipo,
+            )
+            if vid_out and os.path.exists(vid_out) and os.path.getsize(vid_out) > 50000:
+                print(f"   ✅ Video pre-renderizado con éxito: {ruta_mp4} ({round(os.path.getsize(ruta_mp4)/(1024*1024), 2)} MB).")
+                videos_listos.append(ruta_mp4)
     except Exception as e:
         print(f"   Nota en pre-renderizado de video: {e}")
-    return None
+    return videos_listos
 
 def ejecutar_ciclo(args) -> bool:
     os.makedirs(CARP_MED, exist_ok=True)
@@ -317,14 +353,15 @@ def ejecutar_ciclo(args) -> bool:
     # 4. Aplicar rotación determinista de caché caliente (Capped a `args.max_cache` audios más recientes)
     eliminados = rotar_audios_limpios(prioridad_ids=prioridad_ids, limite_max=args.max_cache)
 
-    # 4b. Pre-renderizar video de la meditación de hoy con GPU (RTX 3060 Ti) si no existe
-    vid_hoy = pre_renderizar_video_meditacion_hoy()
-    if vid_hoy and os.path.exists(vid_hoy):
-        subprocess.run(["git", "add", vid_hoy], check=False)
+    # 4b. Pre-renderizar videos de la cola con GPU (RTX 3060 Ti) si no existen
+    vids_hoy = pre_renderizar_video_meditacion_hoy()
+    for v_h in vids_hoy:
+        if os.path.exists(v_h):
+            subprocess.run(["git", "add", v_h], check=False)
 
 
-    # 5. Sincronización con GitHub si hubo descargas, registros, rotaciones o video pre-renderizado
-    hay_cambios = bool(descargados_ok or eliminados or vid_hoy)
+    # 5. Sincronización con GitHub si hubo descargas, registros, rotaciones o videos pre-renderizados
+    hay_cambios = bool(descargados_ok or eliminados or vids_hoy)
 
     if hay_cambios and not args.no_push:
         print("\n🚀 Sincronizando repositorio con GitHub (origin/main)...")

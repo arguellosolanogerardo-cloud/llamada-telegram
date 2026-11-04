@@ -822,6 +822,7 @@ def generar_caratula_meditacion(
     duracion_seg: float = 0.0,
     ruta_salida: str = None,
     tipo: str = "MEDITACION",
+    video_id: str = None,
 ) -> str | None:
     dur_s = float(duracion_seg) if duracion_seg > 0 else 1800.0
     if 0 < dur_s <= 120.0:
@@ -830,7 +831,7 @@ def generar_caratula_meditacion(
     tipo_norm = str(tipo or "MEDITACION").strip().upper()
     es_mensaje = "MENSAJE" in tipo_norm
     tipo_tag = "mensaje" if es_mensaje else "meditacion"
-    tag = f"{tipo_tag}_{numero}" if numero else f"{tipo_tag}_diario"
+    tag = f"{tipo_tag}_{numero}" if numero else (f"{tipo_tag}_{video_id}" if video_id else f"{tipo_tag}_diario")
 
     # 1. Intentar reutilizar video animado MP4 si ya fue generado para este audio específico
     if ruta_salida and ruta_salida.lower().endswith(".mp4"):
@@ -838,41 +839,37 @@ def generar_caratula_meditacion(
     else:
         ruta_mp4 = os.path.join(CARPETA_MEDITACIONES, f"caratula_{tag}.mp4")
 
+    # Si no tiene número pero tiene video_id, verificar si existe caratula con ese video_id
+    if not os.path.exists(ruta_mp4) and video_id:
+        cand_vid = os.path.join(CARPETA_MEDITACIONES, f"caratula_{tipo_tag}_{video_id}.mp4")
+        if os.path.exists(cand_vid):
+            ruta_mp4 = cand_vid
+
     if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
         dur_existente = obtener_duracion_segundos(ruta_mp4)
         if abs(dur_existente - dur_s) <= 15.0:
             print(f"🎬 Carátula de video MP4 ({tag}) ya existente y sincronizada ({dur_existente:.1f}s), reutilizando.")
             return ruta_mp4
 
-    # Si estamos en GitHub Actions / CI o entorno sin GPU, NO bloquear 20-30 minutos en CPU
-    es_ci_o_sin_gpu = os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true"
-    if not es_ci_o_sin_gpu:
-        try:
-            from astronomia_luna import tiene_soporte_nvenc
-            if not tiene_soporte_nvenc():
-                es_ci_o_sin_gpu = True
-        except Exception:
-            pass
+    # 2. Generar video animado MP4 dinámico con reloj y barra de progreso animada en tiempo real
+    try:
+        from astronomia_luna import generar_video_meditacion_luna
+        print(f"🎬 Generando video animado dinámico ({tag}) con barra de progreso y reloj ({dur_s:.1f}s)...")
+        vid = generar_video_meditacion_luna(
+            numero=numero,
+            titulo=titulo,
+            maestro=maestro,
+            duracion_seg=dur_s,
+            ruta_salida=ruta_mp4,
+            tipo=tipo_norm,
+        )
+        if vid and os.path.exists(vid) and os.path.getsize(vid) > 50000:
+            print(f"✅ Video animado dinámico ({tag}) generado exitosamente: {vid} ({round(os.path.getsize(vid)/(1024*1024), 2)} MB).")
+            return vid
+    except Exception as e_v:
+        print(f"Nota generando video animado ({tag}), usando fallback a carátula estática:", e_v)
 
-    if not es_ci_o_sin_gpu:
-        try:
-            from astronomia_luna import generar_video_meditacion_luna
-            vid = generar_video_meditacion_luna(
-                numero=numero,
-                titulo=titulo,
-                maestro=maestro,
-                duracion_seg=dur_s,
-                ruta_salida=ruta_mp4,
-                tipo=tipo_norm,
-            )
-            if vid and os.path.exists(vid) and os.path.getsize(vid) > 5000:
-                return vid
-        except Exception as e_v:
-            print(f"Nota generando video animado ({tag}), usando fallback a carátula estática:", e_v)
-    else:
-        print(f"⚡ Entorno en vivo sin GPU: usando carátula estática lunar HD inmediata (0.1s) sin bloquear la sala.")
-
-    # 2. Fallback a imagen estática JPG de alta calidad
+    # 3. Fallback a imagen estática JPG de alta calidad solo si ffmpeg falla completamente
     try:
         from astronomia_luna import generar_caratula_meditacion_luna
         ruta_jpg = os.path.join(CARPETA_MEDITACIONES, f"caratula_{tag}.jpg")
@@ -2957,7 +2954,8 @@ async def main() -> None:
                             dur_exacta = dur_pista_orig
                         if dur_exacta <= 0:
                             dur_exacta = 1800.0
-                        ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta, None, tipo_med)
+                        vid_med = inf_pista.get("video_id") or ""
+                        ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta, None, tipo_med, vid_med)
                     except Exception as e_car:
                         print("Nota generando carátula:", e_car)
                         ruta_caratula_actual = ""
