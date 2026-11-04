@@ -469,7 +469,9 @@ def generar_video_meditacion_luna(
 
     if not ruta_salida:
         os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
-        nombre_base = f"caratula_{tipo_tag}_{numero}.mp4" if numero else f"caratula_{tipo_tag}.mp4"
+        import hashlib
+        h_fb = hashlib.md5(f"{titulo}_{maestro}_{numero}".encode("utf-8", errors="ignore")).hexdigest()[:8]
+        nombre_base = f"caratula_{tipo_tag}_{numero}.mp4" if numero else f"caratula_{tipo_tag}_{h_fb}.mp4"
         ruta_salida = os.path.join("data", "meditaciones", nombre_base)
 
     try:
@@ -771,7 +773,9 @@ def generar_caratula_meditacion_luna(
 
     if not ruta_salida:
         os.makedirs(os.path.join("data", "meditaciones"), exist_ok=True)
-        nombre_base = f"caratula_{tipo_tag}_{numero}.jpg" if numero else f"caratula_{tipo_tag}.jpg"
+        import hashlib
+        h_fb = hashlib.md5(f"{titulo}_{maestro}_{numero}".encode("utf-8", errors="ignore")).hexdigest()[:8]
+        nombre_base = f"caratula_{tipo_tag}_{numero}.jpg" if numero else f"caratula_{tipo_tag}_{h_fb}.jpg"
         ruta_salida = os.path.join("data", "meditaciones", nombre_base)
 
     try:

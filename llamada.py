@@ -815,6 +815,52 @@ def formatear_tiempo_mm_ss(segundos: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def generar_tag_pista(
+    tipo: str = "MEDITACION",
+    numero: str = "",
+    video_id: str = "",
+    titulo: str = "",
+    maestro: str = "",
+    pista_idx: int = 0,
+    ruta_audio: str = "",
+) -> str:
+    """Genera un tag determinista y 100% único por pista para evitar colisiones de carátulas."""
+    tipo_norm = str(tipo or "MEDITACION").strip().upper()
+    es_msg = "MENSAJE" in tipo_norm
+    tipo_tag = "mensaje" if es_msg else "meditacion"
+
+    num_str = str(numero or "").strip()
+    vid_str = str(video_id or "").strip()
+
+    # Si es Pista #1 y tiene número oficial, preservar tag clásico para compatibilidad con pre-render
+    if num_str and pista_idx == 0:
+        return f"{tipo_tag}_{num_str}"
+
+    pista_num = pista_idx + 1
+    import unicodedata
+    tit_norm = unicodedata.normalize('NFKD', str(titulo or "")).encode('ASCII', 'ignore').decode('utf-8').lower()
+    tit_clean = re.sub(r"[^a-z0-9]", "", tit_norm)[:30]
+
+    m_norm = unicodedata.normalize('NFKD', str(maestro or "")).encode('ASCII', 'ignore').decode('utf-8').lower()
+    m_clean = re.sub(r"[^a-z0-9]", "", m_norm)[:20]
+
+    aud_base = os.path.basename(ruta_audio or "").lower() if ruta_audio else ""
+
+    raw_key = f"{tipo_tag}|{num_str}|{vid_str}|{tit_clean}|{m_clean}|{aud_base}|pista{pista_num}"
+    import hashlib
+    h_slug = hashlib.md5(raw_key.encode("utf-8", errors="ignore")).hexdigest()[:8]
+
+    if num_str:
+        return f"{tipo_tag}_pista{pista_num}_{num_str}_{h_slug}"
+    elif vid_str:
+        vid_safe = re.sub(r"[^a-zA-Z0-9_-]", "_", vid_str)[:16]
+        return f"{tipo_tag}_pista{pista_num}_{vid_safe}_{h_slug}"
+    elif tit_clean:
+        return f"{tipo_tag}_pista{pista_num}_{tit_clean[:12]}_{h_slug}"
+    else:
+        return f"{tipo_tag}_pista{pista_num}_{h_slug}"
+
+
 def generar_caratula_meditacion(
     numero: str,
     titulo: str,
@@ -823,31 +869,39 @@ def generar_caratula_meditacion(
     ruta_salida: str = None,
     tipo: str = "MEDITACION",
     video_id: str = None,
+    pista_idx: int = 0,
+    ruta_audio: str = None,
 ) -> str | None:
     dur_s = float(duracion_seg) if duracion_seg > 0 else 1800.0
     if 0 < dur_s <= 120.0:
         dur_s *= 60.0
 
     tipo_norm = str(tipo or "MEDITACION").strip().upper()
-    es_mensaje = "MENSAJE" in tipo_norm
-    tipo_tag = "mensaje" if es_mensaje else "meditacion"
-    tag = f"{tipo_tag}_{numero}" if numero else (f"{tipo_tag}_{video_id}" if video_id else f"{tipo_tag}_diario")
+    tag = generar_tag_pista(
+        tipo=tipo_norm,
+        numero=numero,
+        video_id=video_id,
+        titulo=titulo,
+        maestro=maestro,
+        pista_idx=pista_idx,
+        ruta_audio=ruta_audio,
+    )
 
-    # 1. Intentar reutilizar video animado MP4 si ya fue generado para este audio específico
+    # 1. Intentar reutilizar video animado MP4 si ya fue generado para esta pista específica
     if ruta_salida and ruta_salida.lower().endswith(".mp4"):
         ruta_mp4 = ruta_salida
     else:
         ruta_mp4 = os.path.join(CARPETA_MEDITACIONES, f"caratula_{tag}.mp4")
 
-    # Si no tiene número pero tiene video_id, verificar si existe caratula con ese video_id
-    if not os.path.exists(ruta_mp4) and video_id:
-        cand_vid = os.path.join(CARPETA_MEDITACIONES, f"caratula_{tipo_tag}_{video_id}.mp4")
+    # Si es Pista #1 oficial y no tiene archivo con tag pero existe con video_id
+    if not os.path.exists(ruta_mp4) and video_id and pista_idx == 0:
+        cand_vid = os.path.join(CARPETA_MEDITACIONES, f"caratula_mensaje_{video_id}.mp4")
         if os.path.exists(cand_vid):
             ruta_mp4 = cand_vid
 
     if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
         dur_existente = obtener_duracion_segundos(ruta_mp4)
-        if abs(dur_existente - dur_s) <= 60.0:
+        if abs(dur_existente - dur_s) <= 60.0 or dur_existente >= dur_s:
             print(f"🎬 Carátula de video MP4 ({tag}) ya existente y sincronizada ({dur_existente:.1f}s), reutilizando.")
             return ruta_mp4
 
@@ -885,6 +939,38 @@ def generar_caratula_meditacion(
     except Exception as e:
         print(f"Nota generando carátula lunar ({tag}) con astronomia_luna:", e)
         return None
+
+
+def pre_generar_caratulas_cola(cola: list[dict]) -> None:
+    """Pre-genera en segundo plano las carátulas de video para todas las pistas en la cola para transición instantánea."""
+    if not isinstance(cola, list):
+        return
+    for idx, item in enumerate(cola):
+        if not isinstance(item, dict):
+            continue
+        try:
+            inf = item.get("info") or {}
+            num = inf.get("numero", "")
+            tit = inf.get("titulo") or item.get("titulo", "")
+            m = inf.get("maestro") or ("JESUS MARIO CARRILLO DURAN" if inf.get("es_mario") else "Alaniso")
+            tipo = inf.get("tipo") or ("MENSAJE" if "MENSAJE" in str(tit).upper() else "MEDITACION")
+            vid = inf.get("video_id") or ""
+            r_aud = item.get("ruta") or ""
+            dur = obtener_duracion_segundos(r_aud) if r_aud and os.path.exists(r_aud) else 1800.0
+            if dur <= 0:
+                dur = 1800.0
+            generar_caratula_meditacion(
+                numero=num,
+                titulo=tit,
+                maestro=m,
+                duracion_seg=dur,
+                tipo=tipo,
+                video_id=vid,
+                pista_idx=idx,
+                ruta_audio=r_aud,
+            )
+        except Exception as e_pre:
+            print(f"Nota pre-generando carátula pista {idx+1}:", e_pre)
 
 
 def obtener_rango(puntos: int) -> str:
@@ -1564,6 +1650,8 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
 
         if hubo_cambios and cola_actual:
             guardar_cola_hoy(cola_actual, fecha_destino=hoy_str)
+            if len(cola_actual) > 1:
+                asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_actual)))
     except Exception as e_sync_all:
         print("Nota en sincronizar_cola_con_render_y_grupo:", e_sync_all)
     return cola_actual
@@ -2523,11 +2611,17 @@ async def main() -> None:
                             dur_e = dur_base_orig
                         if dur_e <= 0:
                             dur_e = 1800.0
-                        vid = await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e, None, tipo_act)
+                        vid = await asyncio.to_thread(
+                            generar_caratula_meditacion,
+                            n_act, t_act, m_act, dur_e, None, tipo_act, None, 0, audio_con_gong
+                        )
                         if vid and os.path.exists(vid) and vid.lower().endswith((".mp4", ".jpg", ".png")):
                             recursos_meditacion_preparados["video"] = os.path.abspath(vid)
                             ruta_caratula_actual = recursos_meditacion_preparados["video"]
                         print(f"✨ Recursos ({tipo_act} #{n_act}) pre-generados exitosamente en segundo plano.")
+                        # Pre-generar carátulas del resto de la cola en segundo plano
+                        if cola_reproduccion and len(cola_reproduccion) > 1:
+                            asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_reproduccion)))
                 except Exception as e_p:
                     print("Nota pre-procesando meditacion en segundo plano:", e_p)
             tarea_preparacion_recursos = asyncio.create_task(_preparar_meditacion_completa())
@@ -2649,8 +2743,8 @@ async def main() -> None:
                     tit_m = (info_catalogo_hoy or {}).get("titulo", "Meditación Diaria")
                     m_m = (info_catalogo_hoy or {}).get("maestro", "Alaniso")
                     tipo_m = (info_catalogo_hoy or {}).get("tipo") or ("MENSAJE" if "MENSAJE" in str(tit_m).upper() else "MEDITACION")
-                    tipo_tag_seek = "mensaje" if "MENSAJE" in str(tipo_m).upper() else "meditacion"
-                    tag_seek = f"{tipo_tag_seek}_{num_m}" if num_m else f"{tipo_tag_seek}_diario"
+                    vid_seek = (cola_reproduccion[indice_pista_actual].get("info") or {}).get("video_id") or ""
+                    tag_seek = generar_tag_pista(tipo_m, num_m, vid_seek, tit_m, m_m, indice_pista_actual, ruta_activa_audio)
                     ruta_video_base = ruta_caratula_actual if (ruta_caratula_actual and os.path.exists(ruta_caratula_actual) and ruta_caratula_actual.lower().endswith(".mp4")) else os.path.join(CARPETA_MEDITACIONES, f"caratula_{tag_seek}.mp4")
                     destino_video_seek = os.path.join(CARPETA_MEDITACIONES, f"caratula_seek_{token_seek}.mp4")
                     if os.path.exists(ruta_video_base) and os.path.getsize(ruta_video_base) > 5000:
@@ -2667,7 +2761,7 @@ async def main() -> None:
                     else:
                         ruta_caratula_actual = await asyncio.to_thread(
                             generar_caratula_meditacion,
-                            num_m, tit_m, m_m, dur_total, None, tipo_m
+                            num_m, tit_m, m_m, dur_total, None, tipo_m, vid_seek, indice_pista_actual, ruta_activa_audio
                         )
                 except Exception as e_car_seek:
                     print("Nota actualizando carátula en salto:", e_car_seek)
@@ -2675,11 +2769,13 @@ async def main() -> None:
                 from pytgcalls.types import MediaStream, AudioQuality
                 from pytgcalls.types.raw import VideoParameters
                 if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
+                    ff_params_seek = "-loop 1" if ruta_caratula_actual.lower().endswith((".jpg", ".png", ".jpeg")) else None
                     stream_seek = MediaStream(
                         ruta_caratula_actual,
                         audio_path=ruta_seek,
                         video_parameters=VideoParameters(width=1280, height=720, frame_rate=15),
                         audio_parameters=AudioQuality.STUDIO,
+                        ffmpeg_parameters=ff_params_seek,
                     )
                 else:
                     stream_seek = MediaStream(
@@ -2948,6 +3044,7 @@ async def main() -> None:
             reproduciendo_meditacion = True
             meditacion_activa_hoy = True
             eq_estado["cambiando"] = True
+            ruta_caratula_actual = ""
 
             if tarea_panel_progreso and not tarea_panel_progreso.done():
                 tarea_panel_progreso.cancel()
@@ -2959,6 +3056,33 @@ async def main() -> None:
                 msg_panel_meditacion_id = None
 
             try:
+                # Iniciar preparación de carátula en paralelo para que esté lista al terminar el anuncio de Toby
+                tarea_caratula_pista = None
+                if pista_idx > 0 or not (recursos_meditacion_preparados.get("video") and os.path.exists(recursos_meditacion_preparados["video"])):
+                    inf_pista_pre = pista_actual.get("info") or {}
+                    num_med_pre = inf_pista_pre.get("numero", "")
+                    tit_med_pre = inf_pista_pre.get("titulo") or pista_actual.get("titulo", "Meditación Diaria")
+                    m_med_pre = inf_pista_pre.get("maestro") or ("JESUS MARIO CARRILLO DURAN" if inf_pista_pre.get("es_mario") else "Alaniso")
+                    tipo_med_pre = inf_pista_pre.get("tipo") or ("MENSAJE" if "MENSAJE" in str(tit_med_pre).upper() else "MEDITACION")
+                    dur_est_pre = obtener_duracion_segundos(ruta_pista)
+                    if dur_est_pre <= 0:
+                        dur_est_pre = 1800.0
+                    vid_med_pre = inf_pista_pre.get("video_id") or ""
+                    tarea_caratula_pista = asyncio.create_task(
+                        asyncio.to_thread(
+                            generar_caratula_meditacion,
+                            num_med_pre,
+                            tit_med_pre,
+                            m_med_pre,
+                            dur_est_pre,
+                            None,
+                            tipo_med_pre,
+                            vid_med_pre,
+                            pista_idx,
+                            ruta_pista,
+                        )
+                    )
+
                 # 1. Anuncio de voz por Toby antes de la meditación/mensaje
                 try:
                     num = (info_catalogo_hoy or {}).get("numero", "")
@@ -3009,12 +3133,20 @@ async def main() -> None:
                 # 4. Obtener video carátula MP4 dinámico
                 if pista_idx == 0 and recursos_meditacion_preparados.get("video") and os.path.exists(recursos_meditacion_preparados["video"]):
                     ruta_caratula_actual = recursos_meditacion_preparados["video"]
+                elif tarea_caratula_pista:
+                    try:
+                        print(f"⏳ Obteniendo carátula generada en paralelo para Pista #{pista_idx + 1}...")
+                        ruta_caratula_actual = await asyncio.wait_for(tarea_caratula_pista, timeout=30.0)
+                        print(f"🎬 Carátula lista para Pista #{pista_idx + 1}: {ruta_caratula_actual}")
+                    except Exception as e_car:
+                        print(f"Nota obteniendo carátula en paralelo para Pista #{pista_idx + 1}:", e_car)
+                        ruta_caratula_actual = ""
                 else:
                     try:
                         inf_pista = pista_actual.get("info") or info_catalogo_hoy or {}
                         num_med = inf_pista.get("numero", "")
                         tit_med = inf_pista.get("titulo") or pista_actual.get("titulo", "Meditación Diaria")
-                        m_med = inf_pista.get("maestro", "Alaniso")
+                        m_med = inf_pista.get("maestro") or ("JESUS MARIO CARRILLO DURAN" if inf_pista.get("es_mario") else "Alaniso")
                         tipo_med = inf_pista.get("tipo") or ("MENSAJE" if "MENSAJE" in str(tit_med).upper() else "MEDITACION")
                         dur_pista_orig = obtener_duracion_segundos(ruta_pista)
                         dur_exacta = obtener_duracion_segundos(ruta_a_reproducir)
@@ -3023,9 +3155,20 @@ async def main() -> None:
                         if dur_exacta <= 0:
                             dur_exacta = 1800.0
                         vid_med = inf_pista.get("video_id") or ""
-                        ruta_caratula_actual = await asyncio.to_thread(generar_caratula_meditacion, num_med, tit_med, m_med, dur_exacta, None, tipo_med, vid_med)
+                        ruta_caratula_actual = await asyncio.to_thread(
+                            generar_caratula_meditacion,
+                            num_med,
+                            tit_med,
+                            m_med,
+                            dur_exacta,
+                            None,
+                            tipo_med,
+                            vid_med,
+                            pista_idx,
+                            ruta_a_reproducir,
+                        )
                     except Exception as e_car:
-                        print("Nota generando carátula:", e_car)
+                        print(f"Nota generando carátula para Pista #{pista_idx + 1}:", e_car)
                         ruta_caratula_actual = ""
 
                 if token_reproduccion != mi_token_repro or not reproduciendo_meditacion:
@@ -3051,22 +3194,26 @@ async def main() -> None:
                     from pytgcalls.types import MediaStream, AudioQuality
                     from pytgcalls.types.raw import VideoParameters
                     if ruta_caratula_actual and os.path.exists(ruta_caratula_actual):
+                        print(f"🎬 Transmitiendo Pista #{pista_idx + 1} con VIDEO: {ruta_caratula_actual}")
+                        ff_params_play = "-loop 1" if ruta_caratula_actual.lower().endswith((".jpg", ".png", ".jpeg")) else None
                         stream_play = MediaStream(
                             ruta_caratula_actual,
                             audio_path=ruta_a_reproducir,
                             video_parameters=VideoParameters(width=1280, height=720, frame_rate=15),
                             audio_parameters=AudioQuality.STUDIO,
+                            ffmpeg_parameters=ff_params_play,
                         )
                     else:
+                        print(f"🎵 Transmitiendo Pista #{pista_idx + 1} en modo SOLO AUDIO (sin carátula)")
                         stream_play = MediaStream(
                             ruta_a_reproducir,
                             audio_parameters=AudioQuality.STUDIO,
                         )
                     
-                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write("Iniciando tgcalls.play con stream_play (video+audio)...\n")
+                    with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Iniciando tgcalls.play pista {pista_idx+1} (video={ruta_caratula_actual})...\n")
                     await tgcalls.play(destino, stream_play)
                     with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write("tgcalls.play con video completado exitosamente.\n")
-                    print(f"Emisión de pantalla de video y audio iniciada: {ruta_a_reproducir}")
+                    print(f"✅ Emisión de pantalla de video y audio iniciada: Pista #{pista_idx + 1} -> {ruta_a_reproducir}")
                 except Exception as e_ms:
                     with open("repro_debug.txt", "a", encoding="utf-8") as f: f.write(f"Excepcion en play video: {e_ms}, usando audio directo\n")
                     print("Nota reproduciendo video en pantalla, usando fallback de audio:", e_ms)
@@ -4388,6 +4535,7 @@ async def main() -> None:
                         info_catalogo_hoy = cola_reproduccion[indice_pista_actual].get("info")
 
                     guardar_cola_hoy(cola_reproduccion)
+                    asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_reproduccion)))
                     tit_rem = removido.get("titulo") or (removido.get("info") or {}).get("titulo") or "Audio"
                     await resp_q(f"🗑️ **Audio removido:** «{tit_rem}».\n\n📋 Total restante en cola: **{len(cola_reproduccion)} pistas**.")
                     await actualizar_panel_progreso(forzar=True)
@@ -4451,6 +4599,7 @@ async def main() -> None:
                         }
                         cola_reproduccion.append(item_c)
                         guardar_cola_hoy(cola_reproduccion)
+                        asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_reproduccion)))
                         if MEJORA_AUDIO:
                             asyncio.create_task(preparar_audio_eq(r_dest))
                         await resp_q(f"▶️ **Audio añadido a la cola de reproducción:** «{item_c['titulo']}»\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (se reproducirá 30 min después de terminar la 1.ª reproducción).")
@@ -4514,6 +4663,7 @@ async def main() -> None:
                         ruta_meditacion = cola_reproduccion[0]["ruta"]
                         info_catalogo_hoy = cola_reproduccion[0].get("info")
                     guardar_cola_hoy(cola_reproduccion)
+                    asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_reproduccion)))
                     txt_anadidos = "\n".join(f"• **{x.get('tipo', 'Audio').capitalize()} #{x.get('numero')}:** «{x.get('titulo', '')}»" for x in anadidos)
                     str_h = f" ⏰ **Programado para:** {m_hora.group(0)}" if m_hora else ""
                     await resp_q(f"▶️ **Pistas añadidas a la cola de reproducción:**\n{txt_anadidos}{str_h}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (la Meditación Oficial de las 3:00 AM se mantiene de #1).")
@@ -4649,6 +4799,7 @@ async def main() -> None:
                             asyncio.create_task(preparar_audio_eq(ruta))
 
                         guardar_cola_hoy(cola_reproduccion)
+                        asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_reproduccion)))
                         print(f"Nueva meditación recibida y guardada para hoy ({lbl_tarea}):", ruta)
                         await actualizar_panel_progreso(forzar=True)
 
