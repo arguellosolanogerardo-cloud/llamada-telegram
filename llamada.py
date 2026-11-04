@@ -2439,7 +2439,7 @@ async def main() -> None:
                         if dur_e <= 0:
                             dur_e = 1800.0
                         vid = await asyncio.to_thread(generar_caratula_meditacion, n_act, t_act, m_act, dur_e, None, tipo_act)
-                        if vid and os.path.exists(vid) and vid.lower().endswith(".mp4"):
+                        if vid and os.path.exists(vid) and vid.lower().endswith((".mp4", ".jpg", ".png")):
                             recursos_meditacion_preparados["video"] = os.path.abspath(vid)
                             ruta_caratula_actual = recursos_meditacion_preparados["video"]
                         print(f"✨ Recursos ({tipo_act} #{n_act}) pre-generados exitosamente en segundo plano.")

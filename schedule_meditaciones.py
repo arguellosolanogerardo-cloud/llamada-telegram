@@ -437,6 +437,11 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
 
     # ── GUARDAR meta_hoy.json y cola_hoy.json limpia (atómico) ──
     _guardar_json(META_HOY, info_cat)
+    try:
+        from centinela_youtube import pre_renderizar_video_meditacion_hoy
+        pre_renderizar_video_meditacion_hoy()
+    except Exception as e_pr:
+        print(f"Nota pre-renderizado 3 AM: {e_pr}")
     _guardar_json(MEDIT_DIR / "cola_hoy.json", {
         "fecha": fecha_hoy_display,
         "cola": [{

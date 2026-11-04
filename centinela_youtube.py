@@ -185,7 +185,10 @@ def pre_renderizar_video_meditacion_hoy() -> str | None:
         ruta_mp4 = os.path.join(CARP_MED, nombre_mp4)
 
         if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
-            return ruta_mp4
+            res_st = subprocess.run(["git", "status", "--porcelain", ruta_mp4], capture_output=True, text=True)
+            if res_st.stdout.strip():
+                return ruta_mp4
+            return None
 
         tit = meta.get("titulo") or f"Meditación #{num}"
         maestro = meta.get("maestro") or "Alaniso"
@@ -320,8 +323,8 @@ def ejecutar_ciclo(args) -> bool:
         subprocess.run(["git", "add", vid_hoy], check=False)
 
 
-    # 5. Sincronización con GitHub si hubo descargas, registros o rotaciones
-    hay_cambios = bool(descargados_ok or eliminados)
+    # 5. Sincronización con GitHub si hubo descargas, registros, rotaciones o video pre-renderizado
+    hay_cambios = bool(descargados_ok or eliminados or vid_hoy)
 
     if hay_cambios and not args.no_push:
         print("\n🚀 Sincronizando repositorio con GitHub (origin/main)...")
@@ -340,7 +343,9 @@ def ejecutar_ciclo(args) -> bool:
                 partes.append(f"precarga de {len(descargados_ok)} audio(s)")
             if eliminados:
                 partes.append(f"rotacion de {len(eliminados)} audio(s) a catalogo permanente")
-            msg = f"chore(youtube): {', '.join(partes)}"
+            if vid_hoy:
+                partes.append(f"video {os.path.basename(vid_hoy)}")
+            msg = f"chore(meditacion): {', '.join(partes)}"
 
             res_c = subprocess.run(["git", "commit", "-m", msg], capture_output=True, text=True)
             if res_c.returncode == 0:
