@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "actualizado": "2026-11-03",
+  "actualizado": "2026-11-04",
   "usuarios": {
     "6207989093": {
       "id": 6207989093,
@@ -645,23 +645,23 @@
       "id": 5513366676,
       "nombre": "Martha Valdez",
       "username": "",
-      "puntos_mes": 400,
-      "puntos_totales": 3790,
-      "racha_actual": 28,
-      "mejor_racha": 28,
-      "racha_podio": 0,
-      "racha_voz": 31,
-      "asistencias_mes": 3,
-      "asistencias_totales": 31,
-      "minutos_mes": 424,
-      "minutos_totales": 3287,
-      "meditaciones_mes": 3,
-      "meditaciones_totales": 30,
+      "puntos_mes": 470,
+      "puntos_totales": 3860,
+      "racha_actual": 29,
+      "mejor_racha": 29,
+      "racha_podio": 1,
+      "racha_voz": 0,
+      "asistencias_mes": 4,
+      "asistencias_totales": 32,
+      "minutos_mes": 437,
+      "minutos_totales": 3300,
+      "meditaciones_mes": 4,
+      "meditaciones_totales": 31,
       "medallas": [
-        "🧘 Mente Serena",
-        "🎙️ Voz de la Comunidad"
+        "🎙️ Voz de la Comunidad",
+        "🧘 Mente Serena"
       ],
-      "ultima_fecha": "2026-11-03"
+      "ultima_fecha": "2026-11-04"
     },
     "1520577052": {
       "id": 1520577052,
@@ -931,23 +931,23 @@
       "id": 5572441866,
       "nombre": "Eduardo Kareka",
       "username": "",
-      "puntos_mes": 115,
-      "puntos_totales": 2425,
-      "racha_actual": 2,
+      "puntos_mes": 245,
+      "puntos_totales": 2555,
+      "racha_actual": 3,
       "mejor_racha": 6,
-      "racha_podio": 0,
-      "racha_voz": 24,
-      "asistencias_mes": 2,
-      "asistencias_totales": 24,
-      "minutos_mes": 98,
-      "minutos_totales": 1927,
-      "meditaciones_mes": 0,
-      "meditaciones_totales": 22,
+      "racha_podio": 1,
+      "racha_voz": 25,
+      "asistencias_mes": 3,
+      "asistencias_totales": 25,
+      "minutos_mes": 121,
+      "minutos_totales": 1950,
+      "meditaciones_mes": 1,
+      "meditaciones_totales": 23,
       "medallas": [
-        "🧘 Mente Serena",
-        "🎙️ Voz de la Comunidad"
+        "🎙️ Voz de la Comunidad",
+        "🧘 Mente Serena"
       ],
-      "ultima_fecha": "2026-11-03"
+      "ultima_fecha": "2026-11-04"
     },
     "8713992686": {
       "id": 8713992686,
@@ -1684,5 +1684,5 @@
     }
   },
   "mes_actual": "2026-11",
-  "total_llamadas_mes": 3
+  "total_llamadas_mes": 4
 }
