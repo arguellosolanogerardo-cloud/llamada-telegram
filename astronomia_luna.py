@@ -431,14 +431,25 @@ def crear_universo_con_orion(width: int = 1280, height: int = 720, frame_idx: in
 _NVENC_SOPORTADO = None
 
 def tiene_soporte_nvenc() -> bool:
-    """Verifica de forma rápida y en caché si FFmpeg tiene aceleración por hardware NVIDIA (h264_nvenc)."""
+    """Verifica de forma rápida y en caché si FFmpeg tiene aceleración por hardware NVIDIA (h264_nvenc) funcional."""
     global _NVENC_SOPORTADO
     if _NVENC_SOPORTADO is not None:
         return _NVENC_SOPORTADO
+
+    # En entornos CI / GitHub Actions nunca hay GPU NVIDIA
+    if os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true":
+        _NVENC_SOPORTADO = False
+        return False
+
     try:
         import subprocess
-        res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=5)
-        _NVENC_SOPORTADO = "h264_nvenc" in (res.stdout or "")
+        # Probar codificar un micro-frame real de prueba con h264_nvenc para confirmar hardware NVIDIA presente
+        test_cmd = [
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.05",
+            "-c:v", "h264_nvenc", "-f", "null", "-"
+        ]
+        res = subprocess.run(test_cmd, capture_output=True, timeout=3)
+        _NVENC_SOPORTADO = (res.returncode == 0)
     except Exception:
         _NVENC_SOPORTADO = False
     return _NVENC_SOPORTADO
@@ -701,6 +712,29 @@ def generar_video_meditacion_luna(
                 "-t", str(dur_int),
             ] + codec_args + [ruta_salida_tmp]
             res = subprocess.run(cmd_final, capture_output=True, text=True)
+            if (res.returncode != 0 or not os.path.exists(ruta_salida_tmp)) and "-c:v" in codec_args and "h264_nvenc" in codec_args:
+                print("⚠️ Falló h264_nvenc en hardware, reintentando de inmediato con libx264 (CPU ultrafast)...")
+                codec_args_cpu = [
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-crf", "30",
+                    "-g", "4",
+                    "-threads", "0",
+                ]
+                cmd_final_cpu = [
+                    "ffmpeg", "-y",
+                    "-stream_loop", "-1", "-i", loop_video,
+                    "-loop", "1", "-r", "2", "-i", fg_path,
+                    "-loop", "1", "-r", "2", "-i", strip_path,
+                    "-loop", "1", "-r", "2", "-i", dot_path,
+                    "-filter_complex", filter_expr,
+                    "-map", "[out]",
+                    "-r", "2",
+                    "-pix_fmt", "yuv420p",
+                    "-t", str(dur_int),
+                ] + codec_args_cpu + [ruta_salida_tmp]
+                res = subprocess.run(cmd_final_cpu, capture_output=True, text=True)
+
             if res.returncode != 0 or not os.path.exists(ruta_salida_tmp):
                 print("ERROR FFMPEG generando video animado:", res.stderr)
                 if os.path.exists(ruta_salida_tmp):

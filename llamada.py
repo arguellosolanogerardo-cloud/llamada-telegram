@@ -847,7 +847,7 @@ def generar_caratula_meditacion(
 
     if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
         dur_existente = obtener_duracion_segundos(ruta_mp4)
-        if abs(dur_existente - dur_s) <= 15.0:
+        if abs(dur_existente - dur_s) <= 60.0:
             print(f"🎬 Carátula de video MP4 ({tag}) ya existente y sincronizada ({dur_existente:.1f}s), reutilizando.")
             return ruta_mp4
 
@@ -1452,6 +1452,8 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
             txt_ext = (m_ext.raw_text or "").strip()
             m_tit = re.search(r"«([^»]+)»", txt_ext)
             tit_ext = m_tit.group(1).strip() if m_tit else (getattr(m_ext.audio, "title", "") or getattr(m_ext.audio, "file_name", "") or f"Mensaje Maestro Mario Carrillo #{m_ext.id}")
+            m_yt = re.search(r"(?:v=|\/)([a-zA-Z0-9_-]{11})", txt_ext)
+            vid_ext = m_yt.group(1) if m_yt else ""
             inf_cand = {
                 "numero": "",
                 "tipo": "MENSAJE",
@@ -1462,7 +1464,8 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
                 "es_mario": True,
                 "es_adicional": True,
                 "espera_post_meditacion_min": 30,
-                "msg_id_audio": m_ext.id
+                "msg_id_audio": m_ext.id,
+                "video_id": vid_ext
             }
             if _ya_en_cola(inf_cand, tit_cand=tit_ext, msg_id_cand=m_ext.id):
                 continue
