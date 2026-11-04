@@ -117,23 +117,23 @@
       "id": 6399756940,
       "nombre": "Alezaida Guevara",
       "username": "",
-      "puntos_mes": 130,
-      "puntos_totales": 1500,
-      "racha_actual": 2,
+      "puntos_mes": 270,
+      "puntos_totales": 1640,
+      "racha_actual": 3,
       "mejor_racha": 5,
-      "racha_podio": 0,
-      "racha_voz": 19,
-      "asistencias_mes": 2,
-      "asistencias_totales": 19,
-      "minutos_mes": 141,
-      "minutos_totales": 1021,
-      "meditaciones_mes": 0,
-      "meditaciones_totales": 11,
+      "racha_podio": 1,
+      "racha_voz": 20,
+      "asistencias_mes": 3,
+      "asistencias_totales": 20,
+      "minutos_mes": 159,
+      "minutos_totales": 1039,
+      "meditaciones_mes": 1,
+      "meditaciones_totales": 12,
       "medallas": [
         "🧘 Mente Serena",
         "🎙️ Voz de la Comunidad"
       ],
-      "ultima_fecha": "2026-11-03"
+      "ultima_fecha": "2026-11-04"
     },
     "8522415010": {
       "id": 8522415010,
@@ -1684,5 +1684,5 @@
     }
   },
   "mes_actual": "2026-11",
-  "total_llamadas_mes": 4
+  "total_llamadas_mes": 5
 }
