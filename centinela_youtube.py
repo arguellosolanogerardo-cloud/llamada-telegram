@@ -42,7 +42,6 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 CARP_MED = os.path.join("data", "meditaciones")
-RUTA_VISTOS = os.path.join("data", "radar_vistos.json")
 RUTA_AUDIOS_REG = os.path.join(CARP_MED, "audios_registrados.json")
 
 
@@ -57,31 +56,6 @@ def extraer_video_id(texto: str) -> str:
     if len(texto) == 11 and re.match(r"^[a-zA-Z0-9_-]{11}$", texto):
         return texto
     return ""
-
-
-def cargar_vistos() -> list[str]:
-    if os.path.exists(RUTA_VISTOS):
-        try:
-            with open(RUTA_VISTOS, "r", encoding="utf-8") as f:
-                d = json.load(f)
-                if isinstance(d, list):
-                    return [str(x) for x in d]
-        except Exception:
-            pass
-    return []
-
-
-def guardar_vistos(vistos: list[str]) -> None:
-    try:
-        os.makedirs(os.path.dirname(RUTA_VISTOS), exist_ok=True)
-        unicos = []
-        for x in vistos:
-            if x and x not in unicos:
-                unicos.append(x)
-        with open(RUTA_VISTOS, "w", encoding="utf-8") as f:
-            json.dump(unicos[-150:], f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"⚠️ Error guardando radar_vistos: {e}")
 
 
 def cargar_audios_registrados() -> dict:
@@ -191,7 +165,7 @@ def hay_commits_pendientes_push() -> bool:
 
 def ejecutar_ciclo(args) -> bool:
     os.makedirs(CARP_MED, exist_ok=True)
-    vistos = cargar_vistos()
+    db_reg = cargar_audios_registrados()
 
     from bot_comandos import descargar_audio_youtube_robusto
     from radar_youtube import CANALES_RADAR, extraer_videos_canal
@@ -236,13 +210,19 @@ def ejecutar_ciclo(args) -> bool:
             except Exception as e_ch:
                 print(f"   ⚠️ Error escaneando {canal['nombre']}: {e_ch}")
 
-    # 3. Detectar si hay audios existentes en disco que aún no se han registrado en vistos
+    # 3. Detectar si hay audios existentes en disco que aún no se han registrado en el catálogo
     for f_clean in glob.glob(os.path.join(CARP_MED, "yt_clean_*.mp3")):
         m = re.search(r"yt_clean_([a-zA-Z0-9_-]{11})\.mp3$", f_clean)
         if m:
             v_id_disco = m.group(1)
-            if v_id_disco not in vistos:
-                vistos.append(v_id_disco)
+            clave = f"YT_CLEAN_{v_id_disco}"
+            if clave not in db_reg:
+                db_reg[clave] = {
+                    "video_id": f"CLEAN_{v_id_disco}",
+                    "titulo": f"Video {v_id_disco}",
+                    "fuente": "YOUTUBE",
+                    "file_id": None
+                }
                 descargados_ok.append(v_id_disco)
 
     if candidatos:
@@ -260,18 +240,14 @@ def ejecutar_ciclo(args) -> bool:
                     mb = round(os.path.getsize(archivo_mp3) / (1024 * 1024), 2)
                     print(f"   ✅ Audio listo en disco: {archivo_mp3} ({mb} MB)")
                     descargados_ok.append(v_id)
-                    if v_id not in vistos:
-                        vistos.append(v_id)
                 else:
                     print(f"   ❌ No se pudo descargar el audio para {v_id}")
             except Exception as e_desc:
                 print(f"   ❌ Error descargando {v_id}: {e_desc}")
 
         if descargados_ok:
-            guardar_vistos(vistos)
             print(f"\n🎉 {len(descargados_ok)} audio(s) registrados con éxito.")
             try:
-                db_reg = cargar_audios_registrados()
                 for c in candidatos:
                     if c["id"] in descargados_ok:
                         clave = f"YT_CLEAN_{c['id']}"
@@ -289,7 +265,7 @@ def ejecutar_ciclo(args) -> bool:
         print("✅ No hay videos nuevos pendientes de descarga.")
 
     if descargados_ok:
-        guardar_vistos(vistos)
+        guardar_audios_registrados(db_reg)
 
     # 4. Aplicar rotación determinista de caché caliente (Capped a `args.max_cache` audios más recientes)
     eliminados = rotar_audios_limpios(prioridad_ids=prioridad_ids, limite_max=args.max_cache)
@@ -300,7 +276,7 @@ def ejecutar_ciclo(args) -> bool:
     if hay_cambios and not args.no_push:
         print("\n🚀 Sincronizando repositorio con GitHub (origin/main)...")
         try:
-            subprocess.run(["git", "add", "data/radar_vistos.json"], check=True)
+            # Nota: centinela solo gestiona audios y catálogo; radar_vistos.json es exclusivo de radar_youtube.py
             if os.path.exists(RUTA_AUDIOS_REG):
                 subprocess.run(["git", "add", RUTA_AUDIOS_REG], check=True)
 

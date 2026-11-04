@@ -54,19 +54,6 @@ def cargar_vistos() -> list:
         except Exception as e:
             print("Nota leyendo radar_vistos local:", e)
 
-    # Incluir cualquier video que ya tenga audio en caché local o registrado en disco
-    try:
-        import glob
-        carp_clean = os.path.join("data", "meditaciones")
-        for f_mp3 in glob.glob(os.path.join(carp_clean, "yt_clean_*.mp3")):
-            m = re.search(r"yt_clean_([a-zA-Z0-9_-]{11})\.mp3$", f_mp3)
-            if m:
-                v_id = m.group(1)
-                if v_id not in locales:
-                    locales.append(v_id)
-    except Exception:
-        pass
-
     remotos = []
     try:
         url_nocache = f"{GITHUB_RAW_VISTOS}?t={int(time.time() // 60)}"
@@ -650,7 +637,7 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                     # Criterio robusto de novedad:
                     # En operación normal: máximo 2 horas (7200s).
                     # En arranque (deploy/reinicio Render): máximo 5 minutos (300s) para evitar re-anunciar videos ya emitidos antes del deploy.
-                    limite_seg = 300 if es_arranque else 7200
+                    limite_seg = 7200  # 2 horas de ventana de novedad constante
                     es_reciente = False
                     if dt_pub:
                         segundos = (ahora_utc - dt_pub).total_seconds()
@@ -663,30 +650,15 @@ def chequear_canales(bot_enviar_mensaje_func, chat_id_grupo, bot_enviar_foto_fun
                             nuevos_vistos.append(vid)
                             continue
                     elif es_antiguo_explicito(pub_txt):
-                        # El video dice explícitamente días, semanas, meses, años o > 2h -> marcar visto sin anunciar
-                        with _MEMORIA_LOCK:
-                            _VIDEOS_VISTOS_MEMORIA.add(vid)
-                        nuevos_vistos.append(vid)
-                        continue
-                    elif es_arranque and re.search(r'(?:hace\s*|streamed\s*)?\d+\s*(?:hora|horas|hour|hours|h|hr|hrs)\b', pub_txt):
-                        # En arranque del bot, si el texto dice horas, es backlog previo -> registrar en silencio
                         with _MEMORIA_LOCK:
                             _VIDEOS_VISTOS_MEMORIA.add(vid)
                         nuevos_vistos.append(vid)
                         continue
                     elif evaluar_recencia_texto(pub_txt):
                         es_reciente = True
-                    elif idx < 3:
-                        if es_arranque:
-                            # En arranque sin fecha comprobable, no arriesgar spam -> registrar en silencio
-                            with _MEMORIA_LOCK:
-                                _VIDEOS_VISTOS_MEMORIA.add(vid)
-                            nuevos_vistos.append(vid)
-                            continue
-                        # Está en el Top 3 más reciente del canal, no está en vistos y NO es antiguo -> ¡Es nuevo!
+                    elif idx < 2:
                         es_reciente = True
                     else:
-                        # Posición >= 3 sin texto de tiempo claro: no anunciar, pero no envenenar vistos si es ambiguo
                         continue
 
                     # Reservar el video en proceso para evitar duplicados si otra llamada llega
