@@ -2282,11 +2282,22 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
     if not audio_file_id and db_audios:
         reg = None
         if vid_cat:
-            reg = db_audios.get(f"YT_{vid_cat}")
+            reg = db_audios.get(f"YT_{vid_cat}") or db_audios.get(f"YT_CLEAN_{vid_cat}")
         if not reg and num:
             reg = db_audios.get(f"{tipo_nombre.upper()}_{num}") or db_audios.get(num)
+        if not reg and titulo:
+            import unicodedata
+            t_norm = re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", str(titulo)).encode("ASCII", "ignore").decode("utf-8").lower())
+            if t_norm:
+                for k, v in db_audios.items():
+                    v_norm = re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", str(v.get("titulo", ""))).encode("ASCII", "ignore").decode("utf-8").lower())
+                    if v_norm and (t_norm in v_norm or v_norm in t_norm):
+                        reg = v
+                        break
         if reg:
             audio_file_id = reg.get("file_id")
+            if not vid_cat and reg.get("video_id"):
+                vid_cat = str(reg.get("video_id")).replace("CLEAN_", "")
 
     # Intentar enviar vía file_id si lo tenemos
     if audio_file_id:
@@ -2302,6 +2313,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
         ruta_local = audio_path_cat
     elif vid_cat:
         for cand_yt in [
+            os.path.join("data", "meditaciones", f"yt_clean_{vid_cat}.mp3"),
             os.path.join("data", "meditaciones", f"yt_dl_{vid_cat}.mp3"),
             os.path.join("data", "meditaciones", "meditacion_hoy_2.mp3"),
         ]:
@@ -2310,7 +2322,7 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
                 break
     else:
         ruta_med_hoy = os.path.join("data", "meditaciones", "meditacion_hoy.mp3")
-        if (not num or (meta_hoy and str(meta_hoy.get("numero", "")).strip() == num)) and os.path.exists(ruta_med_hoy) and os.path.getsize(ruta_med_hoy) > 0:
+        if (not num or (meta_hoy and str(meta_hoy.get("numero", "")).strip() == num)) and os.path.exists(ruta_med_hoy) and os.path.getsize(ruta_med_hoy) > 0 and not es_mario_cat:
             ruta_local = ruta_med_hoy
         else:
             for f_name in [f"meditacion_{num}.mp3", f"mensaje_{num}.mp3", f"{num}.mp3"]:
@@ -2318,6 +2330,20 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
                 if os.path.exists(candidato) and os.path.getsize(candidato) > 0:
                     ruta_local = candidato
                     break
+
+        if not ruta_local and titulo and db_audios:
+            import unicodedata
+            t_norm = re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", str(titulo)).encode("ASCII", "ignore").decode("utf-8").lower())
+            if t_norm:
+                for k, v in db_audios.items():
+                    v_norm = re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", str(v.get("titulo", ""))).encode("ASCII", "ignore").decode("utf-8").lower())
+                    if v_norm and (t_norm in v_norm or v_norm in t_norm):
+                        v_raw = str(v.get("video_id", "")).replace("CLEAN_", "")
+                        if v_raw:
+                            c_cand = os.path.join("data", "meditaciones", f"yt_clean_{v_raw}.mp3")
+                            if os.path.exists(c_cand) and os.path.getsize(c_cand) > 1000:
+                                ruta_local = c_cand
+                                break
 
     if ruta_local:
         ok, m_id, f_id = enviar_audio(chat_id, ruta_local, caption=caption, title=title, performer=performer, reply_markup=teclado_grupo)
@@ -2356,14 +2382,17 @@ def entregar_audio_meditacion(chat_id: int | str, info_cat: dict, msg_id_reply: 
                 return
 
     # G) Si aún no está cargado el archivo en ninguna fuente
+    header_item = f"{tipo_nombre} #{num}" if num else tipo_nombre
+    vinculo_item = f"a la {tipo_nombre.lower()} #{num}" if num else f"al {tipo_nombre.lower()} «{titulo}»"
+    fecha_txt = fecha if fecha else "No especificada"
     txt_cat = (
         f"🧘 **CATÁLOGO OFICIAL DE AUDIOS**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **{tipo_nombre} #{num}:** «{titulo}»\n"
+        f"📌 **{header_item}:** «{titulo}»\n"
         f"👤 **Maestro:** {maestro}\n"
-        f"🗓️ **Fecha de grabación original:** {fecha}\n\n"
+        f"🗓️ **Fecha de grabación original:** {fecha_txt}\n\n"
         f"ℹ️ El archivo .mp3 correspondiente aún no se encuentra registrado en el almacenamiento del bot ni en la carpeta de Google Drive.\n\n"
-        f"💡 **Para administradores:** Puedes enviar o reenviar el archivo de audio directamente a este chat privado para vincularlo a la meditación #{num}."
+        f"💡 **Para administradores:** Puedes enviar o reenviar el archivo de audio directamente a este chat privado para vincularlo {vinculo_item}."
     )
     enviar_mensaje(chat_id, txt_cat, reply_to_message_id=msg_id_reply)
 
