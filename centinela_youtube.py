@@ -7,7 +7,7 @@ Centinela automático para monitorear, precargar y rotar audios limpios de YouTu
 Diseñado para ejecutarse en entorno local (con IP residencial libre de bloqueos de YouTube).
 
 Arquitectura Híbrida:
-1. Caché Caliente: Mantiene solo los 10 audios más recientes de YouTube en disco y Git (~200 MB).
+1. Caché Caliente: Mantiene solo los 21 audios más recientes de YouTube en disco y Git (~350 MB).
 2. Catálogo Permanente: Registra todos los audios y file_id en data/meditaciones/audios_registrados.json.
 3. Rotación Automática: Cuando ingresa un audio nuevo, retira de Git los más antiguos conservándolos en el catálogo.
 
@@ -16,7 +16,7 @@ Uso:
     python centinela_youtube.py --daemon          # Ejecuta en bucle continuo cada 15 minutos en segundo plano
     python centinela_youtube.py --intervalo 15    # Especifica los minutos entre cada escaneo continuo
     python centinela_youtube.py --video <URL>     # Descarga un video específico por ID o URL
-    python centinela_youtube.py --max-cache 10    # Define cuántos audios conservar en caché caliente
+    python centinela_youtube.py --max-cache 21    # Define cuántos audios conservar en caché caliente
 """
 
 import os
@@ -79,7 +79,7 @@ def guardar_audios_registrados(db: dict) -> None:
         print(f"⚠️ Error guardando audios_registrados: {e}")
 
 
-def rotar_audios_limpios(prioridad_ids: list[str] = None, limite_max: int = 10) -> list[str]:
+def rotar_audios_limpios(prioridad_ids: list[str] = None, limite_max: int = 21) -> list[str]:
     """Mantiene en disco y Git solo los `limite_max` audios más recientes en orden cronológico real de YouTube.
     Asegura los metadatos en audios_registrados.json antes de retirar los archivos viejos de Git.
     """
@@ -419,7 +419,7 @@ def main():
     parser = argparse.ArgumentParser(description="Centinela local de precarga y rotación de audios de YouTube")
     parser.add_argument("--video", "-v", type=str, help="ID o URL de un video específico a descargar", default="")
     parser.add_argument("--no-push", action="store_true", help="No ejecutar git push al finalizar")
-    parser.add_argument("--max-cache", "-m", type=int, default=10, help="Máximo de audios limpios en caché caliente (default: 10)")
+    parser.add_argument("--max-cache", "-m", type=int, default=21, help="Máximo de audios limpios en caché caliente (default: 21)")
     parser.add_argument("--daemon", "-d", action="store_true", help="Ejecutar en bucle continuo cada N minutos")
     parser.add_argument("--intervalo", "-i", type=int, default=15, help="Minutos entre cada escaneo en modo daemon (default: 15)")
     args = parser.parse_args()
