@@ -532,15 +532,15 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
         except Exception:
             pass
 
-    # Intento 1: Android client (Máxima compatibilidad sin cookies en servidores cloud)
+    # Intento 1: VisionOS / Android VR (Audio directo sin SABR ni bloqueo de bots)
     cmd1 = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
         "--geo-bypass",
         "--http-chunk-size", "10M",
         "-N", "4",
-        "--extractor-args", "youtube:player_client=android",
-        "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
+        "--extractor-args", "youtube:player_client=visionos,android_vr",
+        "-f", "ba[ext=m4a]/ba[ext=webm]/ba/b",
         "--no-playlist",
         "--no-check-certificates",
         "--socket-timeout", "25",
@@ -552,15 +552,21 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
 
     exito_yt = False
     try:
-        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: Android)...")
-        _ejecutar_cmd_ytdlp(cmd1, progreso_callback, timeout_seg=60)
+        log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 1: VisionOS)...")
+        rc1, err1 = _ejecutar_cmd_ytdlp(cmd1, progreso_callback, timeout_seg=120)
         matches1 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
-        if any(os.path.getsize(m) > 1000 for m in matches1):
+        if rc1 == 0 and any(os.path.getsize(m) > 1000 for m in matches1):
             exito_yt = True
+        else:
+            for m in matches1:
+                try:
+                    os.remove(m)
+                except Exception:
+                    pass
     except Exception as e1:
         log_debug(f"Error yt-dlp intento 1 ({vid_target}): {e1}")
 
-    # Intento 2: Web Embedded + Android
+    # Intento 2: Android client fallback
     if not exito_yt:
         cmd2 = [
             sys.executable, "-m", "yt_dlp",
@@ -568,7 +574,7 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
             "--geo-bypass",
             "--http-chunk-size", "10M",
             "-N", "4",
-            "--extractor-args", "youtube:player_client=web_embedded,android",
+            "--extractor-args", "youtube:player_client=android",
             "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
@@ -579,20 +585,26 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
             url_yt
         ]
         try:
-            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 2: Web Embedded)...")
-            _ejecutar_cmd_ytdlp(cmd2, progreso_callback, timeout_seg=60)
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 2: Android)...")
+            rc2, err2 = _ejecutar_cmd_ytdlp(cmd2, progreso_callback, timeout_seg=120)
             matches2 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
-            if any(os.path.getsize(m) > 1000 for m in matches2):
+            if rc2 == 0 and any(os.path.getsize(m) > 1000 for m in matches2):
                 exito_yt = True
+            else:
+                for m in matches2:
+                    try:
+                        os.remove(m)
+                    except Exception:
+                        pass
         except Exception as e2:
             log_debug(f"Error yt-dlp intento 2 ({vid_target}): {e2}")
 
-    # Intento 3: VisionOS / Android VR fallback
+    # Intento 3: Web Embedded + Android fallback
     if not exito_yt:
         cmd3 = [
             sys.executable, "-m", "yt_dlp",
             "--force-ipv4",
-            "--extractor-args", "youtube:player_client=visionos,android_vr",
+            "--extractor-args", "youtube:player_client=web_embedded,android",
             "-f", "ba[ext=m4a]/ba[ext=webm]/ba/18/b/best",
             "--no-playlist",
             "--no-check-certificates",
@@ -602,11 +614,17 @@ def descargar_audio_youtube_robusto(vid_target: str, titulo_pista: str = "", pro
             url_yt
         ]
         try:
-            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 3: VisionOS/VR)...")
-            _ejecutar_cmd_ytdlp(cmd3, progreso_callback, timeout_seg=60)
+            log_debug(f"Iniciando extracción de YouTube para {vid_target} (Intento 3: Web Embedded)...")
+            rc3, err3 = _ejecutar_cmd_ytdlp(cmd3, progreso_callback, timeout_seg=120)
             matches3 = glob.glob(os.path.join("data", f"yt_raw_{vid_target}.*"))
-            if any(os.path.getsize(m) > 1000 for m in matches3):
+            if rc3 == 0 and any(os.path.getsize(m) > 1000 for m in matches3):
                 exito_yt = True
+            else:
+                for m in matches3:
+                    try:
+                        os.remove(m)
+                    except Exception:
+                        pass
         except Exception as e3:
             log_debug(f"Error yt-dlp intento 3 ({vid_target}): {e3}")
 

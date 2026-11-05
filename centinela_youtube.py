@@ -226,7 +226,11 @@ def pre_renderizar_video_meditacion_hoy() -> list[str]:
             if dur <= 0:
                 audio_ref = it.get("audio_path") or (os.path.join(CARP_MED, f"yt_clean_{vid}.mp3") if vid else os.path.join(CARP_MED, f"meditacion_{num}.mp3"))
                 if os.path.exists(audio_ref):
-                    dur = astronomia_luna.obtener_duracion_segundos(audio_ref)
+                    try:
+                        from llamada import obtener_duracion_segundos
+                        dur = obtener_duracion_segundos(audio_ref)
+                    except Exception:
+                        dur = 1800.0
             if dur <= 0:
                 dur = 1800.0
 
@@ -361,7 +365,9 @@ def ejecutar_ciclo(args) -> bool:
 
 
     # 5. Sincronización con GitHub si hubo descargas, registros, rotaciones o videos pre-renderizados
-    hay_cambios = bool(descargados_ok or eliminados or vids_hoy)
+    res_st_audios = subprocess.run(["git", "status", "--porcelain", CARP_MED, RUTA_AUDIOS_REG], capture_output=True, text=True)
+    hay_cambios_locales = bool(res_st_audios.stdout.strip())
+    hay_cambios = bool(descargados_ok or eliminados or vids_hoy or hay_cambios_locales)
 
     if hay_cambios and not args.no_push:
         print("\n🚀 Sincronizando repositorio con GitHub (origin/main)...")
@@ -370,18 +376,19 @@ def ejecutar_ciclo(args) -> bool:
             if os.path.exists(RUTA_AUDIOS_REG):
                 subprocess.run(["git", "add", RUTA_AUDIOS_REG], check=True)
 
-            for v_id in descargados_ok:
-                f_mp3 = os.path.join(CARP_MED, f"yt_clean_{v_id}.mp3")
+            for f_mp3 in glob.glob(os.path.join(CARP_MED, "yt_clean_*.mp3")):
                 if os.path.exists(f_mp3):
                     subprocess.run(["git", "add", f_mp3], check=True)
 
             partes = []
             if descargados_ok:
                 partes.append(f"precarga de {len(descargados_ok)} audio(s)")
+            elif hay_cambios_locales:
+                partes.append("actualizacion de audios y catalogo")
             if eliminados:
                 partes.append(f"rotacion de {len(eliminados)} audio(s) a catalogo permanente")
-            if vid_hoy:
-                partes.append(f"video {os.path.basename(vid_hoy)}")
+            if vids_hoy:
+                partes.append(f"{len(vids_hoy)} video(s) pre-renderizado(s)")
             msg = f"chore(meditacion): {', '.join(partes)}"
 
             res_c = subprocess.run(["git", "commit", "-m", msg], capture_output=True, text=True)
