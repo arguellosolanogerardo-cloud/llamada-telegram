@@ -566,5 +566,25 @@
     "titulo": "🚩💥CANCIÓN UN SOLO DIA💖💕",
     "fuente": "YOUTUBE",
     "file_id": null
+  },
+  "MENSAJE_1080": {
+    "numero": 1080,
+    "tipo": "MENSAJE",
+    "subtipo": "Mensaje Previo a Meditación",
+    "titulo": "Mensaje del 07/03/20 (Asociado a Meditación #1080)",
+    "fecha_original": "07/03/20",
+    "fecha": "07/03/20",
+    "maestro": "Alaniso",
+    "detectado_como": "MENSAJE"
+  },
+  "1080": {
+    "numero": 1080,
+    "tipo": "MENSAJE",
+    "subtipo": "Mensaje Previo a Meditación",
+    "titulo": "Mensaje del 07/03/20 (Asociado a Meditación #1080)",
+    "fecha_original": "07/03/20",
+    "fecha": "07/03/20",
+    "maestro": "Alaniso",
+    "detectado_como": "MENSAJE"
   }
 }
