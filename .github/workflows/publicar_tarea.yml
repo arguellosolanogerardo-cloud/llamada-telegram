@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install telethon
+      - run: pip install telethon requests pillow
       - run: python -u publicar_tarea.py "${{ github.event.inputs.numero_o_nombre }}" "${{ github.event.inputs.fecha }}" "${{ github.event.inputs.id_mensaje_audio }}"
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}
