@@ -1310,9 +1310,8 @@ def obtener_pista_oficial_3am(ahora: datetime | None = None) -> dict | None:
         hoy_str = ahora.strftime("%d/%m/%Y")
         hoy_iso = ahora.strftime("%Y-%m-%d")
 
-        from schedule_meditaciones import obtener_numero_meditacion_fecha
-        num_oficial = obtener_numero_meditacion_fecha(ahora.date())
-        tipo_oficial = "MEDITACION"
+        from schedule_meditaciones import obtener_tipo_y_numero_fecha
+        tipo_oficial, num_oficial = obtener_tipo_y_numero_fecha(ahora.date())
         info_oficial = None
 
         ruta_meta = os.path.join(CARPETA_MEDITACIONES, "meta_hoy.json")
@@ -1327,6 +1326,8 @@ def obtener_pista_oficial_3am(ahora: datetime | None = None) -> dict | None:
                         tipo_oficial = str(meta["tipo"]).upper()
                         info_oficial = dict(meta)
                     elif str(meta.get("numero", "")).strip() == str(num_oficial):
+                        if meta.get("tipo"):
+                            tipo_oficial = str(meta["tipo"]).upper()
                         info_oficial = dict(meta)
             except Exception as e_m:
                 print("Nota leyendo meta_hoy.json en obtener_pista_oficial_3am:", e_m)
@@ -1335,7 +1336,7 @@ def obtener_pista_oficial_3am(ahora: datetime | None = None) -> dict | None:
             info_oficial = identificar_audio_catalogo(f"{tipo_oficial.lower()} {num_oficial}") or {
                 "numero": num_oficial,
                 "tipo": tipo_oficial,
-                "titulo": f"Meditación #{num_oficial}",
+                "titulo": f"{tipo_oficial.title()} #{num_oficial}",
                 "fecha": ahora.strftime("%d/%m/%y"),
                 "maestro": "Alaniso",
                 "detectado_como": tipo_oficial,
@@ -1379,8 +1380,8 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
         if not hoy_str:
             hoy_str = ahora.strftime("%d/%m/%Y")
 
-        from schedule_meditaciones import obtener_numero_meditacion_fecha
-        num_oficial_3am = obtener_numero_meditacion_fecha(ahora.date())
+        from schedule_meditaciones import obtener_tipo_y_numero_fecha
+        tipo_oficial_3am, num_oficial_3am = obtener_tipo_y_numero_fecha(ahora.date())
 
         def _es_pista_oficial_3am(item_p: dict) -> bool:
             if not isinstance(item_p, dict):
@@ -1393,7 +1394,8 @@ async def sincronizar_cola_con_render_y_grupo(client, entidad, cola_actual: list
             if inf_p.get("es_mario") or inf_p.get("es_adicional"):
                 return False
             num_p = str(inf_p.get("numero") or "").strip()
-            return bool(num_p and num_p == str(num_oficial_3am))
+            tipo_p = str(inf_p.get("tipo") or "").strip().upper()
+            return bool(num_p and num_p == str(num_oficial_3am) and (not tipo_p or tipo_p == tipo_oficial_3am))
 
         import unicodedata
         def _norm_tit_cmp(texto: str) -> str:

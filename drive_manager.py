@@ -69,7 +69,11 @@ def buscar_audio_en_drive(tipo: str, numero: int) -> tuple[str | None, str | Non
     sub_id = None
     if "MENSAJE" in t:
         base = (numero // 100) * 100
-        sub_id = SERIES_MENSAJES.get(base)
+        # En series de mensajes, los números terminados en 00 (ej. 1100) están en la carpeta anterior (1000)
+        if numero % 100 == 0 and (base - 100) in SERIES_MENSAJES:
+            sub_id = SERIES_MENSAJES.get(base - 100)
+        else:
+            sub_id = SERIES_MENSAJES.get(base)
     else:
         if 1 <= numero <= 99:
             sub_id = SERIES_MEDITACIONES.get(1)

@@ -1916,10 +1916,10 @@ def obtener_info_tarea_hoy() -> dict | None:
     hoy_iso = ahora.strftime("%Y-%m-%d")
 
     try:
-        from schedule_meditaciones import obtener_numero_meditacion_fecha
-        num_oficial = obtener_numero_meditacion_fecha(ahora.date())
+        from schedule_meditaciones import obtener_tipo_y_numero_fecha
+        tipo_oficial, num_oficial = obtener_tipo_y_numero_fecha(ahora.date())
     except Exception:
-        num_oficial = 1095
+        tipo_oficial, num_oficial = "MEDITACION", 1095
 
     info_valida = None
 
@@ -1939,7 +1939,7 @@ def obtener_info_tarea_hoy() -> dict | None:
 
     # 2. Si meta_hoy.json no es de hoy, no existe o tenía un número incorrecto, usar cálculo oficial por calendario
     if not info_valida:
-        info_valida = identificar_audio_catalogo(texto=f"meditacion {num_oficial}")
+        info_valida = identificar_audio_catalogo(texto=f"{tipo_oficial.lower()} {num_oficial}")
         if info_valida:
             info_valida["fecha_tarea_admin"] = hoy_str
             info_valida["fecha_iso"] = hoy_iso

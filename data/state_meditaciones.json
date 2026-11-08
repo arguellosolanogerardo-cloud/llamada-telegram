@@ -1,8 +1,11 @@
 {
-  "fecha_actualizacion": "2026-11-04",
-  "indice": 29,
-  "numero_programado": 1081,
-  "ultimo_reproducido": 1082,
+  "fecha_actualizacion": "2026-11-07",
+  "indice": 0,
+  "tipo_programado": "MENSAJE",
+  "numero_programado": 1080,
+  "siguiente_indice": 1,
+  "siguiente_tipo": "MENSAJE",
+  "siguiente_numero": 1081,
   "override": false,
-  "descripcion": "Completada #1082 el 2026-11-04. Siguiente programada: #1081 (índice 29)"
+  "descripcion": "Calendario matemático: hoy MENSAJE #1080 (índice 0), mañana MENSAJE #1081 (índice 1)"
 }

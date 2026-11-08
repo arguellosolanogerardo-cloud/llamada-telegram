@@ -154,31 +154,20 @@ def registrar_publicacion_exitosa(fecha_iso: str = None, msg_id: int | str = Non
     return conteo
 
 # ----------------------------------------------------------------------
-#  1. Generar la sucesión completa de números según el patrón pedido:
-#     - Bloques de 10 descendentes: 1100..1091, 1090..1081, 1080..1071...
-#     - Bloques de 10 ascendentes:  21..30, 31..40, 41..50...
-#     Alternando sucesivamente hasta cubrir todas las meditaciones.
+#  1. Generar la sucesión completa según el cronograma oficial:
+#     - Fase 1 (Mensajes): Mensaje #1080 hacia arriba hasta #1113 (34 días)
+#     - Fase 2 (Meditaciones): Meditación #1081 hacia abajo (1081..1)
 # ----------------------------------------------------------------------
-def _generar_secuencia() -> list[int]:
+def _generar_secuencia() -> list[dict]:
     secuencia = []
-    top_actual = 1100
-    bottom_actual = 21
-    vistos = set()
 
-    while top_actual >= bottom_actual:
-        # Bloque descendente de 10
-        for _ in range(10):
-            if top_actual >= bottom_actual and top_actual not in vistos:
-                secuencia.append(top_actual)
-                vistos.add(top_actual)
-                top_actual -= 1
+    # 1. Fase Mensajes (ascendente 1080..1113)
+    for m in range(1080, 1114):
+        secuencia.append({"tipo": "MENSAJE", "numero": m})
 
-        # Bloque ascendente de 10
-        for _ in range(10):
-            if bottom_actual <= top_actual and bottom_actual not in vistos:
-                secuencia.append(bottom_actual)
-                vistos.add(bottom_actual)
-                bottom_actual += 1
+    # 2. Fase Meditaciones (descendente 1081..1)
+    for med in range(1081, 0, -1):
+        secuencia.append({"tipo": "MEDITACION", "numero": med})
 
     return secuencia
 
@@ -186,10 +175,10 @@ SECUENCIA = _generar_secuencia()
 
 # ----------------------------------------------------------------------
 #  Ancla Matemática Oficial del Calendario (Indestructible e Inquebrantable)
-#  Base: Lunes 12 de Octubre de 2026 -> Meditación #1095 (Índice 5 de SECUENCIA)
+#  Base: Domingo 8 de Noviembre de 2026 -> Mensaje #1080 (Índice 0 de SECUENCIA)
 # ----------------------------------------------------------------------
-FECHA_ANCLA_BASE = datetime(2026, 10, 12, tzinfo=TZ_OFFSET).date()
-INDICE_ANCLA_BASE = 5  # SECUENCIA[5] == 1095
+FECHA_ANCLA_BASE = datetime(2026, 11, 8, tzinfo=TZ_OFFSET).date()
+INDICE_ANCLA_BASE = 0  # SECUENCIA[0] == {"tipo": "MENSAJE", "numero": 1080}
 
 def obtener_indice_para_fecha(fecha=None) -> int:
     """Calcula deterministamente el índice en SECUENCIA para una fecha dada (Colombia UTC-5)."""
@@ -198,12 +187,24 @@ def obtener_indice_para_fecha(fecha=None) -> int:
     elif isinstance(fecha, datetime):
         fecha = fecha.date()
     delta = (fecha - FECHA_ANCLA_BASE).days
+    if delta < 0:
+        return 0
     return (INDICE_ANCLA_BASE + delta) % len(SECUENCIA)
 
-def obtener_numero_meditacion_fecha(fecha=None) -> int:
-    """Retorna el número oficial de meditación para una fecha dada según la secuencia matemática."""
+def obtener_item_fecha(fecha=None) -> dict:
+    """Retorna el diccionario {'tipo': ..., 'numero': ...} oficial para una fecha dada."""
     idx = obtener_indice_para_fecha(fecha)
     return SECUENCIA[idx]
+
+def obtener_tipo_y_numero_fecha(fecha=None) -> tuple[str, int]:
+    """Retorna la tupla (tipo, numero) oficial para una fecha dada."""
+    it = obtener_item_fecha(fecha)
+    return it["tipo"], it["numero"]
+
+def obtener_numero_meditacion_fecha(fecha=None) -> int:
+    """Retorna el número oficial para una fecha dada (mantiene compatibilidad retroactiva)."""
+    it = obtener_item_fecha(fecha)
+    return it["numero"]
 
 # ----------------------------------------------------------------------
 #  2. Estado de ejecución robusto con múltiples fuentes de verdad
@@ -215,7 +216,7 @@ def _obtener_ultimo_numero_desde_log() -> int | None:
     if isinstance(log, list) and log:
         ultimo = log[-1]
         num = ultimo.get("numero")
-        if isinstance(num, int) and num in SECUENCIA:
+        if isinstance(num, int) and any(it["numero"] == num for it in SECUENCIA):
             return num
     return None
 
@@ -242,23 +243,32 @@ def _obtener_ultimo_numero_desde_telegram() -> int | None:
         return None
 
 
+def _indice_de_item(tipo: str, numero: int) -> int | None:
+    """Encuentra el índice en SECUENCIA para un par (tipo, numero) dado."""
+    t_upper = tipo.upper()
+    for idx, it in enumerate(SECUENCIA):
+        if it["tipo"] == t_upper and it["numero"] == numero:
+            return idx
+    return None
+
+
 def _indice_de_numero(numero: int) -> int | None:
     """Encuentra el índice en SECUENCIA para un número dado."""
-    try:
-        return SECUENCIA.index(numero)
-    except ValueError:
-        return None
+    for idx, it in enumerate(SECUENCIA):
+        if it["numero"] == numero:
+            return idx
+    return None
 
 
 def _cargar_estado() -> dict:
-    """Carga el estado del cronograma de meditaciones de forma matemáticamente robusta.
+    """Carga el estado del cronograma de tareas de forma matemáticamente robusta.
     
     Jerarquía de resolución:
     1. Override explícito de administrador activo SOLO si coincide exactamente con la fecha de hoy.
        Si el override tiene fecha de un día anterior, se considera expirado y se elimina.
-    2. Cálculo astronómico/calendario determinista desde la fecha ancla fija (2026-10-12 -> 1095).
+    2. Cálculo determinista desde la fecha ancla fija (2026-11-08 -> Mensaje #1080).
        Garantiza que ningún reinicio de servidor en Render, despliegue o borrado de disco efímero
-       desincronice el cronograma ni repita meditaciones pasadas.
+       desincronice el cronograma ni repita tareas pasadas.
     """
     estado = _cargar_json(STATE_FILE)
     ahora = _ahora_colombia()
@@ -276,18 +286,20 @@ def _cargar_estado() -> dict:
     
     # 2. Cálculo determinista por calendario (a prueba de fallos de disco o reinicios en Render)
     idx_hoy = obtener_indice_para_fecha(ahora.date())
-    num_hoy = SECUENCIA[idx_hoy]
+    item_hoy = SECUENCIA[idx_hoy]
     idx_manana = (idx_hoy + 1) % len(SECUENCIA)
-    num_manana = SECUENCIA[idx_manana]
+    item_manana = SECUENCIA[idx_manana]
     
     estado_calculado = {
         "fecha_actualizacion": fecha_hoy_iso,
         "indice": idx_hoy,
-        "numero_programado": num_hoy,
+        "tipo_programado": item_hoy["tipo"],
+        "numero_programado": item_hoy["numero"],
         "siguiente_indice": idx_manana,
-        "siguiente_numero": num_manana,
+        "siguiente_tipo": item_manana["tipo"],
+        "siguiente_numero": item_manana["numero"],
         "override": False,
-        "descripcion": f"Calendario matemático: hoy #{num_hoy} (índice {idx_hoy}), mañana #{num_manana} (índice {idx_manana})"
+        "descripcion": f"Calendario matemático: hoy {item_hoy['tipo']} #{item_hoy['numero']} (índice {idx_hoy}), mañana {item_manana['tipo']} #{item_manana['numero']} (índice {idx_manana})"
     }
     _guardar_json(STATE_FILE, estado_calculado)
     return estado_calculado
@@ -295,16 +307,18 @@ def _cargar_estado() -> dict:
 
 def _actualizar_estado(nuevo_indice: int, override: bool = False, descripcion: str = "") -> None:
     fecha_hoy = _ahora_colombia().strftime("%Y-%m-%d")
+    item = SECUENCIA[nuevo_indice % len(SECUENCIA)]
     data = {
         "indice": nuevo_indice,
         "fecha_actualizacion": fecha_hoy,
-        "numero_programado": SECUENCIA[nuevo_indice % len(SECUENCIA)],
+        "tipo_programado": item["tipo"],
+        "numero_programado": item["numero"],
         "timestamp": _ahora_colombia().isoformat()
     }
     if override:
         data["override"] = True
         data["fecha_override"] = fecha_hoy
-        data["descripcion"] = descripcion or f"Override explícito para siguiente ejecución: #{SECUENCIA[nuevo_indice % len(SECUENCIA)]} (índice {nuevo_indice})"
+        data["descripcion"] = descripcion or f"Override explícito para siguiente ejecución: {item['tipo']} #{item['numero']} (índice {nuevo_indice})"
     _guardar_json(STATE_FILE, data)
 
 
@@ -316,6 +330,7 @@ def registrar_reproduccion_en_log_y_estado(info_cat: dict, fecha_str: str = "") 
     numero = info_cat.get("numero") if isinstance(info_cat, dict) else None
     if not numero:
         return
+    tipo = str(info_cat.get("tipo", "MEDITACION")).upper()
     
     # 1. Actualizar log
     log = _cargar_json(LOG_FILE)
@@ -323,11 +338,13 @@ def registrar_reproduccion_en_log_y_estado(info_cat: dict, fecha_str: str = "") 
         log = []
     # Deduplicar si ya existe entrada para hoy
     log = [it for it in log if not str(it.get("fecha", "")).startswith(fecha_iso)]
+    idx_actual = _indice_de_item(tipo, int(numero))
     log.append({
         "fecha": ahora.strftime("%Y-%m-%d %H:%M:%S"),
+        "tipo": tipo,
         "numero": int(numero),
-        "titulo": info_cat.get("titulo", f"Meditación #{numero}"),
-        "indice": _indice_de_numero(int(numero)),
+        "titulo": info_cat.get("titulo", f"{tipo.title()} #{numero}"),
+        "indice": idx_actual,
         "fecha_iso": fecha_iso,
     })
     if len(log) > 365:
@@ -335,19 +352,21 @@ def registrar_reproduccion_en_log_y_estado(info_cat: dict, fecha_str: str = "") 
     _guardar_json(LOG_FILE, log)
     
     # 2. Actualizar state para el día siguiente
-    idx_actual = _indice_de_numero(int(numero))
     idx_sig = (idx_actual + 1) % len(SECUENCIA) if idx_actual is not None else obtener_indice_para_fecha(ahora.date() + timedelta(days=1))
+    item_sig = SECUENCIA[idx_sig]
     
     st = {
         "fecha_actualizacion": fecha_iso,
         "indice": idx_sig,
-        "numero_programado": SECUENCIA[idx_sig],
+        "tipo_programado": item_sig["tipo"],
+        "numero_programado": item_sig["numero"],
         "ultimo_reproducido": int(numero),
+        "ultimo_tipo": tipo,
         "override": False,
-        "descripcion": f"Completada #{numero} el {fecha_iso}. Siguiente programada: #{SECUENCIA[idx_sig]} (índice {idx_sig})"
+        "descripcion": f"Completado {tipo} #{numero} el {fecha_iso}. Siguiente programado: {item_sig['tipo']} #{item_sig['numero']} (índice {idx_sig})"
     }
     _guardar_json(STATE_FILE, st)
-    print(f"✅ Registro oficial guardado: #{numero} completada, siguiente #{SECUENCIA[idx_sig]}")
+    print(f"✅ Registro oficial guardado: {tipo} #{numero} completada, siguiente {item_sig['tipo']} #{item_sig['numero']}")
 
 
 # ----------------------------------------------------------------------
@@ -383,34 +402,37 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
               f"(límite máximo permitido: {MAX_PUBLICACIONES_POR_DIA}). Omitiendo duplicado.")
         return
     
-    # ── DETERMINAR SIGUIENTE MEDITACIÓN ──
+    # ── DETERMINAR SIGUIENTE ITEM ──
     estado = _cargar_estado()
-    indice = estado.get("indice", 5)
+    indice = estado.get("indice", 0)
     if indice >= len(SECUENCIA):
         indice = 0
-    numero = SECUENCIA[indice]
+    item = SECUENCIA[indice]
+    tipo = item["tipo"]
+    numero = item["numero"]
     siguiente_indice = (indice + 1) % len(SECUENCIA)
+    item_sig = SECUENCIA[siguiente_indice]
 
-    print(f"📋 Programando meditación: índice={indice}, "
-          f"número=#{numero}, siguiente=#{SECUENCIA[siguiente_indice]} "
+    print(f"📋 Programando tarea: índice={indice}, "
+          f"{tipo} #{numero}, siguiente={item_sig['tipo']} #{item_sig['numero']} "
           f"(Publicación {conteo_hoy + 1}/{MAX_PUBLICACIONES_POR_DIA} del día)")
 
     # ── OBTENER DATOS DEL CATÁLOGO ──
     info_cat = None
     try:
         from catalogo_audios import identificar_audio_catalogo
-        info_cat = identificar_audio_catalogo(texto=f"meditacion {numero}")
+        info_cat = identificar_audio_catalogo(texto=f"{tipo.lower()} {numero}")
     except Exception as e:
         print(f"Nota: No se pudo consultar catálogo: {e}")
 
     if not info_cat:
         info_cat = {
             "numero": numero,
-            "tipo": "MEDITACION",
-            "titulo": f"Meditación #{numero}",
+            "tipo": tipo,
+            "titulo": f"{tipo.title()} #{numero}",
             "fecha": ahora.strftime("%d/%m/%y"),
             "maestro": "Alaniso",
-            "detectado_como": "MEDITACION",
+            "detectado_como": tipo,
         }
 
     # ── CAMPOS OBLIGATORIOS PARA VALIDACIÓN ESTRICTA ──
@@ -447,10 +469,10 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
         "cola": [{
             "ruta": str((MEDIT_DIR / "meditacion_hoy.mp3").resolve()),
             "info": info_cat,
-            "titulo": f"Meditación #{numero} - {info_cat.get('titulo', '')}".strip(" -")
+            "titulo": f"{tipo.title()} #{numero} - {info_cat.get('titulo', '')}".strip(" -")
         }]
     })
-    print(f"✅ meta_hoy.json y cola_hoy.json inicializados limpios: #{numero} para {fecha_hoy_display}")
+    print(f"✅ meta_hoy.json y cola_hoy.json inicializados limpios: {tipo} #{numero} para {fecha_hoy_display}")
 
     # ── AÑADIR AL LOG HISTÓRICO ──
     log = _cargar_json(LOG_FILE)
@@ -459,8 +481,9 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     log = [entry for entry in log if not str(entry.get("fecha", "")).startswith(fecha_hoy_iso)]
     log.append({
         "fecha": ahora.strftime("%Y-%m-%d %H:%M:%S"),
+        "tipo": tipo,
         "numero": numero,
-        "titulo": info_cat.get("titulo", f"Meditación #{numero}"),
+        "titulo": info_cat.get("titulo", f"{tipo.title()} #{numero}"),
         "indice": indice,
         "fecha_iso": fecha_hoy_iso,
     })
@@ -470,7 +493,7 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     _guardar_json(LOG_FILE, log)
 
     # ── PERSISTIR NUEVO ÍNDICE ──
-    _actualizar_estado(siguiente_indice, override=False, descripcion=f"Programada #{numero} para hoy. Siguiente: #{SECUENCIA[siguiente_indice]}")
+    _actualizar_estado(siguiente_indice, override=False, descripcion=f"Programado {tipo} #{numero} para hoy. Siguiente: {item_sig['tipo']} #{item_sig['numero']}")
 
     # ── SINCRONIZAR CON BOT EN RENDER ──
     try:
@@ -488,25 +511,25 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     except Exception as e_sync:
         print(f"Nota sincronizando con Render: {e_sync}")
 
-    # ── PUBLICAR EN TELEGRAM (HASTA 2 VECES MÁXIMO) ──
+    # ── PUBLICAR EN TELEGRAM (HASTA 1 VEZ MÁXIMO) ──
     try:
         from publicar_tarea import publicar_tarea_dia
-        print(f"Publicando tarea diaria #{numero} en Telegram con audio oficial y anuncio...")
-        res_pub = publicar_tarea_dia(str(numero))
+        print(f"Publicando tarea diaria {tipo} #{numero} en Telegram con audio oficial y anuncio...")
+        res_pub = publicar_tarea_dia(f"{tipo.lower()} {numero}")
         if res_pub:
             nuevo_conteo = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
-            print(f"[OK] Tarea diaria #{numero} publicada exitosamente (Publicación {nuevo_conteo}/{MAX_PUBLICACIONES_POR_DIA} de hoy).")
+            print(f"[OK] Tarea diaria {tipo} #{numero} publicada exitosamente (Publicación {nuevo_conteo}/{MAX_PUBLICACIONES_POR_DIA} de hoy).")
     except Exception as e_notif:
-        print(f"⚠️ Error al notificar meditación en el grupo: {e_notif}")
+        print(f"⚠️ Error al notificar tarea en el grupo: {e_notif}")
 
 
 # ----------------------------------------------------------------------
-#  4. Catch-up automático con límite estricto de 2 publicaciones
+#  4. Catch-up automático con límite estricto de 1 publicación
 # ----------------------------------------------------------------------
 _CATCHUP_LOCK = False
 
 def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
-    """Verifica y ejecuta la publicacion respetando el limite maximo estricto de 2 veces al dia.
+    """Verifica y ejecuta la publicacion respetando el limite maximo estricto de 1 vez al dia.
     Ventana permitida:
     - Madrugada (03:00 a 03:59 AM hora Colombia)
     - O cuando se recibe trigger externo de respaldo y aun hay 0 publicaciones realizadas hoy (hasta las 05:00 AM)
@@ -521,7 +544,9 @@ def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
         ahora = _ahora_colombia()
         fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
         fecha_hoy_display = ahora.strftime("%d/%m/%Y")
-        numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
+        item_esperado = obtener_item_fecha(ahora.date())
+        tipo_esperado = item_esperado["tipo"]
+        numero_esperado = item_esperado["numero"]
 
         conteo = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
         if conteo >= MAX_PUBLICACIONES_POR_DIA:
@@ -535,7 +560,7 @@ def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
 
         _CATCHUP_LOCK = True
         try:
-            print(f"⏰ [3AM] Disparando publicación de hoy #{numero_esperado} (intento {conteo + 1}/{MAX_PUBLICACIONES_POR_DIA})...")
+            print(f"⏰ [3AM] Disparando publicación de hoy: {tipo_esperado} #{numero_esperado} (intento {conteo + 1}/{MAX_PUBLICACIONES_POR_DIA})...")
             programar_meditacion_diaria(forzar=forzar)
             nuevo_conteo = obtener_conteo_publicaciones_hoy(fecha_hoy_iso)
             return nuevo_conteo > conteo
