@@ -104,6 +104,12 @@ async def avisar_al_dueno(client, owner_id: int, texto: str) -> None:
 
 
 async def main() -> None:
+    ahora_col = datetime.now(timezone(timedelta(hours=-5)))
+    min_col = ahora_col.hour * 60 + ahora_col.minute
+    if (19 * 60 + 20) <= min_col <= (23 * 60 + 30):
+        print("⏸️ En horario de videollamada nocturna (7:20 PM - 11:30 PM Colombia). Se omite limpieza para evitar colisión de TG_SESSION.")
+        return
+
     async with TelegramClient(StringSession(SESSION), API_ID, API_HASH) as client:
         await client.get_dialogs()
         try:

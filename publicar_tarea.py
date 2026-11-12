@@ -3,8 +3,13 @@ import sys
 import re
 import json
 import urllib.request
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+    _tz_test = ZoneInfo("America/Bogota")
+except Exception:
+    def ZoneInfo(name="America/Bogota"):
+        return timezone(timedelta(hours=-5))
 from catalogo_audios import identificar_audio_catalogo, formatear_info_audio, cargar_catalogo, identificar_todos_los_audios
 
 BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
@@ -777,7 +782,9 @@ def armar_teclado_audio(chat_id: int | str, msg_id_audio: int | str = None, bot_
 
 
 def buscar_id_audio_en_grupo(chat_id: int | str, numero: int | str = "") -> tuple[int | None, str | None]:
-    """Usa Telethon para escanear el grupo y encontrar el ID del mensaje del audio."""
+    """Usa Telethon para escanear el grupo y encontrar el ID del mensaje del audio (desactivado en Render para evitar AuthKeyDuplicatedError)."""
+    if os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"):
+        return None, None
     if not (TG_API_ID and TG_API_HASH and TG_SESSION and chat_id):
         return None, None
     try:
@@ -787,35 +794,39 @@ def buscar_id_audio_en_grupo(chat_id: int | str, numero: int | str = "") -> tupl
 
         async def _buscar():
             client = TelegramClient(StringSession(TG_SESSION), int(TG_API_ID), TG_API_HASH)
-            await client.connect()
-            if not await client.is_user_authorized():
-                await client.disconnect()
-                return None, None
+            try:
+                await client.connect()
+                if not await client.is_user_authorized():
+                    return None, None
 
-            destino = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
-            entidad = await client.get_entity(destino)
-            username = getattr(entidad, "username", None)
-            num_str = str(numero).strip()
-            msg_id_match = None
+                await client.get_dialogs(limit=100)
+                destino = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
+                entidad = await client.get_entity(destino)
+                username = getattr(entidad, "username", None)
+                num_str = str(numero).strip()
+                msg_id_match = None
 
-            async for msg in client.iter_messages(entidad, limit=40):
-                es_audio = False
-                if msg.audio or msg.voice:
-                    es_audio = True
-                elif msg.document and any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(msg.document, "attributes", [])):
-                    es_audio = True
+                async for msg in client.iter_messages(entidad, limit=40):
+                    es_audio = False
+                    if msg.audio or msg.voice:
+                        es_audio = True
+                    elif msg.document and any(getattr(a, "file_name", "").lower().endswith((".mp3", ".m4a", ".ogg", ".wav")) for a in getattr(msg.document, "attributes", [])):
+                        es_audio = True
 
-                if es_audio:
-                    texto_m = (msg.raw_text or "").upper()
-                    nombre_m = getattr(getattr(msg, "file", None), "name", "") or ""
-                    if num_str and (num_str in texto_m or num_str in nombre_m):
-                        await client.disconnect()
-                        return msg.id, username
-                    elif msg_id_match is None:
-                        msg_id_match = msg.id
+                    if es_audio:
+                        texto_m = (msg.raw_text or "").upper()
+                        nombre_m = getattr(getattr(msg, "file", None), "name", "") or ""
+                        if num_str and (num_str in texto_m or num_str in nombre_m):
+                            return msg.id, username
+                        elif msg_id_match is None:
+                            msg_id_match = msg.id
 
-            await client.disconnect()
-            return msg_id_match, username
+                return msg_id_match, username
+            finally:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
 
         return asyncio.run(_buscar())
     except Exception as e:

@@ -209,5 +209,21 @@
     "titulo": "Mensaje del 07/09/20 (Asociado a Meditación #1081)",
     "indice": 1,
     "fecha_iso": "2026-11-09"
+  },
+  {
+    "fecha": "2026-11-10 21:55:00",
+    "tipo": "MENSAJE",
+    "numero": 1082,
+    "titulo": "Mensaje del 07/10/20 (Asociado a Meditación #1082)",
+    "indice": 2,
+    "fecha_iso": "2026-11-10"
+  },
+  {
+    "fecha": "2026-11-11 21:55:00",
+    "tipo": "MENSAJE",
+    "numero": 1083,
+    "titulo": "Mensaje del 07/14/20 (Asociado a Meditación #1083)",
+    "indice": 3,
+    "fecha_iso": "2026-11-11"
   }
 ]

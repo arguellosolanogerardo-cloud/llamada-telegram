@@ -27,11 +27,31 @@ import glob
 import time
 import argparse
 import subprocess
+import shutil
+
+def _obtener_git_bin() -> str:
+    g = shutil.which("git")
+    if g:
+        return g
+    for cand in [
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files\Git\bin\git.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Git\cmd\git.exe"),
+    ]:
+        if os.path.exists(cand):
+            return cand
+    return "git"
+
+GIT_BIN = _obtener_git_bin()
 
 # Fijar siempre el directorio de trabajo a la raíz del repositorio
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 try:
     os.chdir(BASE_DIR)
+    subprocess.run([GIT_BIN, "config", "--global", "--add", "safe.directory", "*"], check=False, capture_output=True)
+    _lock_git = os.path.join(BASE_DIR, ".git", "index.lock")
+    if os.path.exists(_lock_git) and (time.time() - os.path.getmtime(_lock_git)) > 300:
+        os.remove(_lock_git)
 except Exception as e_cd:
     print(f"Nota fijando directorio de trabajo: {e_cd}")
 
@@ -129,7 +149,7 @@ def rotar_audios_limpios(prioridad_ids: list[str] = None, limite_max: int = 21) 
 
         try:
             # Retirar de Git si está rastreado, o borrar de disco
-            res_rm = subprocess.run(["git", "rm", "-f", f_viejo], capture_output=True, text=True)
+            res_rm = subprocess.run([GIT_BIN, "rm", "-f", f_viejo], capture_output=True, text=True)
             if res_rm.returncode != 0 and os.path.exists(f_viejo):
                 os.remove(f_viejo)
             eliminados.append(v_id)
@@ -145,9 +165,12 @@ def en_ventana_protegida_llamada() -> bool:
     """Verifica si la hora actual en Colombia está en la ventana de preparación/llamada (7:15 PM a 8:15 PM).
     Durante este intervalo se evitan reinicios en Render postergando el git push."""
     try:
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        ahora = datetime.now(ZoneInfo("America/Bogota"))
+        from datetime import datetime, timezone, timedelta
+        try:
+            from zoneinfo import ZoneInfo
+            ahora = datetime.now(ZoneInfo("America/Bogota"))
+        except Exception:
+            ahora = datetime.now(timezone(timedelta(hours=-5)))
         minutos = ahora.hour * 60 + ahora.minute
         return (19 * 60 + 15) <= minutos <= (20 * 60 + 15)
     except Exception:
@@ -157,7 +180,7 @@ def en_ventana_protegida_llamada() -> bool:
 def hay_commits_pendientes_push() -> bool:
     """Verifica si hay commits locales pendientes de enviar a origin/main."""
     try:
-        res = subprocess.run(["git", "log", "origin/main..HEAD", "--oneline"], capture_output=True, text=True)
+        res = subprocess.run([GIT_BIN, "log", "origin/main..HEAD", "--oneline"], capture_output=True, text=True)
         return bool(res.stdout.strip())
     except Exception:
         return False
@@ -215,7 +238,7 @@ def pre_renderizar_video_meditacion_hoy() -> list[str]:
             ruta_mp4 = os.path.join(CARP_MED, nombre_mp4)
 
             if os.path.exists(ruta_mp4) and os.path.getsize(ruta_mp4) > 50000:
-                res_st = subprocess.run(["git", "status", "--porcelain", ruta_mp4], capture_output=True, text=True)
+                res_st = subprocess.run([GIT_BIN, "status", "--porcelain", ruta_mp4], capture_output=True, text=True)
                 if res_st.stdout.strip():
                     videos_listos.append(ruta_mp4)
                 continue
@@ -361,11 +384,11 @@ def ejecutar_ciclo(args) -> bool:
     vids_hoy = pre_renderizar_video_meditacion_hoy()
     for v_h in vids_hoy:
         if os.path.exists(v_h):
-            subprocess.run(["git", "add", v_h], check=False)
+            subprocess.run([GIT_BIN, "add", v_h], check=False)
 
 
     # 5. Sincronización con GitHub si hubo descargas, registros, rotaciones o videos pre-renderizados
-    res_st_audios = subprocess.run(["git", "status", "--porcelain", CARP_MED, RUTA_AUDIOS_REG], capture_output=True, text=True)
+    res_st_audios = subprocess.run([GIT_BIN, "status", "--porcelain", CARP_MED, RUTA_AUDIOS_REG], capture_output=True, text=True)
     hay_cambios_locales = bool(res_st_audios.stdout.strip())
     hay_cambios = bool(descargados_ok or eliminados or vids_hoy or hay_cambios_locales)
 
@@ -374,11 +397,11 @@ def ejecutar_ciclo(args) -> bool:
         try:
             # Nota: centinela solo gestiona audios y catálogo; radar_vistos.json es exclusivo de radar_youtube.py
             if os.path.exists(RUTA_AUDIOS_REG):
-                subprocess.run(["git", "add", RUTA_AUDIOS_REG], check=True)
+                subprocess.run([GIT_BIN, "add", RUTA_AUDIOS_REG], check=True)
 
             for f_mp3 in glob.glob(os.path.join(CARP_MED, "yt_clean_*.mp3")):
                 if os.path.exists(f_mp3):
-                    subprocess.run(["git", "add", f_mp3], check=True)
+                    subprocess.run([GIT_BIN, "add", f_mp3], check=True)
 
             partes = []
             if descargados_ok:
@@ -391,7 +414,7 @@ def ejecutar_ciclo(args) -> bool:
                 partes.append(f"{len(vids_hoy)} video(s) pre-renderizado(s)")
             msg = f"chore(meditacion): {', '.join(partes)}"
 
-            res_c = subprocess.run(["git", "commit", "-m", msg], capture_output=True, text=True)
+            res_c = subprocess.run([GIT_BIN, "commit", "-m", msg], capture_output=True, text=True)
             if res_c.returncode == 0:
                 print("   ✅ Commit creado localmente.")
             else:
@@ -408,8 +431,8 @@ def ejecutar_ciclo(args) -> bool:
         else:
             print("\n🚀 Sincronizando repositorio con GitHub (origin/main)...")
             try:
-                subprocess.run(["git", "pull", "--rebase", "origin", "main"], check=False)
-                res_p = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
+                subprocess.run([GIT_BIN, "pull", "--rebase", "origin", "main"], check=False)
+                res_p = subprocess.run([GIT_BIN, "push", "origin", "main"], capture_output=True, text=True)
                 if res_p.returncode == 0:
                     print("   ✅ Push exitoso a GitHub. Render comenzará el despliegue con el audio listo.")
                 else:

@@ -1,6 +1,7 @@
 import asyncio
+from contextlib import asynccontextmanager
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import time
 import math
@@ -8,13 +9,22 @@ import os
 import random
 import struct
 import subprocess
+import sys
 import threading
+import traceback
 import shutil
 import tempfile
 import urllib.request
 import urllib.parse
 import wave
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+    _tz_test = ZoneInfo("America/Bogota")
+except Exception:
+    def ZoneInfo(name="America/Bogota"):
+        if "Los_Angeles" in str(name):
+            return timezone(timedelta(hours=-8))
+        return timezone(timedelta(hours=-5))
 
 from telethon import TelegramClient, events
 from telethon.errors import RPCError
@@ -62,7 +72,8 @@ try:
     from pytgcalls.types.raw import Stream, AudioStream, AudioParameters
     from ntgcalls import MediaSource
     PYTGCALLS_AVAILABLE = True
-except ImportError:
+except Exception as _e_ptg:
+    print("Nota: PyTgCalls no disponible al importar:", _e_ptg)
     PYTGCALLS_AVAILABLE = False
 
 # Credenciales obligatorias
@@ -1112,12 +1123,20 @@ def generar_texto_reglas() -> str:
 
 
 async def obtener_full_chat(client, entidad):
-    if isinstance(entidad, Channel):
-        full = await client(GetFullChannelRequest(entidad))
-        return full.full_chat
-    elif isinstance(entidad, Chat):
-        full = await client(GetFullChatRequest(entidad.id))
-        return full.full_chat
+    for intento_fc in range(1, 4):
+        try:
+            if isinstance(entidad, Channel):
+                full = await client(GetFullChannelRequest(entidad))
+                return full.full_chat
+            elif isinstance(entidad, Chat):
+                full = await client(GetFullChatRequest(entidad.id))
+                return full.full_chat
+            return None
+        except Exception as e_fc:
+            print(f"Nota en obtener_full_chat (intento {intento_fc}/3): {type(e_fc).__name__}: {e_fc}")
+            segs_fc = getattr(e_fc, "seconds", None) or (2 * intento_fc)
+            if intento_fc < 3:
+                await asyncio.sleep(min(int(segs_fc), 15))
     return None
 
 
@@ -1741,6 +1760,179 @@ def generar_texto_turnos(cola: list, oradores: list) -> str:
     return "\n".join("> " + line if line.strip() else ">" for line in lineas)
 
 
+def notificar_alerta_dueno(mensaje: str) -> None:
+    """Envía una alerta técnica directa al administrador principal (8204833441) vía Bot API."""
+    if not BOT_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    for dest_id in (8204833441,):
+        try:
+            payload = json.dumps({"chat_id": dest_id, "text": mensaje[:4000]}).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "BotLlamadaAlerta"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as _:
+                pass
+        except Exception as e_al:
+            print(f"Nota enviando alerta al dueño ({dest_id}): {e_al}")
+
+
+@asynccontextmanager
+async def _conectar_cliente_robusto():
+    """Conecta a Telegram con reintentos, sin llamar nunca a input() en entorno desatendido."""
+    if not API_ID or not API_HASH or not SESSION:
+        msg_err = (
+            "🚨 ALERTA CRÍTICA (Llamada 7:56 PM):\n"
+            f"Faltan credenciales en el entorno: "
+            f"TG_API_ID={bool(API_ID)}, TG_API_HASH={bool(API_HASH)}, TG_SESSION={bool(SESSION)}."
+        )
+        print(msg_err)
+        notificar_alerta_dueno(msg_err)
+        raise RuntimeError(msg_err)
+
+    client = None
+    ultimo_error = None
+    for intento in range(1, 6):
+        try:
+            print(f"🔌 Conectando a Telegram MTProto (intento {intento}/5)...")
+            client = TelegramClient(
+                StringSession(SESSION),
+                API_ID,
+                API_HASH,
+                connection_retries=5,
+                retry_delay=2,
+                timeout=20,
+                auto_reconnect=True,
+            )
+            await client.connect()
+            autorizado = await client.is_user_authorized()
+            if not autorizado:
+                msg_unauth = (
+                    "🚨 ALERTA CRÍTICA (Llamada 7:56 PM):\n"
+                    "La sesión TG_SESSION de Telegram NO está autorizada (fue cerrada o revocada en Ajustes > Dispositivos).\n"
+                    "Por favor ejecuta generar_sesion.py y actualiza el Secret TG_SESSION en GitHub."
+                )
+                print(msg_unauth)
+                notificar_alerta_dueno(msg_unauth)
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+                raise RuntimeError("TG_SESSION no autorizada o revocada en Telegram.")
+
+            me_check = await client.get_me()
+            if me_check is None:
+                raise RuntimeError("get_me() devolvió None tras conectar.")
+            print(f"✅ Conectado a Telegram como: {getattr(me_check, 'first_name', '')} (ID: {me_check.id})")
+            break
+        except Exception as e_conn:
+            ultimo_error = e_conn
+            nom_err = type(e_conn).__name__
+            print(f"⚠️ Error conectando en intento {intento}/5 ({nom_err}): {e_conn}")
+            if client:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+                client = None
+            if "TG_SESSION no autorizada" in str(e_conn):
+                raise
+            segs_espera = getattr(e_conn, "seconds", None) or (4 * intento)
+            if intento < 5:
+                print(f"⏳ Esperando {segs_espera}s antes de reintentar conexión...")
+                await asyncio.sleep(min(int(segs_espera), 30))
+    else:
+        msg_fail = (
+            f"🚨 ALERTA CRÍTICA (Llamada 7:56 PM):\n"
+            f"No se pudo conectar a Telegram tras 5 intentos.\n"
+            f"Último error ({type(ultimo_error).__name__}): {ultimo_error}"
+        )
+        print(msg_fail)
+        notificar_alerta_dueno(msg_fail)
+        raise RuntimeError(msg_fail) from ultimo_error
+
+    try:
+        yield client
+    finally:
+        if client:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+
+
+async def _resolver_entidad_grupo_robusta(client, grupo_raw: str):
+    """Resuelve la entidad del grupo con múltiples respaldos (get_entity, diálogos activos, archivados y PeerChannel)."""
+    try:
+        destino = int(str(grupo_raw).strip())
+    except ValueError:
+        destino = str(grupo_raw).strip()
+
+    ultimo_err = None
+    for intento in range(1, 5):
+        try:
+            try:
+                dialogs = await client.get_dialogs(limit=200)
+            except Exception as e_dlg:
+                print(f"Nota en get_dialogs(limit=200) (intento {intento}): {e_dlg}")
+                dialogs = []
+
+            try:
+                ent = await client.get_entity(destino)
+                if ent:
+                    print(f"✅ Grupo resuelto directamente: {getattr(ent, 'title', destino)} (ID: {getattr(ent, 'id', destino)})")
+                    return ent
+            except Exception as e_ge:
+                ultimo_err = e_ge
+                print(f"Nota en get_entity({destino}) directo: {type(e_ge).__name__}: {e_ge}")
+
+            if isinstance(destino, int):
+                id_str = str(abs(destino))
+                id_canal_puro = int(id_str[3:]) if id_str.startswith("100") and len(id_str) > 3 else abs(destino)
+                ids_objetivo = {destino, abs(destino), id_canal_puro, -id_canal_puro, int(f"-100{id_canal_puro}")}
+
+                for d in (dialogs or []):
+                    ent_d = getattr(d, "entity", None)
+                    if ent_d and (getattr(d, "id", None) in ids_objetivo or getattr(ent_d, "id", None) in ids_objetivo):
+                        print(f"✅ Grupo resuelto vía diálogos activos: {getattr(ent_d, 'title', destino)}")
+                        return ent_d
+
+                for folder_id in (1, 0):
+                    try:
+                        async for d in client.iter_dialogs(limit=400, folder=folder_id):
+                            ent_d = getattr(d, "entity", None)
+                            if ent_d and (getattr(d, "id", None) in ids_objetivo or getattr(ent_d, "id", None) in ids_objetivo):
+                                print(f"✅ Grupo resuelto vía iter_dialogs(folder={folder_id}): {getattr(ent_d, 'title', destino)}")
+                                return ent_d
+                    except Exception:
+                        pass
+
+                try:
+                    ent = await client.get_entity(PeerChannel(id_canal_puro))
+                    if ent:
+                        print(f"✅ Grupo resuelto vía PeerChannel({id_canal_puro}): {getattr(ent, 'title', destino)}")
+                        return ent
+                except Exception as e_pc:
+                    ultimo_err = e_pc
+        except Exception as e_loop:
+            ultimo_err = e_loop
+
+        if intento < 4:
+            await asyncio.sleep(3 * intento)
+
+    msg_err_ent = (
+        f"🚨 ALERTA CRÍTICA (Llamada 7:56 PM):\n"
+        f"No se pudo resolver el grupo ({grupo_raw}) desde la cuenta TG_SESSION.\n"
+        f"Verifica que la cuenta sea miembro y administrador del grupo.\n"
+        f"Detalle: {type(ultimo_err).__name__}: {ultimo_err}"
+    )
+    print(msg_err_ent)
+    notificar_alerta_dueno(msg_err_ent)
+    raise RuntimeError(msg_err_ent)
+
+
 async def main() -> None:
     tz_col = ZoneInfo("America/Bogota")
     inicio_llamada = datetime.now(tz_col)
@@ -1749,13 +1941,12 @@ async def main() -> None:
     fecha_hoy = inicio_llamada.strftime("%Y-%m-%d")
     fecha_ayer = (inicio_llamada - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    async with TelegramClient(StringSession(SESSION), API_ID, API_HASH) as client:
-        await client.get_dialogs()
+    async with _conectar_cliente_robusto() as client:
         try:
             destino = int(GRUPO)
         except ValueError:
             destino = GRUPO
-        entidad = await client.get_entity(destino)
+        entidad = await _resolver_entidad_grupo_robusta(client, GRUPO)
 
         # 0. Obtener IDs de Administradores
         admin_ids = set()
@@ -1941,35 +2132,95 @@ async def main() -> None:
 
         full_chat = await obtener_full_chat(client, entidad)
         if not full_chat:
-            print("No se pudo obtener información del chat.")
+            msg_nfc = "🚨 ALERTA CRÍTICA (Llamada 7:56 PM): No se pudo obtener información completa del grupo (obtener_full_chat devolvió None)."
+            print(msg_nfc)
+            notificar_alerta_dueno(msg_nfc)
+            raise RuntimeError(msg_nfc)
+
+        modo_diagnostico = ("--check-only" in sys.argv) or (
+            os.environ.get("MODO_DIAGNOSTICO", "").strip().lower() in ("1", "true", "si", "yes")
+        )
+        if modo_diagnostico:
+            tiene_call = bool(getattr(full_chat, "call", None))
+            perm_call = False
+            try:
+                if me:
+                    p_me = await client.get_permissions(entidad, me.id)
+                    perm_call = bool(
+                        getattr(p_me, "manage_call", False)
+                        or getattr(p_me, "is_creator", False)
+                        or getattr(p_me, "is_admin", False)
+                    )
+            except Exception as e_pm:
+                print(f"Nota verificando permisos en modo diagnóstico: {e_pm}")
+            resumen_diag = (
+                f"✅ DIAGNÓSTICO DE SESIÓN Y SALA EXITOSO:\n"
+                f"• Cuenta MTProto: {getattr(me, 'first_name', '')} (ID: {getattr(me, 'id', None)})\n"
+                f"• Grupo: {getattr(entidad, 'title', destino)} (ID: {getattr(entidad, 'id', destino)})\n"
+                f"• Permiso admin/llamadas: {perm_call}\n"
+                f"• Sala activa actualmente: {tiene_call}\n"
+                f"• Administradores detectados: {len(admin_ids)}"
+            )
+            print(resumen_diag)
+            print(
+                f"::notice title=DiagnosticoSesion::OK | Cuenta={getattr(me, 'first_name', '')} ({getattr(me, 'id', None)}) "
+                f"| Grupo={getattr(entidad, 'title', destino)} ({getattr(entidad, 'id', destino)}) "
+                f"| PermisoLlamadas={perm_call} | SalaActiva={tiene_call} | Admins={len(admin_ids)}"
+            )
             return
 
-        # 1. Crear o reutilizar la sala de voz
+        # 1. Crear o reutilizar la sala de voz (con hasta 4 intentos resilientes)
+        ultimo_error_call = None
         if not full_chat.call:
-            try:
-                await client(
-                    CreateGroupCallRequest(
-                        peer=entidad,
-                        random_id=random.randint(1, 2**31 - 1),
-                        title=TITULO,
+            for intento_call in range(1, 5):
+                try:
+                    await client(
+                        CreateGroupCallRequest(
+                            peer=entidad,
+                            random_id=random.randint(1, 2**31 - 1),
+                            title=TITULO,
+                        )
                     )
-                )
-                print("Chat de voz creado exitosamente.")
+                    print(f"✅ Chat de voz creado exitosamente (intento {intento_call}/4).")
+                    break
+                except RPCError as e:
+                    ultimo_error_call = e
+                    print(f"⚠️ Error creando el chat de voz (intento {intento_call}/4): {type(e).__name__}: {e}")
+                    segs_wait = getattr(e, "seconds", None) or (3 * intento_call)
+                    await asyncio.sleep(min(int(segs_wait), 20))
+                    full_chat_chk = await obtener_full_chat(client, entidad)
+                    if full_chat_chk and full_chat_chk.call:
+                        full_chat = full_chat_chk
+                        print("✅ Se detectó chat de voz activo tras verificación.")
+                        break
+                except Exception as e_gen:
+                    ultimo_error_call = e_gen
+                    print(f"⚠️ Excepción inesperada creando chat de voz (intento {intento_call}/4): {e_gen}")
+                    await asyncio.sleep(3)
+
+            for _ in range(4):
+                if full_chat and full_chat.call:
+                    break
                 await asyncio.sleep(2)
-                full_chat = await obtener_full_chat(client, entidad)
-            except RPCError as e:
-                print("Error creando el chat de voz:", type(e).__name__, e)
+                full_chat = await obtener_full_chat(client, entidad) or full_chat
         else:
             print("Ya existía un chat de voz activo en el grupo.")
+
+        if not full_chat or not full_chat.call:
+            msg_nocall = (
+                "🚨 ALERTA CRÍTICA (Llamada 7:56 PM):\n"
+                "No se pudo abrir ni detectar la sala de voz tras 4 intentos.\n"
+                f"Último error: {type(ultimo_error_call).__name__ if ultimo_error_call else 'N/A'}: {ultimo_error_call}\n"
+                "Verifica que la cuenta de TG_SESSION tenga el permiso 'Administrar chats de voz' activo en el grupo."
+            )
+            print(msg_nocall)
+            notificar_alerta_dueno(msg_nocall)
+            raise RuntimeError(msg_nocall)
 
         # Enviar aviso inicial con panel interactivo
         url_llamada = await obtener_url_llamada(client, entidad, full_chat)
         print("Enlace de llamada obtenido para el botón:", url_llamada)
         avisar_con_bot(AVISO, boton_url=url_llamada, es_efimero=False)
-
-        if not full_chat or not full_chat.call:
-            print("No hay llamada disponible para monitorear.")
-            return
 
         input_call = full_chat.call
         try:
@@ -6252,4 +6503,18 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Ejecución interrumpida manualmente.")
+    except Exception as _e_fatal:
+        _tb_str = traceback.format_exc()
+        print("🚨 ERROR FATAL EN LLAMADA.PY:\n", _tb_str)
+        _err_line = str(_e_fatal).replace("\r", " ").replace("\n", " | ")[:300]
+        print(f"::error title=ErrorFatalLlamada::{type(_e_fatal).__name__}: {_err_line}")
+        if "ALERTA CRÍTICA" not in str(_e_fatal):
+            notificar_alerta_dueno(
+                f"🚨 Error inesperado en llamada.py ({type(_e_fatal).__name__}): {_e_fatal}\n\n"
+                f"Últimas líneas del traceback:\n{_tb_str[-1200:]}"
+            )
+        sys.exit(1)

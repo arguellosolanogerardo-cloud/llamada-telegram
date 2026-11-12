@@ -96,8 +96,13 @@ import requests
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+    _tz_test = ZoneInfo("America/Bogota")
+except Exception:
+    def ZoneInfo(name="America/Bogota"):
+        return timezone(timedelta(hours=-5))
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from ia_resumen import buscar_en_minutas, obtener_minuta
@@ -836,9 +841,9 @@ def limpiar_sala_notificaciones(chat_id: int | str) -> int:
         except Exception:
             pass
 
-    # 2. Si cuenta con credenciales Telethon (TG_SESSION), realizar escaneo profundo
-    log_debug(f"Verificando Telethon: TG_SESSION={bool(TG_SESSION)}, TG_API_ID={bool(TG_API_ID)}, TG_API_HASH={bool(TG_API_HASH)}")
-    if TG_SESSION and TG_API_ID and TG_API_HASH:
+    # 2. Evitar usar TG_SESSION directamente en Render para prevenir AuthKeyDuplicatedError con GitHub Actions
+    en_render = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
+    if TG_SESSION and TG_API_ID and TG_API_HASH and not en_render:
         try:
             from telethon import TelegramClient
             from telethon.sessions import StringSession
