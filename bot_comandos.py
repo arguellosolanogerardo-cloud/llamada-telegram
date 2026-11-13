@@ -2601,6 +2601,43 @@ def responder_consulta_biblioteca(chat_id: int | str, texto: str, msg_id_reply: 
     return True
 
 
+_PATRON_SOLICITUD_AUDIO = re.compile(
+    r"\b(?:AUDIO\s+(?:DE(?:L)?\s+(?:LA\s+|EL\s+)?)?)?(MEDITACI[OÓ]N|MENSAJE|AUDIO)\s*(?:DE(?:L)?\s*)?(?:N[°O.]?|N[UÚ]MERO|NUMERO|#)?\s*#?(\d{1,4})\b",
+    re.IGNORECASE,
+)
+
+_PATRON_VERBOS_SOLICITUD_AUDIO = re.compile(
+    r"\b(?:TIENES?|TIENEN|HAY|P[AÁ]SAME|PASAS?|COMPARTE[SN]?|COMPARTIR|QUIERO|QUISIERA|"
+    r"ENV[IÍ]AME|ENV[IÍ]A|M[AÁ]NDAME|MANDA|AUDIO\s+DEL?|BUSC(?:A|AR)|REG[AÁ]LAME|"
+    r"ME\s+DAS|ME\s+PASAS|QUI[EÉ]N\s+TIENE|ALGUIEN\s+TIENE|POR\s+FAVOR|DESCARGAR|"
+    r"SUBIR|D[OÓ]NDE\s+EST[AÁ]|DISPONIBLE)\b",
+    re.IGNORECASE,
+)
+
+
+def extraer_solicitud_audio(texto: str) -> dict | None:
+    """
+    Extrae el tipo ('MENSAJE' o 'MEDITACION') y número si el texto contiene una
+    referencia explícita y adyacente (ej. 'mensaje 6', 'meditación #21', 'audio del mensaje 989').
+    Evita falsos positivos cuando 'mensaje' y un número aparecen separados en frases distintas.
+    """
+    if not texto:
+        return None
+    m = _PATRON_SOLICITUD_AUDIO.search(texto)
+    if not m:
+        return None
+    palabra = m.group(1).upper()
+    num_req = int(m.group(2))
+    tipo_req = "MENSAJE" if "MENSAJE" in palabra else "MEDITACION"
+    return {
+        "numero": num_req,
+        "tipo": tipo_req,
+        "titulo": f"{tipo_req.title()} #{num_req}",
+        "maestro": "Comunidad",
+        "fecha": "",
+    }
+
+
 def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
     """
     Detecta si un mensaje es una pregunta o petición de un audio del catálogo (meditación o mensaje).
@@ -2619,31 +2656,19 @@ def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
     if any(k in t_up for k in ["TAREA PARA MAÑANA", "TAREA PARA MANANA", "MEDITACION DE TAREA", "MENSAJE DE TAREA", "TAREA DE MEDITACION", "TAREA DE MENSAJE"]):
         return False
 
-    tiene_palabra_audio = any(w in t_up for w in ["MEDITACION", "MEDITACIÓN", "MENSAJE", "AUDIO"])
-    tiene_numero = bool(re.search(r"\b\d{1,4}\b", t_up))
-
-    if not (tiene_palabra_audio and tiene_numero):
+    # Exigir referencia explícita y adyacente entre palabra clave y número
+    if not _PATRON_SOLICITUD_AUDIO.search(texto):
         return False
 
-    # En chat privado (chat_id > 0), cualquier mención de meditación/mensaje con número es para el bot
+    # En chat privado (chat_id > 0), cualquier mención explícita de meditación/mensaje/audio con número es para el bot
     if int(chat_id) > 0:
         return True
 
-    # En grupos (chat_id < 0), verificar que sea una pregunta o petición
-    verbos = [
-        "TIENES", "TIENE", "TIENEN", "HAY", "PASAME", "PASA", "PASAS",
-        "COMPARTE", "COMPARTIR", "QUIERO", "QUISIERA", "ENVIAME", "ENVIA",
-        "MANDAME", "MANDA", "AUDIO DE", "AUDIO DEL", "BUSCA", "BUSCAR",
-        "REGALAME", "ME DAS", "ME PASAS", "QUIEN TIENE", "ALGUIEN TIENE",
-        "POR FAVOR", "DESCARGAR", "SUBIR", "DONDE ESTA", "¿TIENES", "¿HAY",
-        "DISPONIBLE", "COMPARTEN"
-    ]
-    if any(v in t_up for v in verbos):
+    # En grupos (chat_id < 0), verificar que sea una pregunta o petición con palabra completa
+    if _PATRON_VERBOS_SOLICITUD_AUDIO.search(texto):
         return True
 
-    if re.match(r"^(?:AUDIO\s+)?(?:MEDITACI[OÓ]N|MENSAJE)\s+#?\d{1,4}", t_up.strip()):
-        return True
-    if re.match(r"^AUDIO\s+#?\d{1,4}", t_up.strip()):
+    if re.match(r"^(?:AUDIO\s+)?(?:MEDITACI[OÓ]N|MENSAJE|AUDIO)\s*#?\d{1,4}\b", t_up.strip()):
         return True
 
     return False
@@ -3509,11 +3534,7 @@ def escuchar_comandos() -> None:
                         if es_solicitud_de_audio(texto_priv, chat_id_priv) or any(w in t_priv_up for w in ["AUDIO", "MEDITACION", "MEDITACIÓN", "MENSAJE"]):
                             info_cat_priv = identificar_audio_catalogo(texto=texto_priv)
                             if not info_cat_priv:
-                                m_num_priv = re.search(r"\b(\d{1,4})\b", texto_priv)
-                                if m_num_priv:
-                                    t_req_priv = "MENSAJE" if "MENSAJE" in t_priv_up else "MEDITACION"
-                                    n_req_priv = int(m_num_priv.group(1))
-                                    info_cat_priv = {"numero": n_req_priv, "tipo": t_req_priv, "titulo": f"{t_req_priv.title()} #{n_req_priv}", "maestro": "Comunidad", "fecha": ""}
+                                info_cat_priv = extraer_solicitud_audio(texto_priv)
                             if info_cat_priv:
                                 entregar_audio_meditacion(chat_id_priv, info_cat_priv, msg_id_reply=msg_id_priv, user_id_privado=chat_id_priv)
                                 continue
@@ -3791,11 +3812,7 @@ def escuchar_comandos() -> None:
                 if not es_tarea_declarada and not audio_obj and es_solicitud_de_audio(texto, chat_id):
                     info_cat = identificar_audio_catalogo(texto=texto)
                     if not info_cat:
-                        m_num = re.search(r"\b(\d{1,4})\b", texto)
-                        if m_num:
-                            tipo_req = "MENSAJE" if "MENSAJE" in texto_upper else "MEDITACION"
-                            num_req = int(m_num.group(1))
-                            info_cat = {"numero": num_req, "tipo": tipo_req, "titulo": f"{tipo_req.title()} #{num_req}", "maestro": "Comunidad", "fecha": ""}
+                        info_cat = extraer_solicitud_audio(texto)
                     if info_cat:
                         entregar_audio_meditacion(chat_id, info_cat, msg_id_reply=msg_id, user_id_privado=user_id)
                         continue
