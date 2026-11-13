@@ -253,14 +253,21 @@ def identificar_todos_los_audios(texto: str = "", nombre_archivo: str = "") -> l
     return encontrados
 
 
-def formatear_cola_audios(cola: list[dict], indice_actual: int = 0, reproduciendo: bool = False) -> str:
+def formatear_cola_audios(
+    cola: list[dict],
+    indice_actual: int = 0,
+    reproduciendo: bool = False,
+    pistas_completadas: set[int] | list[int] | None = None
+) -> str:
     """Genera una tarjeta elegante para Telegram mostrando la lista de audios programados."""
     if not cola:
         return "ℹ️ No hay audios en la lista de reproducción programada para hoy."
 
-    total = len(cola)
-    lineas = [f"📋 **LISTA DE REPRODUCCIÓN ({total} audio{'s' if total > 1 else ''}):**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    completadas = set(pistas_completadas) if pistas_completadas else set()
     emojis_num = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+    pendientes = []
+    finalizados = []
 
     for idx, item in enumerate(cola):
         info = item.get("info") or {}
@@ -272,30 +279,42 @@ def formatear_cola_audios(cola: list[dict], indice_actual: int = 0, reproduciend
         espera_min = item.get("espera_post_meditacion_min") or info.get("espera_post_meditacion_min") or (30 if (idx > 0 or es_mario) else 0)
         icono_tipo = "🧘" if (tipo == "MEDITACION" or es_mario) else "📜"
 
-        pref_num = emojis_num[idx] if idx < len(emojis_num) else f"[{idx+1}]"
+        esta_fin = bool(item.get("finalizado") or item.get("completado") or (idx in completadas))
 
-        estado_pista = ""
-        if reproduciendo:
-            if idx == indice_actual:
-                estado_pista = " ▶️ *(Reproduciendo ahora)*"
-            elif idx < indice_actual:
-                estado_pista = " ✅ *(Finalizado)*"
-            else:
-                if espera_min:
-                    estado_pista = f" ⏳ *(En cola: sonará {espera_min} min después de terminar la 1.ª reproducción)*"
-                else:
-                    estado_pista = " ⏳ *(En espera)*"
-        elif idx > 0 and espera_min:
-            estado_pista = f" ⏳ *(Encolado: se reproducirá {espera_min} min después de terminar la 1.ª reproducción)*"
-
-        if es_mario:
-            lineas.append(
-                f"{pref_num} {icono_tipo} **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN:** *«{titulo}»*{estado_pista}\n"
-                f"   🎙️ Maestro: {maestro}"
-            )
-        else:
+        if esta_fin:
             num_txt = f" #{num}" if num else ""
-            lineas.append(f"{pref_num} {icono_tipo} **{tipo.capitalize()}{num_txt}:** *«{titulo}»*{estado_pista}\n   🎙️ Maestro: {maestro}")
+            finalizados.append(f"• {icono_tipo} **{tipo.capitalize()}{num_txt}:** *«{titulo}»* ✅ *(Finalizado)*")
+        else:
+            estado_pista = ""
+            if reproduciendo and idx == indice_actual:
+                estado_pista = " ▶️ *(Reproduciendo ahora)*"
+            elif idx == indice_actual:
+                estado_pista = " ⏳ *(Siguiente a reproducir)*"
+            elif espera_min:
+                estado_pista = f" ⏳ *(En cola: espera de {espera_min} min)*"
+            else:
+                estado_pista = " ⏳ *(En cola)*"
+
+            pref_num = emojis_num[len(pendientes)] if len(pendientes) < len(emojis_num) else f"[{len(pendientes)+1}]"
+            if es_mario:
+                pendientes.append(
+                    f"{pref_num} {icono_tipo} **MENSAJE DEL MAESTRO JESUS MARIO CARRILLO DURAN:** *«{titulo}»*{estado_pista}\n"
+                    f"   🎙️ Maestro: {maestro}"
+                )
+            else:
+                num_txt = f" #{num}" if num else ""
+                pendientes.append(f"{pref_num} {icono_tipo} **{tipo.capitalize()}{num_txt}:** *«{titulo}»*{estado_pista}\n   🎙️ Maestro: {maestro}")
+
+    lineas = []
+    if pendientes:
+        total_p = len(pendientes)
+        lineas.append(f"📋 **AUDIOS PENDIENTES EN COLA ({total_p}):**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lineas.extend(pendientes)
+    else:
+        lineas.append("📋 **LISTA DE REPRODUCCIÓN:**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✨ *No hay audios pendientes por reproducir en la sala.*")
+
+    if finalizados:
+        lineas.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ **AUDIOS YA REPRODUCIDOS HOY:**\n" + "\n".join(finalizados))
 
     return "\n\n".join(lineas)
 

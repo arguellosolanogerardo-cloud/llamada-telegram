@@ -7,8 +7,13 @@ import html
 import threading
 import sys
 import subprocess
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone, timedelta
+try:
+    from zoneinfo import ZoneInfo
+    _tz_test = ZoneInfo("America/Bogota")
+except Exception:
+    def ZoneInfo(name="America/Bogota"):
+        return timezone(timedelta(hours=-5))
 
 if hasattr(sys.stdout, "reconfigure"):
     try:

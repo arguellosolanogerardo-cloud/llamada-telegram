@@ -9,7 +9,12 @@ import os
 import random
 import datetime
 import threading
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+    _tz_test = ZoneInfo("America/Bogota")
+except Exception:
+    def ZoneInfo(name="America/Bogota"):
+        return datetime.timezone(datetime.timedelta(hours=-5))
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 _lock_video = threading.Lock()

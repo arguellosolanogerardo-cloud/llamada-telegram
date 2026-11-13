@@ -2888,6 +2888,10 @@ async def main() -> None:
             if reproduciendo_meditacion and indice_pista_actual == p_idx and mi_token == token_reproduccion:
                 print(f"⏰ Watchdog: Tiempo cumplido para pista {p_idx + 1} ({dur_s:.1f}s). Finalizando automáticamente...")
                 pistas_completadas.add(p_idx)
+                if cola_reproduccion and p_idx < len(cola_reproduccion):
+                    cola_reproduccion[p_idx]["finalizado"] = True
+                    cola_reproduccion[p_idx]["completado"] = True
+                    guardar_cola_hoy(cola_reproduccion)
                 if tarea_panel_progreso and not tarea_panel_progreso.done():
                     tarea_panel_progreso.cancel()
                 if msg_panel_meditacion_id:
@@ -3205,7 +3209,7 @@ async def main() -> None:
                                 "info": info_catalogo_hoy,
                                 "titulo": (info_catalogo_hoy or {}).get("titulo", "Meditación")
                             })
-                        txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
+                        txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion, pistas_completadas)
                         avisar_con_bot(txt_cola, es_efimero=True)
                     elif cq_data == "panel_nextturno":
                         if not cola_turnos:
@@ -4249,7 +4253,7 @@ async def main() -> None:
                         pistas_completadas.discard(indice_pista_actual)
                 else:
                     # Avanzar automáticamente cualquier pista que ya haya terminado hoy
-                    while indice_pista_actual in pistas_completadas and indice_pista_actual + 1 < len(cola_reproduccion):
+                    while (indice_pista_actual in pistas_completadas or (cola_reproduccion and cola_reproduccion[indice_pista_actual].get("finalizado"))) and indice_pista_actual + 1 < len(cola_reproduccion):
                         indice_pista_actual += 1
                     if cola_reproduccion and indice_pista_actual >= len(cola_reproduccion):
                         indice_pista_actual = len(cola_reproduccion) - 1
@@ -4720,7 +4724,7 @@ async def main() -> None:
                     await sincronizar_cola_con_render_y_grupo(client, entidad, cola_reproduccion)
                 except Exception as e_sync_c:
                     print("Nota sincronizando cola en /cola:", e_sync_c)
-                txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion)
+                txt_cola = formatear_cola_audios(cola_reproduccion, indice_pista_actual, reproduciendo_meditacion, pistas_completadas)
                 txt_ayuda = "\n\n💡 *Comandos disponibles:*\n• `/quitar <número/posición>` — Quitar un audio de la cola (ej: `/quitar 2`)\n• `/encolar <número/nombre>` — Añadir audio a la cola\n• `/limpiarcola` — Vaciar la cola completa\n• `/saltaraudio` — Saltar a la siguiente pista"
                 await resp_q(txt_cola + txt_ayuda)
 
@@ -4855,7 +4859,9 @@ async def main() -> None:
                         asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_reproduccion)))
                         if MEJORA_AUDIO:
                             asyncio.create_task(preparar_audio_eq(r_dest))
-                        await resp_q(f"▶️ **Audio añadido a la cola de reproducción:** «{item_c['titulo']}»\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (se reproducirá 30 min después de terminar la 1.ª reproducción).")
+                        oficial_ya_fin = bool((0 in pistas_completadas) or (cola_reproduccion and cola_reproduccion[0].get("finalizado")))
+                        nota_cola = " (La tarea oficial ya finalizó. Este audio queda listo como el siguiente a reproducirse)." if oficial_ya_fin else " (se reproducirá 30 min después de terminar la 1.ª reproducción)."
+                        await resp_q(f"▶️ **Audio añadido a la cola de reproducción:** «{item_c['titulo']}»\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas**{nota_cola}")
                         await actualizar_panel_progreso(forzar=True)
                         return
 
@@ -4919,7 +4925,9 @@ async def main() -> None:
                     asyncio.create_task(asyncio.to_thread(pre_generar_caratulas_cola, list(cola_reproduccion)))
                     txt_anadidos = "\n".join(f"• **{x.get('tipo', 'Audio').capitalize()} #{x.get('numero')}:** «{x.get('titulo', '')}»" for x in anadidos)
                     str_h = f" ⏰ **Programado para:** {m_hora.group(0)}" if m_hora else ""
-                    await resp_q(f"▶️ **Pistas añadidas a la cola de reproducción:**\n{txt_anadidos}{str_h}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas** (la Meditación Oficial de las 3:00 AM se mantiene de #1).")
+                    oficial_ya_fin = bool((0 in pistas_completadas) or (cola_reproduccion and cola_reproduccion[0].get("finalizado")))
+                    nota_cola = " (La tarea oficial de hoy ya finalizó. Este audio queda listo como el siguiente a reproducirse)." if oficial_ya_fin else " (la Meditación Oficial de las 3:00 AM se mantiene de #1)."
+                    await resp_q(f"▶️ **Pistas añadidas a la cola de reproducción:**\n{txt_anadidos}{str_h}\n\n📋 Total en cola: **{len(cola_reproduccion)} pistas**{nota_cola}")
                     await actualizar_panel_progreso(forzar=True)
                 else:
                     await resp_q("⚠️ No se pudieron descargar los audios correspondientes desde Google Drive.")
