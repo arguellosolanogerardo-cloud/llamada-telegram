@@ -29,6 +29,10 @@ SERIES_MEDITACIONES = {
     1000: "1IxObmFk8EJJgHxVIG5a-Euv6yT7nC9SF",
 }
 
+ARCHIVOS_DRIVE_FIJOS = {
+    "MEDITACION_1110": ("1TaAHUHINpj9Ml3cWrbpS1odPr506swAl", "1110 - El Padre nos dice.mp3"),
+}
+
 
 def cargar_cache_drive() -> dict:
     if os.path.exists(RUTA_CACHE_DRIVE):
@@ -65,6 +69,8 @@ def buscar_audio_en_drive(tipo: str, numero: int) -> tuple[str | None, str | Non
     if clave_cache in cache:
         item = cache[clave_cache]
         return item.get("drive_id"), item.get("nombre_archivo")
+    if clave_cache in ARCHIVOS_DRIVE_FIJOS:
+        return ARCHIVOS_DRIVE_FIJOS[clave_cache]
 
     sub_id = None
     if "MENSAJE" in t:
@@ -80,6 +86,10 @@ def buscar_audio_en_drive(tipo: str, numero: int) -> tuple[str | None, str | Non
         else:
             base = (numero // 100) * 100
             sub_id = SERIES_MEDITACIONES.get(base)
+            if not sub_id:
+                claves_menores = [k for k in SERIES_MEDITACIONES if k <= numero]
+                if claves_menores:
+                    sub_id = SERIES_MEDITACIONES.get(max(claves_menores))
 
     if not sub_id:
         return None, None
