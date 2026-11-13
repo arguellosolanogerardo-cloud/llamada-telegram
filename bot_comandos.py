@@ -2607,11 +2607,12 @@ _PATRON_SOLICITUD_AUDIO = re.compile(
 )
 
 _PATRON_VERBOS_SOLICITUD_AUDIO = re.compile(
-    r"\b(?:TIENES?|TIENEN|HAY|P[AÁ]SAME|PASAS?|COMPARTE[SN]?|COMPARTIR|QUIERO|QUISIERA|"
-    r"ENV[IÍ]AME|ENV[IÍ]A|M[AÁ]NDAME|MANDA|AUDIO\s+DEL?|BUSC(?:A|AR)|REG[AÁ]LAME|"
-    r"ME\s+DAS|ME\s+PASAS|QUI[EÉ]N\s+TIENE|ALGUIEN\s+TIENE|POR\s+FAVOR|DESCARGAR|"
-    r"SUBIR|D[OÓ]NDE\s+EST[AÁ]|DISPONIBLE)\b",
-    re.IGNORECASE,
+    r"\b(?:TIENES?|TIENEN|P[AÁ]SAME|PASAS?|COMPARTE[SN]?|COMPARTIR|QUIERO|QUISIERA|"
+    r"ENV[IÍ]AME|ENV[IÍ]A|M[AÁ]NDAME|MANDA|BUSC(?:A|AR)|REG[AÁ]LAME|"
+    r"ME\s+DAS|ME\s+PASAS|QUI[EÉ]N\s+TIENE|ALGUIEN\s+TIENE|DESCARGAR|"
+    r"SUBIR|D[OÓ]NDE\s+EST[AÁ]|¿\s*HAY)\b.{0,25}?"
+    r"\b(?:AUDIO\s+(?:DE(?:L)?\s+(?:LA\s+|EL\s+)?)?)?(?:MEDITACI[OÓ]N|MENSAJE|AUDIO)\s*(?:DE(?:L)?\s*)?(?:N[°O.]?|N[UÚ]MERO|NUMERO|#)?\s*#?\d{1,4}\b",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -2668,7 +2669,7 @@ def es_solicitud_de_audio(texto: str, chat_id: int | str) -> bool:
     if _PATRON_VERBOS_SOLICITUD_AUDIO.search(texto):
         return True
 
-    if re.match(r"^(?:AUDIO\s+)?(?:MEDITACI[OÓ]N|MENSAJE|AUDIO)\s*#?\d{1,4}\b", t_up.strip()):
+    if re.match(r"^(?:AUDIO\s+(?:DE(?:L)?\s+(?:LA\s+|EL\s+)?)?)?(?:MEDITACI[OÓ]N|MENSAJE|AUDIO)\s*#?\d{1,4}\b", t_up.strip()):
         return True
 
     return False
