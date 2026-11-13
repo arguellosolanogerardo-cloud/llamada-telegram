@@ -38,7 +38,7 @@ def _limpiar_fechas_horas_duraciones(texto: str) -> str:
         return ""
     t = re.sub(r"\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b", " ", texto)
     t = re.sub(r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?\b", " ", t, flags=re.IGNORECASE)
-    t = re.sub(r"\b\d+\s*(?:min|minuto|minutos|seg|segundo|segundos|hora|horas|d[ií]a|d[ií]as|%|pts|puntos)\b", " ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\b\d+[ \t]*(?:min|minuto|minutos|seg|segundo|segundos|hora|horas|d[ií]a|d[ií]as|%|pts|puntos)\b", " ", t, flags=re.IGNORECASE)
     return t
 
 
