@@ -2271,7 +2271,7 @@ async def main() -> None:
         segundos_inactividad_mic = {}  # uid -> segundos con mic abierto y sin voz
         avisados_auto_mute = set()  # uids notificados cordialmente
         msg_turnos = None  # Mensaje en vivo con la cola de turnos
-        lista_turnos_activa = True  # Permite activar/desactivar el cartel de LISTA DE TURNOS EN VIVO a conveniencia
+        lista_turnos_activa = False  # Inicia por defecto desactivado; se activa a conveniencia con /activarturnos
         lock_turnos = asyncio.Lock()
         mensajes_chat_recientes = 0
         ultimo_envio_turnos = 0
@@ -2372,12 +2372,15 @@ async def main() -> None:
         except Exception as e:
             print("Nota fijando mensaje de estado:", e)
 
-        # Publicar mensaje de lista de turnos en vivo en el grupo
-        try:
-            msg_turnos = await client.send_message(entidad, generar_texto_turnos(cola_turnos, []))
-            print("Mensaje de turnos en vivo publicado en el grupo.")
-        except Exception as e:
-            print("Nota publicando mensaje de turnos:", e)
+        # Publicar mensaje de lista de turnos en vivo en el grupo solo si inicia activa
+        if lista_turnos_activa:
+            try:
+                msg_turnos = await client.send_message(entidad, generar_texto_turnos(cola_turnos, []))
+                print("Mensaje de turnos en vivo publicado en el grupo.")
+            except Exception as e:
+                print("Nota publicando mensaje de turnos:", e)
+        else:
+            print("ℹ️ Módulo de turnos iniciado en reposo (desactivado por defecto). Usa /activarturnos para encenderlo.")
 
         # Rutas y control para grabación selectiva de voz (excluyendo meditación)
         os.makedirs(CARPETA_ASISTENCIAS, exist_ok=True)
@@ -4115,6 +4118,9 @@ async def main() -> None:
                 else:
                     await responder("🧘 Aún no hay un archivo de meditación disponible para hoy. Consulta más tarde.")
             elif texto_cmd in ("/turno", "/pedirturno", "/mano"):
+                if not lista_turnos_activa:
+                    await responder("ℹ️ El sistema de lista de turnos no está activo en este momento. Puedes abrir tu micrófono y participar libremente cuando haya espacio.")
+                    return
                 if uid in admin_ids:
                     await responder("👑 Como administrador puedes hablar libremente cuando gustes.")
                     return
@@ -4141,6 +4147,9 @@ async def main() -> None:
                 else:
                     await responder("⏳ No tenías turno en espera ni micrófono activo.")
             elif texto_cmd in ("/turnos",):
+                if not lista_turnos_activa:
+                    await responder("ℹ️ El módulo de turnos está desactivado actualmente. Un administrador puede activarlo con `/activarturnos`.")
+                    return
                 await actualizar_mensaje_turnos(forzar_al_fondo=True)
             elif texto_cmd in ("/buscar",):
                 query = " ".join(partes[1:]) if len(partes) > 1 else ""
@@ -5692,10 +5701,10 @@ async def main() -> None:
 
                 # Detección de mano levantada nativa en Telegram (✋ raise_hand_rating != 0)
                 raise_hand = getattr(p, "raise_hand_rating", 0)
-                if raise_hand and uid not in admin_ids:
+                if raise_hand and uid not in admin_ids and lista_turnos_activa:
                     if not any(t["id"] == uid for t in cola_turnos) and uid not in oradores_activos:
                         cola_turnos.append({"id": uid, "nombre": nombre, "username": username})
-                        print(f"⏳ la mano en Telegram y fue añadido a la lista de turnos.")
+                        print(f"⏳ {nombre} levantó la mano en Telegram y fue añadido a la lista de turnos.")
                         hubo_cambio_turnos = True
 
                 # Moderación de micrófonos en vivo: clasificación de administradores por MÚLTIPLES señales
