@@ -726,5 +726,24 @@
     "titulo": "🚩MEDITACION 998🟢EL PADRE NO CASTIGA EL ES AMOR💕05/23/19💥 MAESTRO AVIATAR💖",
     "fuente": "YOUTUBE",
     "file_id": null
+  },
+  "YT_Ovq_Ok_8yc0": {
+    "numero": "",
+    "tipo": "MENSAJE",
+    "titulo": "Quien isisio la división en los grupos",
+    "maestro": "JESUS MARIO CARRILLO DURAN",
+    "fecha": "14/11/2026",
+    "fecha_tarea_admin": "14/11/2026",
+    "url_youtube": "https://www.youtube.com/watch?v=Ovq_Ok_8yc0",
+    "video_id": "Ovq_Ok_8yc0",
+    "fuente": "YOUTUBE",
+    "canal": "Maestro Mario Carrillo",
+    "es_mario": true,
+    "es_adicional": true,
+    "espera_post_meditacion_min": 30,
+    "audio_path": "E:\\DEVELOPER\\AI\\FACTORY SOFTWARE\\TESTING\\bot_llamadas_telegram\\data\\meditaciones\\meditacion_hoy_2_Ovq_Ok_8yc0.mp3",
+    "admin_override": true,
+    "file_id": "file_id_test",
+    "msg_id_audio": 67890
   }
 }
