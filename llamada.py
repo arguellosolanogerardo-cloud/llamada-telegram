@@ -2937,6 +2937,15 @@ async def main() -> None:
                     if espera_min > 0:
                         reproduciendo_meditacion = False
                         await desbloquear_todos_los_participantes()
+                        try:
+                            maestro_wd = (inf_wd.get("maestro") if isinstance(inf_wd, dict) else None) or "Alaniso"
+                            if es_msg_wd:
+                                ref_voz = f"del mensaje {num_wd}" if num_wd else "del mensaje"
+                            else:
+                                ref_voz = f"de la meditación {num_wd}" if num_wd else "de la meditación"
+                            await emitir_anuncio_tts(f"Ya pueden iniciar a compartir lo que entendieron {ref_voz} del maestro {maestro_wd}. GRACIAS.")
+                        except Exception as e_tts_fin:
+                            print("Nota emitiendo anuncio TTS de cierre:", e_tts_fin)
                         if not grabacion_cancelada and not grabacion_pausada:
                             if ruta_grabacion_post not in segmentos_grabados:
                                 segmentos_grabados.append(ruta_grabacion_post)
@@ -2969,6 +2978,22 @@ async def main() -> None:
                     reproduciendo_meditacion = False
                     print("Watchdog: Sesión de meditación/mensaje concluida exitosamente.")
                     await desbloquear_todos_los_participantes()
+                    try:
+                        inf_fin = (cola_reproduccion[p_idx].get("info") if (cola_reproduccion and p_idx < len(cola_reproduccion)) else (info_catalogo_hoy or {})) or {}
+                        num_fin = inf_fin.get("numero", "")
+                        tit_fin = inf_fin.get("titulo", "")
+                        tipo_fin = str(inf_fin.get("tipo", "MEDITACION")).strip().upper()
+                        if (not tipo_fin or tipo_fin == "MEDITACION") and "MENSAJE" in str(tit_fin).upper():
+                            tipo_fin = "MENSAJE"
+                        es_msg_fin = "MENSAJE" in tipo_fin
+                        maestro_fin = inf_fin.get("maestro") or "Alaniso"
+                        if es_msg_fin:
+                            ref_voz = f"del mensaje {num_fin}" if num_fin else "del mensaje"
+                        else:
+                            ref_voz = f"de la meditación {num_fin}" if num_fin else "de la meditación"
+                        await emitir_anuncio_tts(f"Ya pueden iniciar a compartir lo que entendieron {ref_voz} del maestro {maestro_fin}. GRACIAS.")
+                    except Exception as e_tts_fin:
+                        print("Nota emitiendo anuncio TTS de cierre:", e_tts_fin)
                     avisar_con_bot("🧘 **Sesión finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
                     if not grabacion_cancelada and not grabacion_pausada:
                         if ruta_grabacion_post not in segmentos_grabados:
@@ -3731,9 +3756,9 @@ async def main() -> None:
             # 1. Intentar edge-tts con timeout corto (si Microsoft no bloquea con 403)
             try:
                 import edge_tts
-                voz_toby = os.getenv("VOZ_TOBY", "es-PE-AlexNeural")
-                pitch_toby = os.getenv("VOZ_TOBY_PITCH", "+0Hz")
-                rate_toby = os.getenv("VOZ_TOBY_RATE", "-3%")
+                voz_toby = os.getenv("VOZ_TOBY", "es-PE-CamilaNeural")
+                pitch_toby = os.getenv("VOZ_TOBY_PITCH", "-3Hz")
+                rate_toby = os.getenv("VOZ_TOBY_RATE", "-20%")
                 com = edge_tts.Communicate(texto, voz_toby, pitch=pitch_toby, rate=rate_toby)
                 await asyncio.wait_for(com.save(ruta_salida), timeout=4.0)
                 if os.path.exists(ruta_salida) and os.path.getsize(ruta_salida) > 1000:
