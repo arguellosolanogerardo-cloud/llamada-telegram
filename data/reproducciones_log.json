@@ -257,5 +257,13 @@
     "titulo": "Mensaje del 08/07/20 (Asociado a Meditación #1087)",
     "indice": 7,
     "fecha_iso": "2026-11-15"
+  },
+  {
+    "fecha": "2026-11-16 21:43:34",
+    "tipo": "MENSAJE",
+    "numero": 1088,
+    "titulo": "Mensaje del 08/09/20 (Asociado a Meditación #1088)",
+    "indice": 8,
+    "fecha_iso": "2026-11-16"
   }
 ]
