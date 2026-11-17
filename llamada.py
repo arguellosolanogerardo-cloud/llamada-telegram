@@ -2937,15 +2937,7 @@ async def main() -> None:
                     if espera_min > 0:
                         reproduciendo_meditacion = False
                         await desbloquear_todos_los_participantes()
-                        try:
-                            maestro_wd = (inf_wd.get("maestro") if isinstance(inf_wd, dict) else None) or "Alaniso"
-                            if es_msg_wd:
-                                ref_voz = f"del mensaje {num_wd}" if num_wd else "del mensaje"
-                            else:
-                                ref_voz = f"de la meditación {num_wd}" if num_wd else "de la meditación"
-                            await emitir_anuncio_tts(f"Ya pueden iniciar a compartir lo que entendieron {ref_voz} del maestro {maestro_wd}. GRACIAS.")
-                        except Exception as e_tts_fin:
-                            print("Nota emitiendo anuncio TTS de cierre:", e_tts_fin)
+                        await _emitir_anuncio_cierre_tts(p_idx)
                         if not grabacion_cancelada and not grabacion_pausada:
                             if ruta_grabacion_post not in segmentos_grabados:
                                 segmentos_grabados.append(ruta_grabacion_post)
@@ -2978,22 +2970,7 @@ async def main() -> None:
                     reproduciendo_meditacion = False
                     print("Watchdog: Sesión de meditación/mensaje concluida exitosamente.")
                     await desbloquear_todos_los_participantes()
-                    try:
-                        inf_fin = (cola_reproduccion[p_idx].get("info") if (cola_reproduccion and p_idx < len(cola_reproduccion)) else (info_catalogo_hoy or {})) or {}
-                        num_fin = inf_fin.get("numero", "")
-                        tit_fin = inf_fin.get("titulo", "")
-                        tipo_fin = str(inf_fin.get("tipo", "MEDITACION")).strip().upper()
-                        if (not tipo_fin or tipo_fin == "MEDITACION") and "MENSAJE" in str(tit_fin).upper():
-                            tipo_fin = "MENSAJE"
-                        es_msg_fin = "MENSAJE" in tipo_fin
-                        maestro_fin = inf_fin.get("maestro") or "Alaniso"
-                        if es_msg_fin:
-                            ref_voz = f"del mensaje {num_fin}" if num_fin else "del mensaje"
-                        else:
-                            ref_voz = f"de la meditación {num_fin}" if num_fin else "de la meditación"
-                        await emitir_anuncio_tts(f"Ya pueden iniciar a compartir lo que entendieron {ref_voz} del maestro {maestro_fin}. GRACIAS.")
-                    except Exception as e_tts_fin:
-                        print("Nota emitiendo anuncio TTS de cierre:", e_tts_fin)
+                    await _emitir_anuncio_cierre_tts(p_idx)
                     avisar_con_bot("🧘 **Sesión finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
                     if not grabacion_cancelada and not grabacion_pausada:
                         if ruta_grabacion_post not in segmentos_grabados:
@@ -3991,6 +3968,29 @@ async def main() -> None:
                     except Exception:
                         pass
 
+        async def _emitir_anuncio_cierre_tts(idx_pista: int):
+            """Emite el anuncio TTS de cierre indicando que ya pueden compartir lo entendido."""
+            try:
+                inf_fin = (
+                    cola_reproduccion[idx_pista].get("info")
+                    if (cola_reproduccion and 0 <= idx_pista < len(cola_reproduccion))
+                    else (info_catalogo_hoy or {})
+                ) or {}
+                num_fin = inf_fin.get("numero", "")
+                tit_fin = inf_fin.get("titulo", "")
+                tipo_fin = str(inf_fin.get("tipo", "MEDITACION")).strip().upper()
+                if (not tipo_fin or tipo_fin == "MEDITACION") and "MENSAJE" in str(tit_fin).upper():
+                    tipo_fin = "MENSAJE"
+                es_msg_fin = "MENSAJE" in tipo_fin
+                maestro_fin = inf_fin.get("maestro") or "Alaniso"
+                if es_msg_fin:
+                    ref_voz = f"del mensaje {num_fin}" if num_fin else "del mensaje"
+                else:
+                    ref_voz = f"de la meditación {num_fin}" if num_fin else "de la meditación"
+                await emitir_anuncio_tts(f"Ya pueden iniciar a compartir lo que entendieron {ref_voz} del maestro {maestro_fin}. GRACIAS.")
+            except Exception as e_tts_fin:
+                print("Nota emitiendo anuncio TTS de cierre:", e_tts_fin)
+
         # Configurar evento de fin de audio en PyTgCalls
         if tgcalls:
             try:
@@ -4042,6 +4042,7 @@ async def main() -> None:
                                             pass
                                         msg_panel_meditacion_id = None
                                     await desbloquear_todos_los_participantes()
+                                    await _emitir_anuncio_cierre_tts(p_fin)
                                     avisar_con_bot(
                                         f"🧘 **Primera reproducción finalizada.** Los micrófonos han sido restablecidos.\n\n"
                                         f"⏳ **En {espera_min} minutos se reproducirá automáticamente el siguiente audio encolado (o usa `/reproducir` / `/saltaraudio` para iniciarlo ya):**\n{txt_sig}",
@@ -4092,6 +4093,7 @@ async def main() -> None:
                                     msg_panel_meditacion_id = None
                                 print("Reproducción de la sesión concluida automáticamente.")
                                 await desbloquear_todos_los_participantes()
+                                await _emitir_anuncio_cierre_tts(p_fin)
                                 avisar_con_bot("🧘 **Sesión finalizada:** Los micrófonos han sido restablecidos. ¡Esperamos que hayan tenido una gran sesión!", es_efimero=False)
                                 # Reanudar grabación para el segmento post-meditación si no fue cancelada
                                 if not grabacion_cancelada and not grabacion_pausada:
