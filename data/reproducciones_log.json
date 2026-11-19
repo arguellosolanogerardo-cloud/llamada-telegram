@@ -273,5 +273,13 @@
     "titulo": "Mensaje 1089 Antes y después de la meditación. (Asociado a la Meditación 1089)",
     "indice": 9,
     "fecha_iso": "2026-11-17"
+  },
+  {
+    "fecha": "2026-11-18 22:29:39",
+    "tipo": "MENSAJE",
+    "numero": 1090,
+    "titulo": "Mensaje 1090 Antes y después de la meditación. (Asociado a la Meditación 1090)",
+    "indice": 10,
+    "fecha_iso": "2026-11-18"
   }
 ]
