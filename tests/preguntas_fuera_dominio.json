@@ -1,0 +1,152 @@
+[
+  {
+    "id": 1,
+    "categoria": "lejano_culinaria",
+    "pregunta": "receta para cocinar lasaña boloñesa al horno con queso parmesano"
+  },
+  {
+    "id": 2,
+    "categoria": "lejano_cripto",
+    "pregunta": "minería de criptomonedas y bitcoin usando tarjetas gráficas gpu"
+  },
+  {
+    "id": 3,
+    "categoria": "lejano_mecanica",
+    "pregunta": "reparación y calibración del carburador de un motor de combustión"
+  },
+  {
+    "id": 4,
+    "categoria": "lejano_computacion",
+    "pregunta": "algoritmos de computación cuántica y entrelazamiento de qubits"
+  },
+  {
+    "id": 5,
+    "categoria": "lejano_deportes",
+    "pregunta": "final de la liga de campeones de la uefa champions league de fútbol"
+  },
+  {
+    "id": 6,
+    "categoria": "lejano_geologia",
+    "pregunta": "geofísica y placas tectónicas en la dorsal mesoatlántica con sismología submarina"
+  },
+  {
+    "id": 7,
+    "categoria": "lejano_solar",
+    "pregunta": "instalación de paneles solares fotovoltaicos en techos residenciales"
+  },
+  {
+    "id": 8,
+    "categoria": "lejano_cocteleria",
+    "pregunta": "preparación de cóctel margarita con tequila blanco jugo de limón y sal"
+  },
+  {
+    "id": 9,
+    "categoria": "lejano_linux",
+    "pregunta": "compilación del kernel monolítico de linux con drivers de red ethernet"
+  },
+  {
+    "id": 10,
+    "categoria": "lejano_hardware",
+    "pregunta": "arquitectura de procesadores risc-v y diseño de circuitos integrados"
+  },
+  {
+    "id": 11,
+    "categoria": "lejano_ajedrez",
+    "pregunta": "aperturas de ajedrez defensa siciliana variante najdorf con peón rey"
+  },
+  {
+    "id": 12,
+    "categoria": "lejano_fotografia",
+    "pregunta": "calibración de apertura de diafragma y velocidad de obturación en cámaras reflex"
+  },
+  {
+    "id": 13,
+    "categoria": "lejano_medicina",
+    "pregunta": "técnicas quirúrgicas para extirpar el apéndice inflamado en apendicitis"
+  },
+  {
+    "id": 14,
+    "categoria": "lejano_agricultura",
+    "pregunta": "cultivo hidropónico de lechugas con solución de nutrientes npk en invernadero"
+  },
+  {
+    "id": 15,
+    "categoria": "lejano_tributario",
+    "pregunta": "declaración de renta de personas jurídicas e impuestos sobre el valor agregado"
+  },
+  {
+    "id": 16,
+    "categoria": "espiritual_cercano_cienciologia",
+    "pregunta": "auditoría de engramas dianéticos del thetan en la doctrina de l ron hubbard"
+  },
+  {
+    "id": 17,
+    "categoria": "espiritual_cercano_wicca",
+    "pregunta": "rituales de samhain y aquelarre wiccano en un coven tradicional de gerald gardner"
+  },
+  {
+    "id": 18,
+    "categoria": "espiritual_cercano_zoroastrismo",
+    "pregunta": "liturgia del yasna y ofrendas al fuego sagrado de ahura mazda en los gathas de zaratustra"
+  },
+  {
+    "id": 19,
+    "categoria": "espiritual_cercano_astrologia_vedica",
+    "pregunta": "cálculo del ascendente lagna y cartas divisionales navamsa en astrología védica jyotish"
+  },
+  {
+    "id": 20,
+    "categoria": "espiritual_cercano_jainismo",
+    "pregunta": "los votos estrictos de sallekhana y el principio radical de ahimsa en monjes del jainismo digambara"
+  },
+  {
+    "id": 21,
+    "categoria": "espiritual_cercano_santeria",
+    "pregunta": "iniciación sacerdotal de babalawo y ofrendas de orishas a olodumare y obatala en santería"
+  },
+  {
+    "id": 22,
+    "categoria": "espiritual_cercano_cabala",
+    "pregunta": "la contracción primordial tzimtzum y las diez sefirot en la cabala lurianica de isaac luria"
+  },
+  {
+    "id": 23,
+    "categoria": "espiritual_cercano_zen",
+    "pregunta": "los koans enigmáticos del zen rinzai y el despertar súbito satori según dogen"
+  },
+  {
+    "id": 24,
+    "categoria": "espiritual_cercano_teosofia",
+    "pregunta": "la sociedad teosófica de adyar fundada por madame blavatsky y henry steel olcott"
+  },
+  {
+    "id": 25,
+    "categoria": "espiritual_cercano_swedenborg",
+    "pregunta": "visiones místicas del cielo y el infierno en los tratados teológicos de emanuel swedenborg"
+  },
+  {
+    "id": 26,
+    "categoria": "espiritual_cercano_yazidismo",
+    "pregunta": "la veneración del ángel pavo real melek taus y el peregrinaje sagrado al santuario de lalish"
+  },
+  {
+    "id": 27,
+    "categoria": "espiritual_cercano_dzogchen",
+    "pregunta": "la tradición del bardo thodol y las enseñanzas de dzogchen y rigpa de padmasambhava"
+  },
+  {
+    "id": 28,
+    "categoria": "espiritual_cercano_magia_caos",
+    "pregunta": "técnicas de sigilización mágica según peter carroll y los iluminados de thanateros"
+  },
+  {
+    "id": 29,
+    "categoria": "espiritual_cercano_bahai",
+    "pregunta": "las leyes y preceptos del kitab-i-aqdas proclamados por bahaullah en la fe bahai"
+  },
+  {
+    "id": 30,
+    "categoria": "espiritual_cercano_reiki",
+    "pregunta": "sintonización de símbolos curativos choku rei en el sistema tradicional de reiki de mikao usui"
+  }
+]

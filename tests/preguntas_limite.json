@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "categoria": "limite_paleontologia_dinosaurios",
+    "pregunta_larga": "excavaciones paleontológicas y fósiles de dinosaurios tiranosaurio rex",
+    "pregunta_corta": "dinosaurios",
+    "termino_canal": "dinosaurios (426 apariciones en el canal)"
+  },
+  {
+    "id": 2,
+    "categoria": "limite_esoterismo_tarot",
+    "pregunta_larga": "tirada de la cruz celta con la baraja de arcanos del tarot rider waite y pentáculos",
+    "pregunta_corta": "qué es el tarot",
+    "termino_canal": "tarot (111 apariciones)"
+  },
+  {
+    "id": 3,
+    "categoria": "limite_espiritismo_chico_xavier",
+    "pregunta_larga": "psicografía mediúnica de chico xavier según la doctrina del espiritismo de allan kardec",
+    "pregunta_corta": "chico xavier",
+    "termino_canal": "chico xavier (2 apariciones en video y05GrKsaH6U)"
+  },
+  {
+    "id": 4,
+    "categoria": "limite_tantra_kundalini",
+    "pregunta_larga": "despertar de la energía kundalini y meditaciones de tantra yoga para elevar la conciencia",
+    "pregunta_corta": "kundalini",
+    "termino_canal": "kundalini (5 apariciones), tantra (12 apariciones)"
+  },
+  {
+    "id": 5,
+    "categoria": "limite_chamanismo_ayahuasca",
+    "pregunta_larga": "dietas ceremoniales con liana ayahuasca y hojas de chacruna con chamanes de la etnia shipibo",
+    "pregunta_corta": "ayahuasca",
+    "termino_canal": "liana (42 apariciones), chamanes (3 apariciones)"
+  },
+  {
+    "id": 6,
+    "categoria": "limite_tolteca_castaneda",
+    "pregunta_larga": "pases mágicos de la tensegridad y ensoñación chamánica en los libros de carlos castaneda",
+    "pregunta_corta": "carlos castaneda",
+    "termino_canal": "libros (227 apariciones), carlos (386 apariciones)"
+  },
+  {
+    "id": 7,
+    "categoria": "limite_mormon_tabernaculo",
+    "pregunta_larga": "ordenanzas sagradas y conferencias generales en el gran tabernáculo mormón de brigham young",
+    "pregunta_corta": "mormones",
+    "termino_canal": "mormon (4 apariciones), young (3 apariciones)"
+  },
+  {
+    "id": 8,
+    "categoria": "limite_dzogchen_bardo",
+    "pregunta_larga": "la tradición del bardo thodol y las enseñanzas de dzogchen y rigpa de padmasambhava",
+    "pregunta_corta": "bardo thodol",
+    "termino_canal": "bardo (3 apariciones)"
+  },
+  {
+    "id": 9,
+    "categoria": "limite_reiki_usui",
+    "pregunta_larga": "sintonización de símbolos curativos choku rei en el sistema tradicional de reiki de mikao usui",
+    "pregunta_corta": "reiki",
+    "termino_canal": "rei (1232 apariciones como rey/rei), curativos (1 aparición)"
+  },
+  {
+    "id": 10,
+    "categoria": "limite_magia_caos",
+    "pregunta_larga": "técnicas de sigilización mágica según peter carroll y los iluminados de thanateros",
+    "pregunta_corta": "magia del caos",
+    "termino_canal": "peter (2 apariciones), iluminados (12 apariciones)"
+  }
+]

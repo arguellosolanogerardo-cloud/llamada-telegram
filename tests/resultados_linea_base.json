@@ -1,0 +1,309 @@
+{
+  "total": 30,
+  "aciertos_top3": 0,
+  "porcentaje_top3": 0.0,
+  "aciertos_top10": 0,
+  "porcentaje_top10": 0.0,
+  "detalle": [
+    {
+      "id": 1,
+      "pregunta": "quiénes son los elegidos de los ciento cuarenta y cuatro mil",
+      "tipo": "estandar",
+      "esperado": "-XyJY0RE4po (870-900s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 2,
+      "pregunta": "cómo transmutar las energías densas con el rayo violeta",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (147-177s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 3,
+      "pregunta": "cómo experimentan las almas sus múltiples vidas sucesivas",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (281-311s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 4,
+      "pregunta": "técnicas para estimular el tercer ojo y la visión interior",
+      "tipo": "estandar",
+      "esperado": "0EgRa6QmmdQ (254-284s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 5,
+      "pregunta": "armonización de los vórtices de energía en el cuerpo",
+      "tipo": "estandar",
+      "esperado": "0R2wJt1AlSQ (655-685s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 6,
+      "pregunta": "experiencias de desdoblamiento del cuerpo sutil mientras dormimos",
+      "tipo": "estandar",
+      "esperado": "-LSgX_xqxrU (201-231s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 7,
+      "pregunta": "mensajes transmitidos por las civilizaciones de las pléyades",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (281-311s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 8,
+      "pregunta": "síntomas energéticos del salto vibratorio dimensional",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (503-533s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 9,
+      "pregunta": "presencia de naves extraterrestres custodiando el planeta",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (329-359s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 10,
+      "pregunta": "modificaciones genéticas y activación de filamentos estelares",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (254-284s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 11,
+      "pregunta": "absorción de energía vital a través de respiraciones conscientes",
+      "tipo": "estandar",
+      "esperado": "1Ow8hIStzro (154-184s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 12,
+      "pregunta": "la protección de los guardianes del universo sobre la tierra",
+      "tipo": "estandar",
+      "esperado": "-4SnoY2Qr5I (19-49s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 13,
+      "pregunta": "el desprendimiento del espíritu al momento de fallecer",
+      "tipo": "estandar",
+      "esperado": "8AWUo7d_1jA (21-51s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 14,
+      "pregunta": "invocación del arcángel miguel para protección espiritual",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (727-757s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 15,
+      "pregunta": "las consecuencias kármicas de nuestras acciones pasadas",
+      "tipo": "estandar",
+      "esperado": "4DwCZVm7Jc4 (296-326s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 16,
+      "pregunta": "beneficios espirituales de abandonar el consumo de animales",
+      "tipo": "estandar",
+      "esperado": "-22fimTs6QY (221-251s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 17,
+      "pregunta": "enseñanzas espirituales transmitidas por el maestro alaniso",
+      "tipo": "estandar",
+      "esperado": "-ST3QtOwkw0 (1755-1785s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 18,
+      "pregunta": "sanación emocional mediante el acto del perdón",
+      "tipo": "estandar",
+      "esperado": "-VhfTqCBx9c (729-759s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 19,
+      "pregunta": "los cambios planetarios que trae la nueva era cósmica",
+      "tipo": "estandar",
+      "esperado": "-lXqOi8HZ-8 (641-671s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 20,
+      "pregunta": "cómo desidentificarse de los apegos mentales y del ego",
+      "tipo": "estandar",
+      "esperado": "-0vhbQQErKo (629-659s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 21,
+      "pregunta": "alcanzar estados elevados de recogimiento meditativo",
+      "tipo": "vecinos",
+      "esperado": "7pIchGxcsUA (1793-1829s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 22,
+      "pregunta": "cambios profundos en el planeta tierra y la humanidad",
+      "tipo": "vecinos",
+      "esperado": "-22fimTs6QY (605-637s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 23,
+      "pregunta": "enseñanzas de sabiduría de los maestros espirituales",
+      "tipo": "vecinos",
+      "esperado": "-JNmY_7Lz3g (194-229s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 24,
+      "pregunta": "irradiar frecuencias de luz y amor divino",
+      "tipo": "vecinos",
+      "esperado": "-3KffrSkrKY (657-689s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 25,
+      "pregunta": "encontrar calma mediante el silencio mental y la paz",
+      "tipo": "vecinos",
+      "esperado": "aElb8uh7s9w (713-746s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 26,
+      "pregunta": "procesos de transformación interna durante el despertar espiritual",
+      "tipo": "vecinos",
+      "esperado": "DmdQYNqdAvE (2927-2961s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 27,
+      "pregunta": "la fuerza espiritual de la oración en unión comunitaria",
+      "tipo": "vecinos",
+      "esperado": "FvMJDVeCmG0 (1740-1786s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 28,
+      "pregunta": "elevar la energía y la vibración del cuerpo sutil",
+      "tipo": "vecinos",
+      "esperado": "-dOHiVyEvb4 (518-554s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 29,
+      "pregunta": "mensajes de los hermanos del universo para la humanidad",
+      "tipo": "vecinos",
+      "esperado": "-76CKQajFr4 (705-738s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    },
+    {
+      "id": 30,
+      "pregunta": "cultivar la paz profunda en el corazón espiritual",
+      "tipo": "vecinos",
+      "esperado": "-8FMGqCnK18 (94-151s)",
+      "total_resultados_devueltos": 0,
+      "hit_top3": false,
+      "hit_top10": false,
+      "posicion": null
+    }
+  ]
+}

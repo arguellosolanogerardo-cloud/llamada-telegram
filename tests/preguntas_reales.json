@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "pregunta": "ejemplo: como se debe meditar para conectar con el padre",
+    "video_id": "",
+    "video_titulo": "",
+    "segundo_inicio": 0,
+    "segundo_fin": 60,
+    "tema": "Meditación",
+    "notas": "Remplaza este objeto con tus preguntas reales. Deja segundo_inicio y segundo_fin con el rango esperado en segundos."
+  },
+  {
+    "id": 2,
+    "pregunta": "ejemplo: que son las ciudades de luz intraterrenas",
+    "video_id": "",
+    "video_titulo": "",
+    "segundo_inicio": 0,
+    "segundo_fin": 60,
+    "tema": "Ciudades de Luz",
+    "notas": "Si no conoces el rango exacto de antemano, puedes dejar segundo_inicio=0 y segundo_fin=0 para evaluar manualmente."
+  }
+]

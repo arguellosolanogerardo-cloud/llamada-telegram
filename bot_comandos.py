@@ -913,6 +913,69 @@ def limpiar_sala_notificaciones(chat_id: int | str) -> int:
 
 
 _ULTIMO_SCAN_RADAR = 0.0
+_ULTIMA_VIGILANCIA_TAREA = 0.0
+_ALERTAS_TAREA_ENVIADAS: set[str] = set()
+
+
+def _vigilar_tarea_hoy_en_segundo_plano() -> None:
+    """Vigilante automático:
+    - Entre 03:10 AM y 11:59 AM: si conteo == 0, dispara catch-up automático.
+    - Desde las 12:00 PM (y recordatorio a las 19:00 PM): si conteo == 0, alerta por privado a los admins.
+    """
+    global _ULTIMA_VIGILANCIA_TAREA
+    ahora_ts = time.time()
+    if (ahora_ts - _ULTIMA_VIGILANCIA_TAREA) < 300:
+        return
+    _ULTIMA_VIGILANCIA_TAREA = ahora_ts
+
+    def _run_watchdog():
+        try:
+            tz_col = ZoneInfo("America/Bogota")
+            ahora_c = datetime.now(tz_col)
+            fecha_iso = ahora_c.strftime("%Y-%m-%d")
+            from schedule_meditaciones import (
+                obtener_conteo_publicaciones_hoy,
+                verificar_y_ejecutar_catchup,
+                obtener_item_fecha,
+            )
+            if obtener_conteo_publicaciones_hoy(fecha_iso) > 0:
+                return
+
+            # 1. Ventana de auto-recuperación (03:10 AM - 11:59 AM Colombia)
+            if (ahora_c.hour == 3 and ahora_c.minute >= 10) or (4 <= ahora_c.hour < 12):
+                log_debug("⏰ [Vigilante] Tarea de hoy aún no publicada; intentando catch-up automático...")
+                if verificar_y_ejecutar_catchup(forzar=False):
+                    return
+
+            # 2. Alerta privada a admins si pasó de las 12:00 PM (o 7:00 PM) y sigue sin publicarse
+            if ahora_c.hour >= 12 and obtener_conteo_publicaciones_hoy(fecha_iso) == 0:
+                clave_alerta = f"{fecha_iso}_{'previo_sala' if ahora_c.hour >= 19 else 'mediodia'}"
+                if clave_alerta in _ALERTAS_TAREA_ENVIADAS:
+                    return
+                _ALERTAS_TAREA_ENVIADAS.add(clave_alerta)
+
+                item_hoy = obtener_item_fecha(ahora_c.date())
+                tipo_cmd = "mensaje" if "MENSAJE" in str(item_hoy.get("tipo", "")).upper() else "meditacion"
+                num_cmd = item_hoy.get("numero", "")
+                texto_alerta = (
+                    f"⚠️ **ALERTA DEL BOT ({ahora_c.strftime('%d/%m/%Y %I:%M %p')})**\n\n"
+                    f"La tarea oficial de hoy (**{item_hoy.get('tipo', 'TAREA')} #{num_cmd}**) "
+                    f"aún **NO figura publicada** en Telegram.\n\n"
+                    f"👉 Para publicarla ahora mismo en el grupo, escribe:\n"
+                    f"`/tarea {tipo_cmd} {num_cmd}`"
+                )
+                admins_dest = obtener_admins_cache(CHAT_ID) if CHAT_ID else set()
+                for adm_id in admins_dest:
+                    if int(adm_id) == 1087968824:
+                        continue
+                    try:
+                        enviar_mensaje(adm_id, texto_alerta)
+                    except Exception:
+                        pass
+        except Exception as e_wd:
+            log_debug(f"Nota en vigilante de tarea diaria: {e_wd}")
+
+    threading.Thread(target=_run_watchdog, daemon=True).start()
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -962,6 +1025,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "ok", "message_id": m_id}).encode())
             return
         if self.path in ("/radar", "/escanear", "/scan"):
+            _vigilar_tarea_hoy_en_segundo_plano()
             try:
                 global _ULTIMO_SCAN_RADAR
                 ahora_ts = time.time()
@@ -1134,6 +1198,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": str(e_pyt)}).encode())
                 return
+        _vigilar_tarea_hoy_en_segundo_plano()
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
@@ -1155,6 +1220,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "message": str(e_lc)}).encode())
                 return
         if self.path in ("/radar", "/escanear", "/scan"):
+            _vigilar_tarea_hoy_en_segundo_plano()
             try:
                 global _ULTIMO_SCAN_RADAR
                 ahora_ts = time.time()

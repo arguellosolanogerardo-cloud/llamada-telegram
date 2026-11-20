@@ -40,17 +40,7 @@ jobs:
           EVENTO="${{ github.event_name }}"
           FORZAR_INPUT="${{ github.event.inputs.forzar }}"
 
-          # PROTECCIÓN INCONDICIONAL CONTRA RETRASOS DE GITHUB ACTIONS:
-          # Si es cron automático (schedule) y la hora en Colombia es >= 5 AM,
-          # ABORTAR INMEDIATAMENTE. Un cron de las 3 AM NUNCA debe ejecutarse en horario diurno.
-          if [ "$EVENTO" = "schedule" ] && [ "$HORA_COL" -ge 5 ]; then
-            echo "🚨 Retraso crítico en servidores de GitHub Actions: ejecutado a las $HORA_COL:00 Colombia."
-            echo "⛔ Cancelando ejecución desfasada incondicionalmente para evitar duplicados en Telegram."
-            echo "TAREA_PUBLICADA=true" >> $GITHUB_ENV
-            exit 0
-          fi
-
-          # 2. Consultar estado en Render
+          # 2. Consultar estado en Render ANTES de decidir
           STATUS_JSON=$(curl -s --max-time 30 "https://bot-meditaciones.onrender.com/estado_cola" || echo "{}")
           echo "Estado reportado por Render: $STATUS_JSON"
 
@@ -67,8 +57,55 @@ jobs:
             exit 0
           fi
 
+          # PROTECCIÓN CONTRA RETRASOS EXTREMOS DE GITHUB ACTIONS:
+          # Ventana de auto-recuperación: hasta las 11:59 AM Colombia (HORA_COL < 12) si aún no se publicó.
+          # Si es cron automático (schedule) y ya son >= 12:00 PM Colombia, alertar al admin y abortar.
+          if [ "$EVENTO" = "schedule" ] && [ "$HORA_COL" -ge 12 ]; then
+            echo "🚨 Retraso extremo en GitHub Actions ($HORA_COL:00 Colombia) y la tarea de hoy NO figura publicada."
+            echo "TAREA_PUBLICADA=true" >> $GITHUB_ENV
+            echo "ENVIAR_ALERTA_ADMIN=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
           echo "TAREA_PUBLICADA=false" >> $GITHUB_ENV
-          echo "ℹ️ La tarea aún no figura como publicada en Telegram. Procediendo a despertar Render."
+          echo "ℹ️ La tarea aún no figura como publicada en Telegram. Procediendo a recuperar/publicar."
+
+      - name: Paso 1b - Alertar a administradores si el retraso superó el mediodía
+        if: env.ENVIAR_ALERTA_ADMIN == 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          python -c '
+          import os, json, urllib.request
+          from datetime import datetime, timezone, timedelta
+          from schedule_meditaciones import obtener_item_fecha
+          token = os.environ.get("BOT_TOKEN", "")
+          if not token:
+              print("Sin BOT_TOKEN para alertar.")
+              exit(0)
+          ahora = datetime.now(timezone(timedelta(hours=-5)))
+          item = obtener_item_fecha(ahora.date())
+          tipo_cmd = "mensaje" if "MENSAJE" in str(item.get("tipo", "")).upper() else "meditacion"
+          num = item.get("numero", "")
+          msg = (
+              f"⚠️ ALERTA CRÍTICA (GitHub Actions):\n"
+              f"El cron de 3:00 AM se ejecutó con retraso ({ahora.strftime(\"%H:%M\")} Col) "
+              f"y la tarea de hoy ({item.get(\"tipo\")} #{num}) NO está publicada.\n\n"
+              f"👉 Escribe en el grupo:\n/tarea {tipo_cmd} {num}"
+          )
+          admins = [8204833441, 8278899029, 8916842088, 8384683142, 1779560581, 6902578190, 8953593022]
+          for aid in admins:
+              try:
+                  req = urllib.request.Request(
+                      f"https://api.telegram.org/bot{token}/sendMessage",
+                      data=json.dumps({"chat_id": aid, "text": msg}).encode("utf-8"),
+                      headers={"Content-Type": "application/json"},
+                  )
+                  urllib.request.urlopen(req, timeout=10)
+              except Exception:
+                  pass
+          print("✅ Alerta enviada a administradores.")
+          '
 
       - name: Paso 2 - Enviar señal de publicación limpia a Render
         if: env.TAREA_PUBLICADA != 'true'
@@ -113,7 +150,7 @@ jobs:
         run: |
           HORA_COL=$(python -c "from datetime import datetime, timezone, timedelta; now=datetime.now(timezone(timedelta(hours=-5))); print(now.hour)")
           EVENTO="${{ github.event_name }}"
-          if [ "$EVENTO" = "schedule" ] && [ "$HORA_COL" -ge 5 ]; then
+          if [ "$EVENTO" = "schedule" ] && [ "$HORA_COL" -ge 12 ]; then
             echo "⛔ Cancelando respaldo: hora desfasada ($HORA_COL:00 Colombia)."
             exit 0
           fi

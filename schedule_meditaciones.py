@@ -27,6 +27,8 @@ STATE_FILE = DATA_DIR / "state_meditaciones.json"
 HISTORIAL_PUB_FILE = DATA_DIR / "registro_publicaciones_3am.json"
 MAX_PUBLICACIONES_POR_DIA = 1
 _SCHEDULER_INSTANCE = None
+_GH_HISTORIAL_CACHE = {"ts": 0.0, "data": {}}
+GITHUB_REPO = "arguellosolanogerardo-cloud/llamada-telegram"
 # ----------------------------------------------------------------------
 
 # Zona horaria de Colombia (UTC-5)
@@ -34,6 +36,85 @@ TZ_OFFSET = timezone(timedelta(hours=-5))
 
 def _ahora_colombia() -> datetime:
     return datetime.now(TZ_OFFSET)
+
+def _en_ventana_publicacion(ahora: datetime | None = None) -> bool:
+    """Ventana permitida para publicación automática o catch-up (03:00 AM a 11:59 AM Colombia)."""
+    dt = ahora or _ahora_colombia()
+    return 3 <= dt.hour < 12
+
+def _cargar_historial_remoto_github() -> dict:
+    """Obtiene registro_publicaciones_3am.json desde GitHub si hay token (cache 60s)."""
+    import time as _time
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        return {}
+    ahora_ts = _time.time()
+    if (ahora_ts - _GH_HISTORIAL_CACHE["ts"]) < 60 and isinstance(_GH_HISTORIAL_CACHE["data"], dict):
+        return _GH_HISTORIAL_CACHE["data"]
+    try:
+        import base64
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/data/registro_publicaciones_3am.json"
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "ScheduleMeditaciones",
+        })
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            raw_b64 = payload.get("content", "")
+            if raw_b64:
+                decoded = json.loads(base64.b64decode(raw_b64).decode("utf-8"))
+                if isinstance(decoded, dict):
+                    _GH_HISTORIAL_CACHE["ts"] = ahora_ts
+                    _GH_HISTORIAL_CACHE["data"] = decoded
+                    return decoded
+    except Exception:
+        pass
+    return {}
+
+def _sincronizar_github_historial_pub(historial: dict) -> None:
+    """Sincroniza data/registro_publicaciones_3am.json con GitHub para sobrevivir reinicios de Render."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token or not isinstance(historial, dict):
+        return
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/data/registro_publicaciones_3am.json"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "ScheduleMeditaciones",
+    }
+    try:
+        sha = None
+        try:
+            req_get = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req_get, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                sha = data.get("sha")
+        except Exception:
+            pass
+
+        import base64
+        contenido_b64 = base64.b64encode(
+            json.dumps(historial, ensure_ascii=False, indent=2).encode("utf-8")
+        ).decode("utf-8")
+        body = {
+            "message": "chore(3am): sincronizar registro_publicaciones_3am.json [skip ci]",
+            "content": contenido_b64,
+        }
+        if sha:
+            body["sha"] = sha
+        req_put = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json", **headers},
+            method="PUT",
+        )
+        with urllib.request.urlopen(req_put, timeout=8) as resp:
+            if resp.status in (200, 201):
+                _GH_HISTORIAL_CACHE["data"] = dict(historial)
+                print("📡 [3AM] registro_publicaciones_3am.json sincronizado con GitHub.")
+    except Exception as e:
+        print(f"Nota sincronizando registro_publicaciones_3am con GitHub: {e}")
 
 def _cargar_json(ruta: Path) -> dict | list:
     if not ruta.exists():
@@ -71,6 +152,23 @@ def obtener_conteo_publicaciones_hoy(fecha_iso: str = None) -> int:
                 f_disp = _ahora_colombia().strftime("%d/%m/%Y")
                 if f_meta in (fecha_iso, f_disp):
                     conteo = 1
+        except Exception:
+            pass
+
+    # Respaldo contra reinicios en Render: consultar GitHub si localmente marca 0
+    if conteo == 0:
+        try:
+            remoto = _cargar_historial_remoto_github()
+            if isinstance(remoto, dict):
+                entry_rem = remoto.get(fecha_iso)
+                c_rem = int(entry_rem.get("veces_publicado", 0)) if isinstance(entry_rem, dict) else (int(entry_rem) if isinstance(entry_rem, int) else 0)
+                if c_rem > 0:
+                    conteo = c_rem
+                    # Restaurar entrada local para evitar futuras consultas remotas
+                    if not isinstance(historial, dict):
+                        historial = {}
+                    historial[fecha_iso] = entry_rem
+                    _guardar_json(HISTORIAL_PUB_FILE, historial)
         except Exception:
             pass
 
@@ -151,6 +249,11 @@ def registrar_publicacion_exitosa(fecha_iso: str = None, msg_id: int | str = Non
 
     _guardar_json(HISTORIAL_PUB_FILE, historial)
     print(f"📊 [3AM] Publicación registrada para {fecha_iso}: {conteo}/{MAX_PUBLICACIONES_POR_DIA} realizadas.")
+    try:
+        import threading
+        threading.Thread(target=_sincronizar_github_historial_pub, args=(dict(historial),), daemon=True).start()
+    except Exception:
+        pass
     return conteo
 
 # ----------------------------------------------------------------------
@@ -388,11 +491,10 @@ def programar_meditacion_diaria(forzar: bool = False) -> None:
     
     numero_esperado = obtener_numero_meditacion_fecha(ahora.date())
     
-    # ── CONTROL ESTRICTO DE HORARIO (SOLO MADRUGADA 03:00 - 04:30 AM SALVO FORZADO) ──
-    en_ventana_madrugada = (ahora.hour == 3 or (ahora.hour == 4 and ahora.minute <= 30))
-    if not forzar and not en_ventana_madrugada:
+    # ── CONTROL ESTRICTO DE HORARIO (03:00 - 11:59 AM SALVO FORZADO) ──
+    if not forzar and not _en_ventana_publicacion(ahora):
         print(f"ℹ️ [3AM] Intento de publicación automática fuera de horario ({ahora.strftime('%H:%M')}). "
-              f"Las publicaciones automáticas solo se permiten entre 03:00 AM y 04:30 AM. Omitiendo.")
+              f"Las publicaciones automáticas solo se permiten entre 03:00 AM y 11:59 AM. Omitiendo.")
         return
 
     # ── CONTROL ESTRICTO DE PUBLICACIÓN (MÁXIMO 1 VEZ AL DÍA) ──
@@ -553,9 +655,8 @@ def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
             print(f"ℹ️ [3AM] Tarea de hoy ({fecha_hoy_display}) ya alcanzo el limite de {conteo}/{MAX_PUBLICACIONES_POR_DIA} publicaciones. Omitiendo.")
             return False
 
-        en_ventana_madrugada = (ahora.hour == 3 or (ahora.hour == 4 and ahora.minute <= 30))
-        if not forzar and not en_ventana_madrugada:
-            print(f"ℹ️ Fuera de ventana de madrugada ({ahora.strftime('%H:%M')}). No se dispara catchup automático a deshoras.")
+        if not forzar and not _en_ventana_publicacion(ahora):
+            print(f"ℹ️ Fuera de ventana de publicación ({ahora.strftime('%H:%M')}). No se dispara catchup automático a deshoras.")
             return False
 
         _CATCHUP_LOCK = True
@@ -576,12 +677,12 @@ def verificar_y_ejecutar_catchup(forzar: bool = False) -> bool:
 #  5. Iniciar el scheduler (se llama una sola vez al iniciar el bot)
 # ----------------------------------------------------------------------
 def iniciar_scheduler() -> None:
-    """Configura la publicación diaria a las 03:00 AM (UTC-5) y un segundo intento a las 03:15 AM
+    """Configura la publicación diaria a las 03:00 AM (UTC-5) y respaldos a las 03:15, 04:00 y 06:00 AM
     (con tope máximo absoluto de 1 publicación al día)."""
     global _SCHEDULER_INSTANCE
     ahora = _ahora_colombia()
-    # Si el bot arranca dentro de la hora de 03:00 AM, verificar catch-up
-    if ahora.hour == 3:
+    # Si el bot arranca dentro de la ventana (03:00 - 11:59 AM), verificar catch-up
+    if _en_ventana_publicacion(ahora):
         import threading
         threading.Thread(target=verificar_y_ejecutar_catchup, kwargs={"forzar": False}, daemon=True).start()
 
@@ -592,31 +693,25 @@ def iniciar_scheduler() -> None:
         return
 
     scheduler = BackgroundScheduler(timezone=TZ_OFFSET)
-    # 1. Disparo principal a las 03:00 AM
-    scheduler.add_job(
-        programar_meditacion_diaria,
-        "cron",
-        hour=3,
-        minute=0,
-        id="meditacion_diaria_0300",
-        replace_existing=True,
-        misfire_grace_time=1800,  # 30 minutos de tolerancia (03:00 a 03:30 AM)
-        coalesce=True
-    )
-    # 2. Segundo intento de respaldo a las 03:15 AM (siempre respetando tope de 2)
-    scheduler.add_job(
-        programar_meditacion_diaria,
-        "cron",
-        hour=3,
-        minute=15,
-        id="meditacion_diaria_0315",
-        replace_existing=True,
-        misfire_grace_time=1800,
-        coalesce=True
-    )
+    for idx_h, (h, m, job_id) in enumerate([
+        (3, 0, "meditacion_diaria_0300"),
+        (3, 15, "meditacion_diaria_0315"),
+        (4, 0, "meditacion_diaria_0400"),
+        (6, 0, "meditacion_diaria_0600"),
+    ]):
+        scheduler.add_job(
+            programar_meditacion_diaria,
+            "cron",
+            hour=h,
+            minute=m,
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=1800,
+            coalesce=True,
+        )
     scheduler.start()
     _SCHEDULER_INSTANCE = scheduler
-    print("⏰ Scheduler configurado: Publicación diaria a las 03:00 AM y 03:15 AM (máx 1 vez/día)")
+    print("⏰ Scheduler configurado: Publicación diaria 03:00 AM + respaldos 03:15/04:00/06:00 AM (máx 1 vez/día)")
 
 # ----------------------------------------------------------------------
 #  6. Ejecutar directamente para pruebas

@@ -1,0 +1,166 @@
+[
+  {
+    "id": 1,
+    "pregunta": "receta para cocinar lasaña boloñesa al horno con queso parmesano",
+    "tokens": [
+      "recet",
+      "cocin",
+      "lasan",
+      "bolones",
+      "horn",
+      "ques",
+      "parmesan"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 2,
+    "pregunta": "minería de criptomonedas y bitcoin usando tarjetas gráficas gpu",
+    "tokens": [
+      "mineri",
+      "criptomoned",
+      "bitcoin",
+      "usand",
+      "tarjet",
+      "grafic",
+      "gpu"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 3,
+    "pregunta": "reparación y calibración del carburador de un motor automotriz v8",
+    "tokens": [
+      "repar",
+      "calibr",
+      "carbur",
+      "motor",
+      "automotriz",
+      "v8"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 4,
+    "pregunta": "algoritmos de computación cuántica y entrelazamiento de qubits",
+    "tokens": [
+      "algoritm",
+      "comput",
+      "cuantic",
+      "entrelaz",
+      "qubits"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 5,
+    "pregunta": "final de la liga de campeones de la uefa champions league de fútbol",
+    "tokens": [
+      "final",
+      "lig",
+      "campeon",
+      "uef",
+      "champions",
+      "leag",
+      "futbol"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 6,
+    "pregunta": "excavaciones paleontológicas y fósiles de dinosaurios tiranosaurios",
+    "tokens": [
+      "excav",
+      "paleontolog",
+      "fosil",
+      "dinosauri",
+      "tiranosauri"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 7,
+    "pregunta": "instalación de paneles solares fotovoltaicos en tejados residenciales",
+    "tokens": [
+      "instal",
+      "panel",
+      "solar",
+      "fotovolt",
+      "tej",
+      "residencial"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 8,
+    "pregunta": "preparación de cóctel margarita con tequila blanco y zumo de lima",
+    "tokens": [
+      "prepar",
+      "coctel",
+      "margarit",
+      "tequil",
+      "blanc",
+      "zum",
+      "lim"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 9,
+    "pregunta": "compilación del kernel monolítico de linux con drivers pci express",
+    "tokens": [
+      "compil",
+      "kernel",
+      "monolit",
+      "linux",
+      "drivers",
+      "pci",
+      "express"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  },
+  {
+    "id": 10,
+    "pregunta": "arquitectura de procesadores risc-v y diseño de circuitos verilog fpga",
+    "tokens": [
+      "arquitectur",
+      "proces",
+      "risc",
+      "disen",
+      "circuit",
+      "verilog",
+      "fpga"
+    ],
+    "total_resultados": 0,
+    "mejor_score_bm25": null,
+    "peor_score_bm25": null,
+    "primer_resultado": null
+  }
+]
