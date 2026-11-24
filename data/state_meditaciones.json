@@ -1,10 +1,10 @@
 {
-  "fecha_actualizacion": "2026-11-22",
-  "indice": 15,
+  "fecha_actualizacion": "2026-11-23",
+  "indice": 16,
   "tipo_programado": "MENSAJE",
-  "numero_programado": 1095,
-  "ultimo_reproducido": 1094,
+  "numero_programado": 1096,
+  "ultimo_reproducido": 1095,
   "ultimo_tipo": "MENSAJE",
   "override": false,
-  "descripcion": "Completado MENSAJE #1094 el 2026-11-22. Siguiente programado: MENSAJE #1095 (índice 15)"
+  "descripcion": "Completado MENSAJE #1095 el 2026-11-23. Siguiente programado: MENSAJE #1096 (índice 16)"
 }
