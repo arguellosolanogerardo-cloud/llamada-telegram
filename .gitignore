@@ -43,6 +43,7 @@ ffprobe.exe
 # Archivos de datos grandes (>100MB) — no van en GitHub
 data/biblioteca_conocimiento_universal.db
 data/*.db
+backup_crudo/
 
 # Archivos de estado de runtime (se regeneran)
 data/last_update_id.txt
