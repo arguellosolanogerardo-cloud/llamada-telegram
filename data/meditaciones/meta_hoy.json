@@ -1,0 +1,41 @@
+{
+  "numero": 1098,
+  "tipo": "MENSAJE",
+  "subtipo": "Mensaje Previo a Meditación",
+  "titulo": "Mensaje 1098 Antes y después de la meditación. (Asociado a la Meditación 1098)",
+  "fecha_original": "09/26/20",
+  "fecha": "09/26/20",
+  "maestro": "Alaniso",
+  "detectado_como": "MENSAJE",
+  "fecha_tarea_admin": "26/11/2026",
+  "fecha_iso": "2026-11-26",
+  "es_oficial_3am": true,
+  "es_adicional": false,
+  "es_mario": false,
+  "cola_audios": [
+    {
+      "numero": 1098,
+      "tipo": "MENSAJE",
+      "subtipo": "Mensaje Previo a Meditación",
+      "titulo": "Mensaje 1098 Antes y después de la meditación. (Asociado a la Meditación 1098)",
+      "fecha_original": "09/26/20",
+      "fecha": "09/26/20",
+      "maestro": "Alaniso",
+      "detectado_como": "MENSAJE",
+      "fecha_tarea_admin": "26/11/2026",
+      "fecha_iso": "2026-11-26",
+      "es_oficial_3am": true,
+      "es_adicional": false,
+      "es_mario": false
+    },
+    {
+      "numero": "",
+      "tipo": "MENSAJE",
+      "titulo": "Y la verdad os ara  libres",
+      "maestro": "JESUS MARIO CARRILLO DURAN",
+      "es_mario": true,
+      "es_adicional": true,
+      "espera_post_meditacion_min": 30
+    }
+  ]
+}
