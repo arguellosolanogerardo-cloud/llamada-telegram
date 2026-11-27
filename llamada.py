@@ -27,8 +27,9 @@ except Exception:
         return timezone(timedelta(hours=-5))
 
 from telethon import TelegramClient, events
-from telethon.errors import RPCError
+from telethon.errors import FloodWaitError, RPCError
 from telethon.sessions import StringSession
+from telethon.utils import get_input_peer
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.messages import GetFullChatRequest
 from telethon.tl.functions.phone import (
@@ -2270,6 +2271,9 @@ async def main() -> None:
         oradores_activos = set()  # uids actualmente hablando
         segundos_inactividad_mic = {}  # uid -> segundos con mic abierto y sin voz
         avisados_auto_mute = set()  # uids notificados cordialmente
+        mutes_manuales_hasta = {}  # uid -> monotonic timestamp hasta cuando respetar /mutear manual
+        ultimo_intento_desbloqueo = {}  # uid -> monotonic timestamp del ultimo intento automatico de desbloqueo
+        ultimo_fix_join_muted = 0.0
         msg_turnos = None  # Mensaje en vivo con la cola de turnos
         lista_turnos_activa = False  # Inicia por defecto desactivado; se activa a conveniencia con /activarturnos
         lock_turnos = asyncio.Lock()
@@ -3611,17 +3615,14 @@ async def main() -> None:
                 print(f"Nota auto-desbloqueando {uid_target}:", e)
 
         async def bloquear_usuarios_normales_en_sala(motivo: str = "meditación"):
-            """Bloquea/silencia exclusivamente a los participantes que NO son administradores
-            (protegiendo a los 7 administradores) y activa join_muted=True."""
+            """Mantiene los micrófonos libres (sin bloquear usuarios en rojo ni activar join_muted=True).
+            Solo garantiza join_muted=False y permisos libres para administradores."""
             try:
-                # 1. Configurar la sala para que nuevos participantes que se unan queden silenciados
                 try:
-                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=True))
-                    print(f"🔒 {motivo.capitalize()}: join_muted=True activado (nuevos ingresos silenciados).")
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
                 except Exception as e_jm:
-                    print("Nota configurando join_muted=True:", e_jm)
+                    print("Nota manteniendo join_muted=False:", e_jm)
 
-                # 2. Desmutear explícitamente a todos los administradores (los 7 protegidos)
                 for aid in admin_ids:
                     if aid != me.id:
                         try:
@@ -3629,55 +3630,74 @@ async def main() -> None:
                             await client(EditGroupCallParticipantRequest(call=input_call, participant=admin_peer, muted=False))
                         except Exception:
                             pass
+                print(f"🔓 {motivo.capitalize()}: micrófonos mantenidos libres sin bloqueo en rojo (join_muted=False).")
+            except Exception as e_block:
+                print(f"Nota verificando sala libre ({motivo}):", e_block)
 
-                # 3. Silenciar a los participantes conectados que no sean administradores
-                parts_completos, _, _ = await obtener_todos_participantes_llamada(client, input_call)
-                silenciados_cnt = 0
-                for p in parts_completos:
-                    if getattr(p, "left", False):
-                        continue
-                    p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
-                    if not p_uid or p_uid == me.id:
-                        continue
-                    if es_participante_admin(p_uid, peer=p.peer):
-                        # Administrador: NUNCA silenciarlo, asegurar que tenga micrófono libre
-                        try:
-                            input_peer = await client.get_input_entity(p.peer)
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
-                        except Exception:
-                            pass
-                        continue
-                    # Usuario normal: silenciar
+        async def _resolver_peer_participante(p, users_dict: dict, chats_dict: dict):
+            """Resuelve el InputPeer usando los diccionarios de GetGroupParticipantsRequest antes de consultar caché/API."""
+            p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
+            if p_uid:
+                ent = users_dict.get(p_uid) or users_cache.get(p_uid) or chats_dict.get(p_uid) or chats_cache.get(p_uid)
+                if ent is not None:
                     try:
-                        input_peer = await client.get_input_entity(p.peer)
-                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                        silenciados_cnt += 1
+                        return get_input_peer(ent)
                     except Exception:
                         pass
-                print(f"🔒 {motivo.capitalize()}: {silenciados_cnt} usuarios normales silenciados (los 7 administradores protegidos con voz libre).")
-            except Exception as e_block:
-                print(f"Nota bloqueando usuarios normales ({motivo}):", e_block)
+            return await client.get_input_entity(p.peer)
+
+        async def _desbloquear_si_en_rojo(
+            p,
+            p_uid: int,
+            users_dict: dict = None,
+            chats_dict: dict = None,
+            cooldown_seg: float = 0.0,
+        ) -> bool:
+            """Desbloquea a un participante si tiene el micrófono bloqueado en rojo (muted=True y can_self_unmute=False)."""
+            if not p_uid or p_uid == me.id or getattr(p, "left", False):
+                return False
+            if not (getattr(p, "muted", False) and not getattr(p, "can_self_unmute", False)):
+                return False
+            ahora_m = time.monotonic()
+            if ahora_m < mutes_manuales_hasta.get(p_uid, 0.0):
+                return False
+            if cooldown_seg > 0.0 and (ahora_m - ultimo_intento_desbloqueo.get(p_uid, 0.0)) < cooldown_seg:
+                return False
+            ultimo_intento_desbloqueo[p_uid] = ahora_m
+            try:
+                input_peer = await _resolver_peer_participante(p, users_dict or {}, chats_dict or {})
+                try:
+                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                except FloodWaitError as e_fw:
+                    espera = min(float(getattr(e_fw, "seconds", 2)) + 0.5, 10.0)
+                    print(f"⏳ FloodWait desbloqueando participante {p_uid} ({espera:.1f}s)...")
+                    await asyncio.sleep(espera)
+                    await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
+                return True
+            except Exception as e_unm:
+                print(f"Nota desbloqueando participante {p_uid}:", e_unm)
+                return False
 
         async def desbloquear_todos_los_participantes():
-            """Retira el candado de silencio a todos los participantes en la sala."""
+            """Retira el candado de silencio (rojo) a los participantes bloqueados en la sala."""
             try:
-                parts_completos, _, _ = await obtener_todos_participantes_llamada(client, input_call)
-                for p in parts_completos:
-                    if getattr(p, "left", False):
-                        continue
-                    p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
-                    if not p_uid or p_uid == me.id:
-                        continue
-                    try:
-                        input_peer = await client.get_input_entity(p.peer)
-                        await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=False))
-                    except Exception:
-                        pass
+                ultimo_intento_desbloqueo.clear()
                 try:
                     await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
-                except Exception:
-                    pass
-                print("🔓 Todos los participantes han sido desbloqueados en la sala de voz.")
+                except Exception as e_jm:
+                    print("Nota configurando join_muted=False al desbloquear:", e_jm)
+
+                parts_completos, users_dict, chats_dict = await obtener_todos_participantes_llamada(client, input_call)
+                users_cache.update(users_dict)
+                chats_cache.update(chats_dict)
+
+                desbloqueados = 0
+                for p in parts_completos:
+                    p_uid = getattr(p.peer, "user_id", None) or getattr(p.peer, "channel_id", None) or getattr(p.peer, "chat_id", None)
+                    if await _desbloquear_si_en_rojo(p, p_uid, users_dict, chats_dict):
+                        desbloqueados += 1
+                        await asyncio.sleep(0.05)
+                print(f"🔓 Desbloqueo completado: {desbloqueados} participantes liberados en la sala de voz.")
             except Exception as e:
                 print("Nota desbloqueando todos los participantes:", e)
 
@@ -4602,6 +4622,7 @@ async def main() -> None:
                     oradores_activos.discard(t_uid)
                     try:
                         input_peer = await client.get_input_entity(t_uid)
+                        mutes_manuales_hasta[t_uid] = time.monotonic() + DURACION_BLOQUEO_MUTE_SEGUNDOS + 1.0
                         await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
                         lanzar_tarea(auto_desbloquear_microfono(t_uid, DURACION_BLOQUEO_MUTE_SEGUNDOS))
                     except Exception as e:
@@ -5582,6 +5603,15 @@ async def main() -> None:
                 motivo_cierre = "admin"
                 break
 
+            # Garantizar en tiempo real que join_muted nunca quede activo (evita que recién llegados entren en rojo)
+            if getattr(call_info.call, "join_muted", False) and (time.monotonic() - ultimo_fix_join_muted) >= 10.0:
+                ultimo_fix_join_muted = time.monotonic()
+                try:
+                    await client(ToggleGroupCallSettingsRequest(call=input_call, join_muted=False))
+                    print("🔓 Salvaguarda en vivo: join_muted=True detectado en Telegram -> restablecido a join_muted=False.")
+                except Exception as e_jm_live:
+                    print("Nota restableciendo join_muted=False en vivo:", e_jm_live)
+
             # Cada 10 ciclos (~3 min), verificar el estado de la llamada en el chat
             if (segundos_totales // INTERVALO_SONDEO_SEGUNDOS) % 10 == 0:
                 try:
@@ -5651,6 +5681,8 @@ async def main() -> None:
                             part["reconexiones"] += 1
                             part["activo_ahora"] = True
                             part["ultimo_check"] = ahora
+                    if await _desbloquear_si_en_rojo(p, p_uid, users_nuevos, chats_nuevos, cooldown_seg=15.0):
+                        print(f"🔓 Micrófono liberado automáticamente para participante bloqueado ({p_uid}).")
 
                 # Marcar desconectados si ya no figuran en la llamada de Telegram
                 total_activos_previos = len(participantes_conectados)
@@ -5757,17 +5789,9 @@ async def main() -> None:
                     except Exception:
                         pass
 
-                # Si estamos en oración (8:28 - 8:31) o en meditación (audio de tarea):
-                # Silenciar de inmediato a cualquier usuario normal que abra el micrófono (los 7 administradores jamás se tocan)
-                if (oracion_activa_hoy or (reproduciendo_meditacion and eq_estado.get("t_pausa") is None)) and not es_adm and uid != me.id:
-                    if not p_muted:
-                        try:
-                            input_peer = await client.get_input_entity(p.peer)
-                            await client(EditGroupCallParticipantRequest(call=input_call, participant=input_peer, muted=True))
-                            motivo_sil = "oración" if oracion_activa_hoy else "meditación"
-                            print(f"🔒 Micrófono silenciado automáticamente para usuario {nombre} ({uid}) durante {motivo_sil}.")
-                        except Exception:
-                            pass
+                # Micrófonos libres durante oración y meditación: si alguien entra bloqueado en rojo, liberarlo automáticamente.
+                if await _desbloquear_si_en_rojo(p, uid, cooldown_seg=15.0):
+                    print(f"🔓 Micrófono liberado automáticamente para recién llegado/bloqueado {nombre} ({uid}).")
 
                 # Registro de oradores activos para lista de turnos y métricas de participación
                 if not p_muted:
